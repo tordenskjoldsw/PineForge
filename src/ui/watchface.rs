@@ -1,7 +1,7 @@
 use core::fmt::Write;
 
 use embedded_graphics::{
-    mono_font::{MonoTextStyle, ascii::FONT_10X20},
+    mono_font::{MonoTextStyle, MonoTextStyleBuilder, ascii::FONT_10X20},
     pixelcolor::Rgb565,
     prelude::*,
     primitives::{PrimitiveStyle, Rectangle},
@@ -37,12 +37,59 @@ enum DirtyRegion {
 
 #[derive(Default)]
 pub struct TerminalWatchface {
+    previous_uptime_seconds: u64,
     uptime_seconds: u64,
+    previous_touching: bool,
     touching: bool,
     dirty: DirtyRegion,
 }
 
 impl TerminalWatchface {
+    fn format_uptime(seconds: u64) -> String<16> {
+        let hours = seconds / 3_600;
+        let minutes = (seconds / 60) % 60;
+        let seconds = seconds % 60;
+        let mut uptime = String::new();
+        let _ = write!(uptime, "{hours:02}:{minutes:02}:{seconds:02}");
+        uptime
+    }
+
+    fn format_safety(uptime_seconds: u64) -> String<16> {
+        let remaining = SAFE_TIMEOUT_SECONDS.saturating_sub(uptime_seconds);
+        let mut safety = String::new();
+        let _ = write!(safety, "{:02}:{:02}", remaining / 60, remaining % 60);
+        safety
+    }
+
+    fn draw_changed_value<D>(
+        display: &mut D,
+        old: &str,
+        new: &str,
+        baseline: i32,
+        color: Rgb565,
+    ) -> Result<(), D::Error>
+    where
+        D: DrawTarget<Color = Rgb565>,
+    {
+        let first_changed = old
+            .bytes()
+            .zip(new.bytes())
+            .position(|(old, new)| old != new)
+            .unwrap_or_else(|| old.len().min(new.len()));
+        if first_changed == new.len() && old.len() == new.len() {
+            return Ok(());
+        }
+
+        let style = MonoTextStyleBuilder::new()
+            .font(&FONT_10X20)
+            .text_color(color)
+            .background_color(Rgb565::BLACK)
+            .build();
+        let x = VALUE_X + i32::try_from(first_changed).unwrap_or(0) * 10;
+        Text::new(&new[first_changed..], Point::new(x, baseline), style).draw(display)?;
+        Ok(())
+    }
+
     fn draw_row<D>(
         display: &mut D,
         area: Rectangle,
@@ -75,11 +122,7 @@ impl TerminalWatchface {
     where
         D: DrawTarget<Color = Rgb565>,
     {
-        let hours = self.uptime_seconds / 3_600;
-        let minutes = (self.uptime_seconds / 60) % 60;
-        let seconds = self.uptime_seconds % 60;
-        let mut uptime: String<16> = String::new();
-        let _ = write!(uptime, "{hours:02}:{minutes:02}:{seconds:02}");
+        let uptime = Self::format_uptime(self.uptime_seconds);
         Self::draw_row(display, UPTIME_ROW, "[UPTM]", &uptime, TERMINAL_GREEN)
     }
 
@@ -87,9 +130,7 @@ impl TerminalWatchface {
     where
         D: DrawTarget<Color = Rgb565>,
     {
-        let remaining = SAFE_TIMEOUT_SECONDS.saturating_sub(self.uptime_seconds);
-        let mut safety: String<16> = String::new();
-        let _ = write!(safety, "{:02}:{:02}", remaining / 60, remaining % 60);
+        let safety = Self::format_safety(self.uptime_seconds);
         Self::draw_row(display, SAFETY_ROW, "[SAFE]", &safety, TERMINAL_ORANGE)
     }
 
@@ -104,16 +145,48 @@ impl TerminalWatchface {
         };
         Self::draw_row(display, STATUS_ROW, "[STAT]", status, TERMINAL_BLUE)
     }
+
+    fn update_clock<D>(&self, display: &mut D) -> Result<(), D::Error>
+    where
+        D: DrawTarget<Color = Rgb565>,
+    {
+        let old_uptime = Self::format_uptime(self.previous_uptime_seconds);
+        let new_uptime = Self::format_uptime(self.uptime_seconds);
+        Self::draw_changed_value(display, &old_uptime, &new_uptime, 70, TERMINAL_GREEN)?;
+
+        let old_safety = Self::format_safety(self.previous_uptime_seconds);
+        let new_safety = Self::format_safety(self.uptime_seconds);
+        Self::draw_changed_value(display, &old_safety, &new_safety, 170, TERMINAL_ORANGE)
+    }
+
+    fn update_status<D>(&self, display: &mut D) -> Result<(), D::Error>
+    where
+        D: DrawTarget<Color = Rgb565>,
+    {
+        let old = if self.previous_touching {
+            "Touch active"
+        } else {
+            "Touch ready "
+        };
+        let new = if self.touching {
+            "Touch active"
+        } else {
+            "Touch ready "
+        };
+        Self::draw_changed_value(display, old, new, 195, TERMINAL_BLUE)
+    }
 }
 
 impl Screen for TerminalWatchface {
     fn handle_event(&mut self, event: UiEvent) -> ScreenAction {
         match event {
             UiEvent::Tick { uptime_seconds } => {
+                self.previous_uptime_seconds = self.uptime_seconds;
                 self.uptime_seconds = uptime_seconds;
                 self.dirty = DirtyRegion::Clock;
             }
             UiEvent::Touch { pressed, .. } => {
+                self.previous_touching = self.touching;
                 self.touching = pressed;
                 self.dirty = DirtyRegion::Status;
             }
@@ -182,11 +255,11 @@ impl Screen for TerminalWatchface {
     {
         match self.dirty {
             DirtyRegion::Clock => {
-                self.draw_uptime(display)?;
+                self.update_clock(display)?;
                 keep_alive();
-                self.draw_safety(display)?;
+                keep_alive();
             }
-            DirtyRegion::Status => self.draw_status(display)?,
+            DirtyRegion::Status => self.update_status(display)?,
             DirtyRegion::None => {}
         }
         keep_alive();
