@@ -24,7 +24,9 @@ pub struct TestScreen {
 
 impl Screen for TestScreen {
     fn handle_event(&mut self, event: UiEvent) -> ScreenAction {
-        let UiEvent::Touch { x, y, pressed } = event;
+        let UiEvent::Touch { x, y, pressed } = event else {
+            return ScreenAction::None;
+        };
         let point = Point::new(x, y);
         self.previous_touch = self.last_touch;
         self.last_touch = Some(point);

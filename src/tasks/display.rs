@@ -7,7 +7,7 @@ use embassy_nrf::{
     spim,
 };
 use embassy_sync::blocking_mutex::NoopMutex;
-use embassy_time::{Delay, Timer};
+use embassy_time::{Delay, Duration, Instant, Timer, with_deadline};
 use embedded_graphics::{draw_target::DrawTarget, pixelcolor::Rgb565, prelude::RgbColor};
 use mipidsi::interface::SpiInterface;
 use mipidsi::options::{ColorInversion, Orientation};
@@ -23,7 +23,7 @@ use crate::{
     services::events::UI_EVENTS,
     ui::{
         screen::{Screen, ScreenAction},
-        test_screen::TestScreen,
+        watchface::TerminalWatchface,
     },
 };
 
@@ -73,11 +73,24 @@ pub async fn run(resources: DisplayResources, watchdog: BootloaderWatchdog) {
 
     let _ = display.clear(Rgb565::BLACK);
     watchdog.pet();
-    let mut screen = TestScreen::default();
+    let started_at = Instant::now();
+    let mut next_tick = started_at + Duration::from_secs(1);
+    let mut screen = TerminalWatchface::default();
     let _ = screen.draw(&mut display, || watchdog.pet());
 
     loop {
-        let action = screen.handle_event(UI_EVENTS.receive().await);
+        let event = with_deadline(next_tick, UI_EVENTS.receive())
+            .await
+            .unwrap_or_else(|_| {
+                let now = Instant::now();
+                while next_tick <= now {
+                    next_tick += Duration::from_secs(1);
+                }
+                crate::services::events::UiEvent::Tick {
+                    uptime_seconds: now.duration_since(started_at).as_secs(),
+                }
+            });
+        let action = screen.handle_event(event);
 
         if action == ScreenAction::RequestRollback {
             info!("Rollback requested; resetting unconfirmed image");
