@@ -6,7 +6,7 @@ use embedded_graphics::{
     text::{Alignment, Text},
 };
 
-use crate::ui::screen::Screen;
+use crate::ui::{render::draw_visible, screen::Screen};
 use pineforge_state::{AppEvent, ScreenAction};
 
 const RETURN_BUTTON: Rectangle = Rectangle::new(Point::new(20, 154), Size::new(200, 60));
@@ -52,13 +52,15 @@ impl Screen for TestScreen {
         keep_alive();
 
         let heading = MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE);
-        Text::with_alignment(
-            "PineForge Touch-Test",
-            Point::new(120, 38),
-            heading,
-            Alignment::Center,
-        )
-        .draw(display)?;
+        draw_visible(
+            &Text::with_alignment(
+                "PineForge Touch-Test",
+                Point::new(120, 38),
+                heading,
+                Alignment::Center,
+            ),
+            display,
+        )?;
         keep_alive();
 
         TOUCH_AREA
@@ -80,26 +82,30 @@ impl Screen for TestScreen {
         keep_alive();
 
         let button_text = MonoTextStyle::new(&FONT_6X10, Rgb565::BLACK);
-        Text::with_alignment(
-            "Touch: Zurueck",
-            Point::new(120, 188),
-            button_text,
-            Alignment::Center,
-        )
-        .draw(display)?;
+        draw_visible(
+            &Text::with_alignment(
+                "Touch: Zurueck",
+                Point::new(120, 188),
+                button_text,
+                Alignment::Center,
+            ),
+            display,
+        )?;
         keep_alive();
 
         FOOTER_AREA
             .into_styled(PrimitiveStyle::with_fill(Rgb565::BLACK))
             .draw(display)?;
         let hint = MonoTextStyle::new(&FONT_6X10, Rgb565::WHITE);
-        Text::with_alignment(
-            "Side button: InfiniTime",
-            Point::new(120, 232),
-            hint,
-            Alignment::Center,
-        )
-        .draw(display)?;
+        draw_visible(
+            &Text::with_alignment(
+                "Side button: InfiniTime",
+                Point::new(120, 232),
+                hint,
+                Alignment::Center,
+            ),
+            display,
+        )?;
         keep_alive();
 
         Ok(())

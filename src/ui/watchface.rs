@@ -9,7 +9,7 @@ use embedded_graphics::{
 };
 use heapless::String;
 
-use crate::ui::screen::Screen;
+use crate::ui::{render::draw_visible, screen::Screen};
 use pineforge_state::{
     AppEvent, Button, ButtonBounds, ButtonOutcome, ButtonState, ScreenAction, ScreenId,
 };
@@ -103,7 +103,10 @@ impl TerminalWatchface {
             .background_color(Rgb565::BLACK)
             .build();
         let x = VALUE_X + i32::try_from(first_changed).unwrap_or(0) * 10;
-        Text::new(&new[first_changed..], Point::new(x, baseline), style).draw(display)?;
+        draw_visible(
+            &Text::new(&new[first_changed..], Point::new(x, baseline), style),
+            display,
+        )?;
         Ok(())
     }
 
@@ -120,18 +123,22 @@ impl TerminalWatchface {
         area.into_styled(PrimitiveStyle::with_fill(Rgb565::BLACK))
             .draw(display)?;
         let baseline = area.top_left.y + 20;
-        Text::new(
-            label,
-            Point::new(0, baseline),
-            MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE),
-        )
-        .draw(display)?;
-        Text::new(
-            value,
-            Point::new(VALUE_X, baseline),
-            MonoTextStyle::new(&FONT_10X20, value_color),
-        )
-        .draw(display)?;
+        draw_visible(
+            &Text::new(
+                label,
+                Point::new(0, baseline),
+                MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE),
+            ),
+            display,
+        )?;
+        draw_visible(
+            &Text::new(
+                value,
+                Point::new(VALUE_X, baseline),
+                MonoTextStyle::new(&FONT_10X20, value_color),
+            ),
+            display,
+        )?;
         Ok(())
     }
 
@@ -205,13 +212,15 @@ impl TerminalWatchface {
         TOUCH_TEST_BUTTON
             .into_styled(PrimitiveStyle::with_fill(color))
             .draw(display)?;
-        Text::with_alignment(
-            "OPEN TOUCH TEST",
-            Point::new(120, 226),
-            MonoTextStyle::new(&FONT_10X20, Rgb565::BLACK),
-            Alignment::Center,
-        )
-        .draw(display)?;
+        draw_visible(
+            &Text::with_alignment(
+                "OPEN TOUCH TEST",
+                Point::new(120, 226),
+                MonoTextStyle::new(&FONT_10X20, Rgb565::BLACK),
+                Alignment::Center,
+            ),
+            display,
+        )?;
         Ok(())
     }
 }
@@ -250,7 +259,10 @@ impl Screen for TerminalWatchface {
         HEADER_AREA
             .into_styled(PrimitiveStyle::with_fill(Rgb565::BLACK))
             .draw(display)?;
-        Text::new("user@watch:~ $ now", Point::new(0, 20), prompt).draw(display)?;
+        draw_visible(
+            &Text::new("user@watch:~ $ now", Point::new(0, 20), prompt),
+            display,
+        )?;
         keep_alive();
 
         Self::draw_row(
