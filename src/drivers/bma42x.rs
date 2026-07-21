@@ -10,8 +10,17 @@ const ACCEL_RANGE_REGISTER: u8 = 0x41;
 const POWER_CONTROL_REGISTER: u8 = 0x7d;
 
 const ACCEL_25_HZ_NORMAL_AVG4: u8 = 0x26;
+const ACCEL_12_5_HZ_NORMAL_AVG4: u8 = 0x25;
 const ACCEL_RANGE_2G: u8 = 0x00;
 const ACCEL_ENABLE: u8 = 1 << 2;
+const REGISTER_WRITE_DELAY: Duration = Duration::from_millis(1);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AccelerationPowerMode {
+    Active,
+    LowPower,
+    Off,
+}
 
 /// Minimal, non-mutating `BMA42x` identification driver.
 pub struct Bma42x<I2C> {
@@ -39,14 +48,23 @@ where
         Ok(accelerometer_kind(chip_id))
     }
 
-    /// Enables 25 Hz, ±2 g acceleration sampling without the optional feature engine.
-    pub async fn enable_acceleration(&mut self) -> Result<(), I2C::Error> {
-        self.write_register(ACCEL_CONFIG_REGISTER, ACCEL_25_HZ_NORMAL_AVG4)
-            .await?;
+    /// Applies the requested power mode without enabling the optional feature engine.
+    pub async fn set_power_mode(&mut self, mode: AccelerationPowerMode) -> Result<(), I2C::Error> {
+        let power = self.read_register(POWER_CONTROL_REGISTER).await?;
+        if mode == AccelerationPowerMode::Off {
+            self.write_register(POWER_CONTROL_REGISTER, power & !ACCEL_ENABLE)
+                .await?;
+            return Ok(());
+        }
+
+        let config = match mode {
+            AccelerationPowerMode::Active => ACCEL_25_HZ_NORMAL_AVG4,
+            AccelerationPowerMode::LowPower => ACCEL_12_5_HZ_NORMAL_AVG4,
+            AccelerationPowerMode::Off => unreachable!(),
+        };
+        self.write_register(ACCEL_CONFIG_REGISTER, config).await?;
         self.write_register(ACCEL_RANGE_REGISTER, ACCEL_RANGE_2G)
             .await?;
-
-        let power = self.read_register(POWER_CONTROL_REGISTER).await?;
         self.write_register(POWER_CONTROL_REGISTER, power | ACCEL_ENABLE)
             .await?;
         Timer::after(Duration::from_millis(2)).await;
@@ -74,7 +92,9 @@ where
     }
 
     async fn write_register(&mut self, register: u8, value: u8) -> Result<(), I2C::Error> {
-        self.i2c.write(ADDRESS, &[register, value]).await
+        self.i2c.write(ADDRESS, &[register, value]).await?;
+        Timer::after(REGISTER_WRITE_DELAY).await;
+        Ok(())
     }
 }
 

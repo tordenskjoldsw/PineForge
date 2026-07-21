@@ -13,6 +13,8 @@ use mipidsi::options::{ColorInversion, Orientation};
 use static_cell::StaticCell;
 
 #[cfg(feature = "diagnostics")]
+use crate::services::events::SENSOR_POWER;
+#[cfg(feature = "diagnostics")]
 use crate::ui::test_screen::TestScreen;
 use crate::{
     board::{
@@ -139,13 +141,19 @@ pub async fn run(resources: DisplayResources, watchdog: BootloaderWatchdog) {
                         }
                     }
                     backlight.set_level(ACTIVE_BRIGHTNESS);
+                    #[cfg(feature = "diagnostics")]
+                    SENSOR_POWER.signal(DisplayPowerState::Active);
                     ignore_input_until = Instant::now() + WAKE_INPUT_GUARD;
                     next_tick = Instant::now() + Duration::from_secs(1);
                     continue;
                 }
                 backlight.set_level(ACTIVE_BRIGHTNESS);
+                #[cfg(feature = "diagnostics")]
+                SENSOR_POWER.signal(DisplayPowerState::Active);
             }
         } else if let Some(next) = power.advance(now_millis) {
+            #[cfg(feature = "diagnostics")]
+            SENSOR_POWER.signal(next);
             match next {
                 DisplayPowerState::Active => backlight.set_level(ACTIVE_BRIGHTNESS),
                 DisplayPowerState::Dimmed => backlight.set_level(DIMMED_BRIGHTNESS),

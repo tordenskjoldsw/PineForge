@@ -124,7 +124,6 @@ pub struct BatteryStatus {
     pub charging: bool,
 }
 
-#[cfg(feature = "diagnostics")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AccelerometerKind {
     Bma421,
@@ -133,7 +132,6 @@ pub enum AccelerometerKind {
     Unavailable,
 }
 
-#[cfg(feature = "diagnostics")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct AccelerationSample {
     pub x: i16,
@@ -141,7 +139,6 @@ pub struct AccelerationSample {
     pub z: i16,
 }
 
-#[cfg(feature = "diagnostics")]
 #[must_use]
 pub const fn accelerometer_kind(chip_id: u8) -> AccelerometerKind {
     match chip_id {

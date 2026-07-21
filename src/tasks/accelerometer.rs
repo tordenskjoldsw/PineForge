@@ -1,10 +1,16 @@
 use defmt::{info, warn};
+use embassy_futures::select::{Either, select};
 use embassy_time::{Duration, Timer};
-use pineforge_state::{AccelerometerKind, AppEvent};
+use pineforge_state::{AccelerometerKind, AppEvent, DisplayPowerState};
 
-use crate::{board::buses::SensorI2c, drivers::bma42x::Bma42x, services::events::UI_EVENTS};
+use crate::{
+    board::buses::SensorI2c,
+    drivers::bma42x::{AccelerationPowerMode, Bma42x},
+    services::events::{SENSOR_POWER, UI_EVENTS},
+};
 
-const UI_UPDATE_INTERVAL: Duration = Duration::from_millis(200);
+const ACTIVE_UPDATE_INTERVAL: Duration = Duration::from_millis(200);
+const LOW_POWER_UPDATE_INTERVAL: Duration = Duration::from_secs(1);
 
 /// Identifies the shared-bus accelerometer and streams diagnostic raw samples.
 #[embassy_executor::task]
@@ -37,17 +43,58 @@ pub async fn run(i2c: SensorI2c) {
     ) {
         return;
     }
-    if accelerometer.enable_acceleration().await.is_err() {
+    let mut power = DisplayPowerState::Active;
+    if accelerometer
+        .set_power_mode(acceleration_mode(power))
+        .await
+        .is_err()
+    {
         warn!("Accelerometer configuration failed");
         return;
     }
 
     loop {
-        if let Ok(sample) = accelerometer.read_acceleration().await {
-            UI_EVENTS.send(AppEvent::AccelerationUpdated(sample)).await;
-        } else {
-            warn!("Accelerometer sample failed");
+        if power == DisplayPowerState::Off {
+            power = SENSOR_POWER.wait().await;
+            apply_power_mode(&mut accelerometer, power).await;
+            continue;
         }
-        Timer::after(UI_UPDATE_INTERVAL).await;
+
+        let interval = if power == DisplayPowerState::Active {
+            ACTIVE_UPDATE_INTERVAL
+        } else {
+            LOW_POWER_UPDATE_INTERVAL
+        };
+        match select(SENSOR_POWER.wait(), Timer::after(interval)).await {
+            Either::First(next) => {
+                power = next;
+                apply_power_mode(&mut accelerometer, power).await;
+            }
+            Either::Second(()) => {
+                if let Ok(sample) = accelerometer.read_acceleration().await {
+                    UI_EVENTS.send(AppEvent::AccelerationUpdated(sample)).await;
+                } else {
+                    warn!("Accelerometer sample failed");
+                }
+            }
+        }
+    }
+}
+
+const fn acceleration_mode(state: DisplayPowerState) -> AccelerationPowerMode {
+    match state {
+        DisplayPowerState::Active => AccelerationPowerMode::Active,
+        DisplayPowerState::Dimmed => AccelerationPowerMode::LowPower,
+        DisplayPowerState::Off => AccelerationPowerMode::Off,
+    }
+}
+
+async fn apply_power_mode(accelerometer: &mut Bma42x<SensorI2c>, state: DisplayPowerState) {
+    if accelerometer
+        .set_power_mode(acceleration_mode(state))
+        .await
+        .is_err()
+    {
+        warn!("Accelerometer power transition failed");
     }
 }
