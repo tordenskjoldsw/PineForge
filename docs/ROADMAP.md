@@ -8,6 +8,7 @@ milestone should leave the sealed PineTime in a testable and recoverable state.
 ### Complete
 
 - MCUBoot-compatible application layout and Gadgetbridge DFU package
+- continuous integration for formatting, Clippy, host tests, release builds, and size budgets
 - unconfirmed test-image workflow with automatic rollback
 - physical side-button reset and rollback
 - 60-second safety reset
@@ -21,7 +22,6 @@ milestone should leave the sealed PineTime in a testable and recoverable state.
 ### Remaining
 
 - preserve the bring-up baseline with a version tag
-- run formatting, Clippy, and release builds in continuous integration
 - make build dependencies and the DFU process reproducible
 - inspect and record flash, RAM, and stack usage
 - replace intentionally ignored hardware errors with explicit product policy

@@ -4,15 +4,73 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_TOOLCHAIN: 1.97.1
+
 jobs:
-  firmware:
+  quality:
+    name: Quality gates
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: thumbv7em-none-eabihf
-          components: rustfmt, clippy
-      - run: cargo fmt --all -- --check
-      - run: cargo check
-      - run: cargo clippy --all-targets -- -D warnings
+      - uses: actions/checkout@v6
+      - name: Install Rust toolchain
+        run: >-
+          rustup toolchain install "$RUST_TOOLCHAIN"
+          --profile minimal
+          --target thumbv7em-none-eabihf
+          --component clippy,rustfmt
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Check production firmware
+        run: cargo check --release
+      - name: Check diagnostics firmware
+        run: cargo check --release --features diagnostics
+      - name: Lint production firmware
+        run: cargo clippy --release -- -D warnings
+      - name: Lint diagnostics firmware
+        run: cargo clippy --release --features diagnostics -- -D warnings
+      - name: Test production state machine
+        run: >-
+          cargo test --locked --manifest-path crates/pineforge-state/Cargo.toml
+          --target x86_64-unknown-linux-gnu
+      - name: Test diagnostics state machine
+        run: >-
+          cargo test --locked --manifest-path crates/pineforge-state/Cargo.toml
+          --target x86_64-unknown-linux-gnu
+          --features diagnostics
+
+  size:
+    name: Size budget (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: production
+            features: ""
+            flash: 49152
+            ram: 20480
+          - name: diagnostics
+            features: diagnostics
+            flash: 65536
+            ram: 24576
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Rust toolchain
+        run: >-
+          rustup toolchain install "$RUST_TOOLCHAIN"
+          --profile minimal
+          --target thumbv7em-none-eabihf
+          --component llvm-tools
+      - name: Install cargo-binutils
+        run: cargo install cargo-binutils --version 0.4.0 --locked
+      - name: Enforce size budget
+        run: >-
+          ./scripts/check-size.sh
+          "${{ matrix.features }}"
+          "${{ matrix.flash }}"
+          "${{ matrix.ram }}"
