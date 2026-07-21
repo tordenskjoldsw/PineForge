@@ -10,6 +10,109 @@ use heapless::Vec;
 pub const SCREEN_STACK_CAPACITY: usize = 4;
 pub const TEST_IMAGE_TIMEOUT_SECONDS: u64 = 10 * 60;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DisplayPowerConfig {
+    dim_after_millis: u64,
+    off_after_millis: u64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DisplayPowerConfigError {
+    ZeroDimTimeout,
+    OffNotAfterDim,
+}
+
+impl DisplayPowerConfig {
+    pub const DEFAULT: Self = Self {
+        dim_after_millis: 10_000,
+        off_after_millis: 20_000,
+    };
+
+    pub const fn new(
+        dim_after_millis: u64,
+        off_after_millis: u64,
+    ) -> Result<Self, DisplayPowerConfigError> {
+        if dim_after_millis == 0 {
+            return Err(DisplayPowerConfigError::ZeroDimTimeout);
+        }
+        if off_after_millis <= dim_after_millis {
+            return Err(DisplayPowerConfigError::OffNotAfterDim);
+        }
+        Ok(Self {
+            dim_after_millis,
+            off_after_millis,
+        })
+    }
+
+    #[must_use]
+    pub const fn dim_after_millis(self) -> u64 {
+        self.dim_after_millis
+    }
+
+    #[must_use]
+    pub const fn off_after_millis(self) -> u64 {
+        self.off_after_millis
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DisplayPowerState {
+    Active,
+    Dimmed,
+    Off,
+}
+
+/// Deterministic display-power policy, independent from clocks and hardware.
+pub struct DisplayPowerPolicy {
+    config: DisplayPowerConfig,
+    state: DisplayPowerState,
+    last_activity_millis: u64,
+}
+
+impl DisplayPowerPolicy {
+    #[must_use]
+    pub const fn new(now_millis: u64, config: DisplayPowerConfig) -> Self {
+        Self {
+            config,
+            state: DisplayPowerState::Active,
+            last_activity_millis: now_millis,
+        }
+    }
+
+    #[must_use]
+    pub const fn state(&self) -> DisplayPowerState {
+        self.state
+    }
+
+    /// Records user activity and returns a state change, if any.
+    pub fn on_activity(&mut self, now_millis: u64) -> Option<DisplayPowerState> {
+        self.last_activity_millis = now_millis;
+        self.set_state(DisplayPowerState::Active)
+    }
+
+    /// Advances inactivity policy and returns a state change, if any.
+    pub fn advance(&mut self, now_millis: u64) -> Option<DisplayPowerState> {
+        let idle = now_millis.saturating_sub(self.last_activity_millis);
+        let next = if idle >= self.config.off_after_millis() {
+            DisplayPowerState::Off
+        } else if idle >= self.config.dim_after_millis() {
+            DisplayPowerState::Dimmed
+        } else {
+            DisplayPowerState::Active
+        };
+        self.set_state(next)
+    }
+
+    fn set_state(&mut self, next: DisplayPowerState) -> Option<DisplayPowerState> {
+        if self.state == next {
+            None
+        } else {
+            self.state = next;
+            Some(next)
+        }
+    }
+}
+
 /// Latest directly observed battery state.
 ///
 /// Percentage is deliberately absent until the voltage readings and discharge
@@ -78,6 +181,13 @@ pub enum AppEvent {
     Swipe(SwipeDirection),
     Tick { uptime_seconds: u64 },
     BatteryUpdated(BatteryStatus),
+}
+
+impl AppEvent {
+    #[must_use]
+    pub const fn is_user_activity(self) -> bool {
+        matches!(self, Self::Touch { .. } | Self::Swipe(_))
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -290,6 +400,38 @@ mod tests {
         assert_eq!(battery_percent(3_878), 64);
         assert_eq!(battery_percent(4_180), 100);
         assert_eq!(battery_percent(4_300), 100);
+    }
+
+    #[test]
+    fn display_power_policy_dims_sleeps_and_wakes() {
+        let mut policy = DisplayPowerPolicy::new(1_000, DisplayPowerConfig::DEFAULT);
+
+        assert_eq!(policy.advance(10_999), None);
+        assert_eq!(policy.advance(11_000), Some(DisplayPowerState::Dimmed));
+        assert_eq!(policy.advance(20_999), None);
+        assert_eq!(policy.advance(21_000), Some(DisplayPowerState::Off));
+        assert_eq!(policy.on_activity(25_000), Some(DisplayPowerState::Active));
+        assert_eq!(policy.state(), DisplayPowerState::Active);
+    }
+
+    #[test]
+    fn display_power_policy_uses_saturating_elapsed_time() {
+        let mut policy = DisplayPowerPolicy::new(5_000, DisplayPowerConfig::DEFAULT);
+
+        assert_eq!(policy.advance(4_000), None);
+        assert_eq!(policy.state(), DisplayPowerState::Active);
+    }
+
+    #[test]
+    fn display_power_config_rejects_invalid_timeout_order() {
+        assert_eq!(
+            DisplayPowerConfig::new(0, 20_000),
+            Err(DisplayPowerConfigError::ZeroDimTimeout)
+        );
+        assert_eq!(
+            DisplayPowerConfig::new(20_000, 20_000),
+            Err(DisplayPowerConfigError::OffNotAfterDim)
+        );
     }
 
     #[test]

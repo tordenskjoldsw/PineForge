@@ -26,6 +26,18 @@ Planned subsystem tasks include:
 
 Use bounded `embassy-sync` channels for events. The current UI channel has a fixed capacity of eight events. Never share the display or SPI peripheral behind a global mutex merely for convenience; prefer single-owner tasks and message passing.
 
+## Power policy
+
+Display power and future system power are separate state machines. The pure
+`DisplayPowerPolicy` lives in `pineforge-state`; the display task applies its
+decisions because that task exclusively owns the LCD and backlight. A validated
+`DisplayPowerConfig` currently supplies defaults of ten seconds until dimming
+and twenty seconds until sleep. A future settings service can replace those
+defaults without changing the policy or hardware boundary. While asleep,
+periodic UI ticks are suspended. Input wakes and fully redraws the active screen
+before the backlight is enabled, preventing stale framebuffer content from
+becoming visible.
+
 ## UI contract
 
 Screens implement the `Screen` trait. A screen receives hardware-independent `UiEvent` values, updates its private state, renders through an `embedded-graphics` draw target, and may return a high-level `ScreenAction`. It does not own or access touch, SPI, BLE, or sensor peripherals directly. Watchfaces will use the same boundary with application state supplied by services.
