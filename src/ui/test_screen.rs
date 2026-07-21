@@ -7,11 +7,9 @@ use embedded_graphics::{
 };
 
 use crate::ui::{render::draw_visible, screen::Screen};
-use pineforge_state::{AppEvent, ScreenAction};
+use pineforge_state::{AppEvent, ScreenAction, SwipeDirection};
 
-const RETURN_BUTTON: Rectangle = Rectangle::new(Point::new(20, 154), Size::new(200, 60));
-const TOUCH_AREA: Rectangle = Rectangle::new(Point::new(0, 64), Size::new(240, 90));
-const BUTTON_AREA: Rectangle = Rectangle::new(Point::new(0, 154), Size::new(240, 60));
+const TOUCH_AREA: Rectangle = Rectangle::new(Point::new(0, 64), Size::new(240, 150));
 const FOOTER_AREA: Rectangle = Rectangle::new(Point::new(0, 214), Size::new(240, 26));
 const TOUCH_MARKER_SIZE: Size = Size::new(13, 13);
 
@@ -19,11 +17,13 @@ const TOUCH_MARKER_SIZE: Size = Size::new(13, 13);
 pub struct TestScreen {
     last_touch: Option<Point>,
     previous_touch: Option<Point>,
-    return_button_pressed: bool,
 }
 
 impl Screen for TestScreen {
     fn handle_event(&mut self, event: AppEvent) -> ScreenAction {
+        if event == AppEvent::Swipe(SwipeDirection::Right) {
+            return ScreenAction::Back;
+        }
         let AppEvent::Touch { x, y, pressed } = event else {
             return ScreenAction::None;
         };
@@ -31,15 +31,8 @@ impl Screen for TestScreen {
         self.previous_touch = self.last_touch;
         self.last_touch = Some(point);
 
-        if pressed {
-            self.return_button_pressed = RETURN_BUTTON.contains(point);
-            ScreenAction::None
-        } else if core::mem::take(&mut self.return_button_pressed) && RETURN_BUTTON.contains(point)
-        {
-            ScreenAction::Back
-        } else {
-            ScreenAction::None
-        }
+        let _ = pressed;
+        ScreenAction::None
     }
 
     fn draw_full<D>(&self, display: &mut D, mut keep_alive: impl FnMut()) -> Result<(), D::Error>
@@ -73,33 +66,13 @@ impl Screen for TestScreen {
         }
         keep_alive();
 
-        BUTTON_AREA
-            .into_styled(PrimitiveStyle::with_fill(Rgb565::BLACK))
-            .draw(display)?;
-        RETURN_BUTTON
-            .into_styled(PrimitiveStyle::with_fill(Rgb565::GREEN))
-            .draw(display)?;
-        keep_alive();
-
-        let button_text = MonoTextStyle::new(&FONT_6X10, Rgb565::BLACK);
-        draw_visible(
-            &Text::with_alignment(
-                "Touch: Zurueck",
-                Point::new(120, 188),
-                button_text,
-                Alignment::Center,
-            ),
-            display,
-        )?;
-        keep_alive();
-
         FOOTER_AREA
             .into_styled(PrimitiveStyle::with_fill(Rgb565::BLACK))
             .draw(display)?;
         let hint = MonoTextStyle::new(&FONT_6X10, Rgb565::WHITE);
         draw_visible(
             &Text::with_alignment(
-                "Side button: InfiniTime",
+                "< Swipe right: Zurueck",
                 Point::new(120, 232),
                 hint,
                 Alignment::Center,

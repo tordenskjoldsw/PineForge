@@ -8,10 +8,10 @@ use static_cell::StaticCell;
 
 use crate::{
     board::peripherals::{Irqs, TouchResources},
-    drivers::touch::Cst816s,
+    drivers::touch::{Cst816s, Gesture},
     services::events::UI_EVENTS,
 };
-use pineforge_state::AppEvent;
+use pineforge_state::{AppEvent, SwipeDirection};
 
 static TWIM_BUFFER: StaticCell<[u8; 16]> = StaticCell::new();
 
@@ -52,6 +52,16 @@ pub async fn run(resources: TouchResources) {
                     pressed: event.touching,
                 })
                 .await;
+            let swipe = match event.gesture {
+                Gesture::SlideLeft => Some(SwipeDirection::Left),
+                Gesture::SlideRight => Some(SwipeDirection::Right),
+                Gesture::SlideUp => Some(SwipeDirection::Up),
+                Gesture::SlideDown => Some(SwipeDirection::Down),
+                _ => None,
+            };
+            if let Some(direction) = swipe {
+                UI_EVENTS.send(AppEvent::Swipe(direction)).await;
+            }
         } else {
             warn!("Touch report read failed");
         }

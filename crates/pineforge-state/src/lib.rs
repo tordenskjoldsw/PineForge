@@ -18,7 +18,16 @@ pub enum ScreenId {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AppEvent {
     Touch { x: i32, y: i32, pressed: bool },
+    Swipe(SwipeDirection),
     Tick { uptime_seconds: u64 },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SwipeDirection {
+    Left,
+    Right,
+    Up,
+    Down,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
