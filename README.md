@@ -51,7 +51,7 @@ build without the touch-test screen and render telemetry.
 Output:
 
 ```text
-dist/pineforge-gadgetbridge-dfu.zip
+dist/pineforge-mcuboot-app-dfu-0.1.0.zip
 ```
 
 This ZIP can be installed through the Gadgetbridge firmware installer.

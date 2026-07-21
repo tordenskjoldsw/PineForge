@@ -6,6 +6,12 @@ FEATURES="${PINEFORGE_FEATURES-diagnostics}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST="$ROOT/dist"
 MCUBOOT="$ROOT/tools/mcuboot-src/scripts/imgtool.py"
+PACKAGE="$DIST/pineforge-mcuboot-app-dfu-$VERSION.zip"
+
+[[ "$VERSION" =~ ^[0-9A-Za-z][0-9A-Za-z.+-]*$ ]] || {
+  echo "invalid version for DFU package name: $VERSION" >&2
+  exit 1
+}
 
 command -v cargo >/dev/null || { echo "cargo is missing" >&2; exit 1; }
 command -v adafruit-nrfutil >/dev/null || { echo "adafruit-nrfutil is missing" >&2; exit 1; }
@@ -32,6 +38,6 @@ python3 "$MCUBOOT" create \
 adafruit-nrfutil dfu genpkg \
   --dev-type 0x0052 \
   --application "$DIST/pineforge-image.bin" \
-  "$DIST/pineforge-gadgetbridge-dfu.zip"
+  "$PACKAGE"
 
-echo "Created: $DIST/pineforge-gadgetbridge-dfu.zip"
+echo "Created: $PACKAGE"
