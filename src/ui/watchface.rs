@@ -10,7 +10,7 @@ use heapless::String;
 
 use crate::ui::{render::draw_mono_text_visible, screen::Screen};
 #[cfg(feature = "diagnostics")]
-use pineforge_state::{AccelerationSample, AccelerometerKind, ScreenId};
+use pineforge_state::{AccelerationSample, AccelerometerKind, FeatureEngineStatus, ScreenId};
 use pineforge_state::{
     AppEvent, BatteryStatus, ScreenAction, SwipeDirection, TEST_IMAGE_TIMEOUT_SECONDS,
 };
@@ -53,6 +53,8 @@ pub struct TerminalWatchface {
     accelerometer: Option<AccelerometerKind>,
     #[cfg(feature = "diagnostics")]
     acceleration: Option<AccelerationSample>,
+    #[cfg(feature = "diagnostics")]
+    feature_engine: Option<FeatureEngineStatus>,
     dirty: DirtyRegion,
 }
 
@@ -68,6 +70,8 @@ impl Default for TerminalWatchface {
             accelerometer: None,
             #[cfg(feature = "diagnostics")]
             acceleration: None,
+            #[cfg(feature = "diagnostics")]
+            feature_engine: None,
             dirty: DirtyRegion::None,
         }
     }
@@ -201,7 +205,9 @@ impl TerminalWatchface {
         D: DrawTarget<Color = Rgb565>,
     {
         let mut value: String<20> = String::new();
-        if let Some(sample) = self.acceleration {
+        if self.feature_engine == Some(FeatureEngineStatus::Failed) {
+            let _ = value.push_str("FEATURE ERROR");
+        } else if let Some(sample) = self.acceleration {
             let _ = write!(value, "{:+} {:+} {:+}", sample.x, sample.y, sample.z);
         } else {
             match self.accelerometer {
@@ -222,7 +228,12 @@ impl TerminalWatchface {
                 }
             }
         }
-        Self::draw_row(display, MOTION_ROW, "[IMU ]", &value, TERMINAL_ORANGE)
+        let label = if self.feature_engine == Some(FeatureEngineStatus::Ready) {
+            "[IMU+]"
+        } else {
+            "[IMU ]"
+        };
+        Self::draw_row(display, MOTION_ROW, label, &value, TERMINAL_ORANGE)
     }
 
     fn draw_status<D>(&self, display: &mut D) -> Result<(), D::Error>
@@ -293,6 +304,11 @@ impl Screen for TerminalWatchface {
             #[cfg(feature = "diagnostics")]
             AppEvent::AccelerationUpdated(sample) => {
                 self.acceleration = Some(sample);
+                self.dirty = DirtyRegion::Motion;
+            }
+            #[cfg(feature = "diagnostics")]
+            AppEvent::FeatureEngineUpdated(status) => {
+                self.feature_engine = Some(status);
                 self.dirty = DirtyRegion::Motion;
             }
             AppEvent::Swipe(SwipeDirection::Left) => {

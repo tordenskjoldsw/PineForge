@@ -1,10 +1,10 @@
 use defmt::{info, warn};
 use embassy_futures::select::{Either, select};
 use embedded_hal_async::{digital::Wait, i2c::I2c};
-use pineforge_state::{AccelerometerKind, AppEvent, SystemPowerState};
+use pineforge_state::{AccelerometerKind, AppEvent, FeatureEngineStatus, SystemPowerState};
 
 use crate::{
-    drivers::bma42x::{AccelerationPowerMode, Bma42x},
+    drivers::bma42x::{AccelerationPowerMode, Bma42x, FeatureEngineError},
     services::events::{SYSTEM_POWER, UI_EVENTS},
 };
 
@@ -31,33 +31,9 @@ where
     }
 
     pub async fn run(mut self) {
-        let result = self.accelerometer.probe().await.map_or_else(
-            |_| {
-                warn!("Accelerometer probe failed");
-                AccelerometerKind::Unavailable
-            },
-            |kind| {
-                match kind {
-                    AccelerometerKind::Bma421 => info!("BMA421 detected"),
-                    AccelerometerKind::Bma425 => info!("BMA425 detected"),
-                    AccelerometerKind::Unknown(chip_id) => {
-                        warn!("Unknown accelerometer chip ID: {=u8:#x}", chip_id);
-                    }
-                    AccelerometerKind::Unavailable => {}
-                }
-                kind
-            },
-        );
-        UI_EVENTS
-            .send(AppEvent::AccelerometerDetected(result))
-            .await;
-
-        if !matches!(
-            result,
-            AccelerometerKind::Bma421 | AccelerometerKind::Bma425
-        ) {
+        let Some(()) = self.initialize().await else {
             return;
-        }
+        };
 
         let mut power = SystemPowerState::Interactive;
         if self
@@ -119,6 +95,58 @@ where
                 }
             }
         }
+    }
+
+    async fn initialize(&mut self) -> Option<()> {
+        if self.accelerometer.reset().await.is_err() {
+            warn!("Accelerometer reset failed");
+        }
+        let result = self.accelerometer.probe().await.map_or_else(
+            |_| {
+                warn!("Accelerometer probe failed");
+                AccelerometerKind::Unavailable
+            },
+            |kind| {
+                match kind {
+                    AccelerometerKind::Bma421 => info!("BMA421 detected"),
+                    AccelerometerKind::Bma425 => info!("BMA425 detected"),
+                    AccelerometerKind::Unknown(chip_id) => {
+                        warn!("Unknown accelerometer chip ID: {=u8:#x}", chip_id);
+                    }
+                    AccelerometerKind::Unavailable => {}
+                }
+                kind
+            },
+        );
+        UI_EVENTS
+            .send(AppEvent::AccelerometerDetected(result))
+            .await;
+
+        if !matches!(
+            result,
+            AccelerometerKind::Bma421 | AccelerometerKind::Bma425
+        ) {
+            return None;
+        }
+
+        if let Err(error) = self.accelerometer.initialize_feature_engine(result).await {
+            match error {
+                FeatureEngineError::InitializationFailed(status) => {
+                    warn!("Accelerometer feature-engine status: {=u8:#x}", status);
+                }
+                FeatureEngineError::Bus(_) | FeatureEngineError::UnsupportedSensor => {
+                    warn!("Accelerometer feature-engine initialization failed");
+                }
+            }
+            UI_EVENTS
+                .send(AppEvent::FeatureEngineUpdated(FeatureEngineStatus::Failed))
+                .await;
+            return None;
+        }
+        UI_EVENTS
+            .send(AppEvent::FeatureEngineUpdated(FeatureEngineStatus::Ready))
+            .await;
+        Some(())
     }
 
     async fn apply_power_mode(&mut self, state: SystemPowerState) {
