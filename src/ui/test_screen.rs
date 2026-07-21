@@ -6,10 +6,8 @@ use embedded_graphics::{
     text::{Alignment, Text},
 };
 
-use crate::{
-    services::events::UiEvent,
-    ui::screen::{Screen, ScreenAction},
-};
+use crate::ui::screen::Screen;
+use pineforge_state::{AppEvent, ScreenAction};
 
 const RETURN_BUTTON: Rectangle = Rectangle::new(Point::new(20, 154), Size::new(200, 60));
 const TOUCH_AREA: Rectangle = Rectangle::new(Point::new(0, 64), Size::new(240, 90));
@@ -23,8 +21,8 @@ pub struct TestScreen {
 }
 
 impl Screen for TestScreen {
-    fn handle_event(&mut self, event: UiEvent) -> ScreenAction {
-        let UiEvent::Touch { x, y, pressed } = event else {
+    fn handle_event(&mut self, event: AppEvent) -> ScreenAction {
+        let AppEvent::Touch { x, y, pressed } = event else {
             return ScreenAction::None;
         };
         let point = Point::new(x, y);

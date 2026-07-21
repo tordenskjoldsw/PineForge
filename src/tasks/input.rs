@@ -9,8 +9,9 @@ use static_cell::StaticCell;
 use crate::{
     board::peripherals::{Irqs, TouchResources},
     drivers::touch::Cst816s,
-    services::events::{UI_EVENTS, UiEvent},
+    services::events::UI_EVENTS,
 };
+use pineforge_state::AppEvent;
 
 static TWIM_BUFFER: StaticCell<[u8; 16]> = StaticCell::new();
 
@@ -45,7 +46,7 @@ pub async fn run(resources: TouchResources) {
                 event.x, event.y, event.touching, event.gesture
             );
             UI_EVENTS
-                .send(UiEvent::Touch {
+                .send(AppEvent::Touch {
                     x: i32::from(event.x),
                     y: i32::from(event.y),
                     pressed: event.touching,

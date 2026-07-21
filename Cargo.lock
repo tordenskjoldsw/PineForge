@@ -759,7 +759,15 @@ dependencies = [
  "heapless 0.9.3",
  "mipidsi",
  "panic-probe",
+ "pineforge-state",
  "static_cell",
+]
+
+[[package]]
+name = "pineforge-state"
+version = "0.1.0"
+dependencies = [
+ "heapless 0.9.3",
 ]
 
 [[package]]

@@ -21,11 +21,9 @@ use crate::{
     boot::watchdog::BootloaderWatchdog,
     drivers::backlight::Backlight,
     services::events::UI_EVENTS,
-    ui::{
-        screen::{Screen, ScreenAction},
-        watchface::TerminalWatchface,
-    },
+    ui::{screen::Screen, test_screen::TestScreen, watchface::TerminalWatchface},
 };
+use pineforge_state::{AppEffect, AppEvent, AppState, ScreenId};
 
 static SPI_BUS: StaticCell<NoopMutex<RefCell<spim::Spim<'static>>>> = StaticCell::new();
 static DISPLAY_BUFFER: StaticCell<[u8; 512]> = StaticCell::new();
@@ -75,8 +73,10 @@ pub async fn run(resources: DisplayResources, watchdog: BootloaderWatchdog) {
     watchdog.pet();
     let started_at = Instant::now();
     let mut next_tick = started_at + Duration::from_secs(1);
-    let mut screen = TerminalWatchface::default();
-    let _ = screen.draw(&mut display, || watchdog.pet());
+    let mut watchface = TerminalWatchface::default();
+    let mut touch_test = TestScreen::default();
+    let mut app = AppState::new(ScreenId::Watchface);
+    let _ = watchface.draw(&mut display, || watchdog.pet());
 
     loop {
         let event = with_deadline(next_tick, UI_EVENTS.receive())
@@ -86,18 +86,38 @@ pub async fn run(resources: DisplayResources, watchdog: BootloaderWatchdog) {
                 while next_tick <= now {
                     next_tick += Duration::from_secs(1);
                 }
-                crate::services::events::UiEvent::Tick {
+                AppEvent::Tick {
                     uptime_seconds: now.duration_since(started_at).as_secs(),
                 }
             });
-        let action = screen.handle_event(event);
+        let action = match app.active_screen() {
+            ScreenId::Watchface => watchface.handle_event(event),
+            ScreenId::TouchTest => touch_test.handle_event(event),
+        };
+        let effect = app.transition(action);
 
-        if action == ScreenAction::RequestRollback {
-            info!("Rollback requested; resetting unconfirmed image");
-            Timer::after_millis(250).await;
-            cortex_m::peripheral::SCB::sys_reset();
+        match effect {
+            AppEffect::RequestRollback => {
+                info!("Rollback requested; resetting unconfirmed image");
+                Timer::after_millis(250).await;
+                cortex_m::peripheral::SCB::sys_reset();
+            }
+            AppEffect::Redraw => match app.active_screen() {
+                ScreenId::Watchface => {
+                    let _ = watchface.draw(&mut display, || watchdog.pet());
+                }
+                ScreenId::TouchTest => {
+                    let _ = touch_test.draw(&mut display, || watchdog.pet());
+                }
+            },
+            AppEffect::None => match app.active_screen() {
+                ScreenId::Watchface => {
+                    let _ = watchface.draw_update(&mut display, || watchdog.pet());
+                }
+                ScreenId::TouchTest => {
+                    let _ = touch_test.draw_update(&mut display, || watchdog.pet());
+                }
+            },
         }
-
-        let _ = screen.draw_update(&mut display, || watchdog.pet());
     }
 }

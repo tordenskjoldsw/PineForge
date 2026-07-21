@@ -1,9 +1,5 @@
 use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
 
-pub static UI_EVENTS: Channel<CriticalSectionRawMutex, UiEvent, 8> = Channel::new();
+use pineforge_state::AppEvent;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum UiEvent {
-    Touch { x: i32, y: i32, pressed: bool },
-    Tick { uptime_seconds: u64 },
-}
+pub static UI_EVENTS: Channel<CriticalSectionRawMutex, AppEvent, 8> = Channel::new();

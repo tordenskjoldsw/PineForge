@@ -1,16 +1,10 @@
 use embedded_graphics::{draw_target::DrawTarget, pixelcolor::Rgb565};
 
-use crate::services::events::UiEvent;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ScreenAction {
-    None,
-    RequestRollback,
-}
+use pineforge_state::{AppEvent, ScreenAction};
 
 /// Application-facing contract implemented by screens and, later, watchfaces.
 pub trait Screen {
-    fn handle_event(&mut self, event: UiEvent) -> ScreenAction;
+    fn handle_event(&mut self, event: AppEvent) -> ScreenAction;
 
     /// Draw the complete screen, for example after display initialization.
     fn draw<D>(&self, display: &mut D, keep_alive: impl FnMut()) -> Result<(), D::Error>

@@ -1,5 +1,5 @@
 # Rust build output
-/target
+target/
 
 # Generated firmware and DFU packages
 /dist

@@ -9,10 +9,8 @@ use embedded_graphics::{
 };
 use heapless::String;
 
-use crate::{
-    services::events::UiEvent,
-    ui::screen::{Screen, ScreenAction},
-};
+use crate::ui::screen::Screen;
+use pineforge_state::{AppEvent, ScreenAction};
 
 const ROW_HEIGHT: u32 = 25;
 const VALUE_X: i32 = 70;
@@ -178,14 +176,14 @@ impl TerminalWatchface {
 }
 
 impl Screen for TerminalWatchface {
-    fn handle_event(&mut self, event: UiEvent) -> ScreenAction {
+    fn handle_event(&mut self, event: AppEvent) -> ScreenAction {
         match event {
-            UiEvent::Tick { uptime_seconds } => {
+            AppEvent::Tick { uptime_seconds } => {
                 self.previous_uptime_seconds = self.uptime_seconds;
                 self.uptime_seconds = uptime_seconds;
                 self.dirty = DirtyRegion::Clock;
             }
-            UiEvent::Touch { pressed, .. } => {
+            AppEvent::Touch { pressed, .. } => {
                 self.previous_touching = self.touching;
                 self.touching = pressed;
                 self.dirty = DirtyRegion::Status;
