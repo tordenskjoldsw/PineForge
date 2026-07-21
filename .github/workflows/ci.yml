@@ -52,12 +52,16 @@ jobs:
         include:
           - name: production
             features: ""
-            flash: 49152
-            ram: 20480
+            # Leave about 80 KiB of the 475,104-byte app region unused.
+            flash: 393216
+            # Reserve 16 KiB of the 65,528-byte RAM region for stack growth.
+            ram: 49152
           - name: diagnostics
             features: diagnostics
-            flash: 65536
-            ram: 24576
+            # Diagnostics may grow closer to the slot, but retains 16 KiB.
+            flash: 458752
+            # Diagnostics retains 8 KiB for stack growth.
+            ram: 57344
     steps:
       - uses: actions/checkout@v6
       - name: Install Rust toolchain

@@ -59,6 +59,13 @@ Screens implement the `Screen` trait. A screen receives hardware-independent `Ui
 - stack usage inspected from linker map
 - release builds use LTO and size optimization
 
+CI enforces capacity budgets rather than early-project baseline sizes.
+Production is limited to 384 KiB flash and 48 KiB static RAM; diagnostics is
+limited to 448 KiB flash and 56 KiB static RAM. These limits preserve flash
+headroom in the 475,104-byte MCUBoot application region and reserve RAM for
+runtime stack growth. Size changes remain visible in CI output even when they
+stay below the hard limits.
+
 ## Error policy
 
 Drivers return typed errors. Top-level product policy decides whether to retry, degrade, or reset. During bring-up, log recoverable failures using `defmt` and continue where safe.
