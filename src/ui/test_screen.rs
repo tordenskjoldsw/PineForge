@@ -11,6 +11,8 @@ use pineforge_state::{AppEvent, ScreenAction};
 
 const RETURN_BUTTON: Rectangle = Rectangle::new(Point::new(20, 154), Size::new(200, 60));
 const TOUCH_AREA: Rectangle = Rectangle::new(Point::new(0, 64), Size::new(240, 90));
+const BUTTON_AREA: Rectangle = Rectangle::new(Point::new(0, 154), Size::new(240, 60));
+const FOOTER_AREA: Rectangle = Rectangle::new(Point::new(0, 214), Size::new(240, 26));
 const TOUCH_MARKER_SIZE: Size = Size::new(13, 13);
 
 #[derive(Default)]
@@ -40,13 +42,10 @@ impl Screen for TestScreen {
         }
     }
 
-    fn draw<D>(&self, display: &mut D, mut keep_alive: impl FnMut()) -> Result<(), D::Error>
+    fn draw_full<D>(&self, display: &mut D, mut keep_alive: impl FnMut()) -> Result<(), D::Error>
     where
         D: DrawTarget<Color = Rgb565>,
     {
-        display.clear(Rgb565::BLACK)?;
-        keep_alive();
-
         Rectangle::new(Point::new(0, 0), Size::new(240, 64))
             .into_styled(PrimitiveStyle::with_fill(Rgb565::BLUE))
             .draw(display)?;
@@ -62,6 +61,9 @@ impl Screen for TestScreen {
         .draw(display)?;
         keep_alive();
 
+        TOUCH_AREA
+            .into_styled(PrimitiveStyle::with_fill(Rgb565::BLACK))
+            .draw(display)?;
         if let Some(point) = self.last_touch.filter(|point| TOUCH_AREA.contains(*point)) {
             Rectangle::new(Point::new(point.x - 6, point.y - 6), TOUCH_MARKER_SIZE)
                 .into_styled(PrimitiveStyle::with_fill(Rgb565::YELLOW))
@@ -69,6 +71,9 @@ impl Screen for TestScreen {
         }
         keep_alive();
 
+        BUTTON_AREA
+            .into_styled(PrimitiveStyle::with_fill(Rgb565::BLACK))
+            .draw(display)?;
         RETURN_BUTTON
             .into_styled(PrimitiveStyle::with_fill(Rgb565::GREEN))
             .draw(display)?;
@@ -84,6 +89,9 @@ impl Screen for TestScreen {
         .draw(display)?;
         keep_alive();
 
+        FOOTER_AREA
+            .into_styled(PrimitiveStyle::with_fill(Rgb565::BLACK))
+            .draw(display)?;
         let hint = MonoTextStyle::new(&FONT_6X10, Rgb565::WHITE);
         Text::with_alignment(
             "Side button: InfiniTime",
@@ -97,7 +105,7 @@ impl Screen for TestScreen {
         Ok(())
     }
 
-    fn draw_update<D>(&self, display: &mut D, mut keep_alive: impl FnMut()) -> Result<(), D::Error>
+    fn draw_dirty<D>(&self, display: &mut D, mut keep_alive: impl FnMut()) -> Result<(), D::Error>
     where
         D: DrawTarget<Color = Rgb565>,
     {

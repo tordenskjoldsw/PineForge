@@ -8,7 +8,6 @@ use embassy_nrf::{
 };
 use embassy_sync::blocking_mutex::NoopMutex;
 use embassy_time::{Delay, Duration, Instant, Timer, with_deadline};
-use embedded_graphics::{draw_target::DrawTarget, pixelcolor::Rgb565, prelude::RgbColor};
 use mipidsi::interface::SpiInterface;
 use mipidsi::options::{ColorInversion, Orientation};
 use static_cell::StaticCell;
@@ -21,12 +20,18 @@ use crate::{
     boot::watchdog::BootloaderWatchdog,
     drivers::backlight::Backlight,
     services::events::UI_EVENTS,
-    ui::{screen::Screen, test_screen::TestScreen, watchface::TerminalWatchface},
+    ui::{
+        screen::Screen,
+        test_screen::TestScreen,
+        transition::{SlideBuffer, draw_slide_reveal},
+        watchface::TerminalWatchface,
+    },
 };
 use pineforge_state::{AppEffect, AppEvent, AppState, ScreenId};
 
 static SPI_BUS: StaticCell<NoopMutex<RefCell<spim::Spim<'static>>>> = StaticCell::new();
 static DISPLAY_BUFFER: StaticCell<[u8; 512]> = StaticCell::new();
+static SLIDE_BUFFER: StaticCell<SlideBuffer> = StaticCell::new();
 
 /// Owns the display and backlight and renders events received from the UI bus.
 #[embassy_executor::task]
@@ -69,14 +74,13 @@ pub async fn run(resources: DisplayResources, watchdog: BootloaderWatchdog) {
     watchdog.pet();
     backlight.set_level(4);
 
-    let _ = display.clear(Rgb565::BLACK);
-    watchdog.pet();
     let started_at = Instant::now();
     let mut next_tick = started_at + Duration::from_secs(1);
     let mut watchface = TerminalWatchface::default();
     let mut touch_test = TestScreen::default();
+    let slide_buffer = SLIDE_BUFFER.init(SlideBuffer::new());
     let mut app = AppState::new(ScreenId::Watchface);
-    let _ = watchface.draw(&mut display, || watchdog.pet());
+    let _ = watchface.draw_full(&mut display, || watchdog.pet());
 
     loop {
         let event = with_deadline(next_tick, UI_EVENTS.receive())
@@ -102,20 +106,32 @@ pub async fn run(resources: DisplayResources, watchdog: BootloaderWatchdog) {
                 Timer::after_millis(250).await;
                 cortex_m::peripheral::SCB::sys_reset();
             }
-            AppEffect::Redraw => match app.active_screen() {
+            AppEffect::Navigate(direction) => match app.active_screen() {
                 ScreenId::Watchface => {
-                    let _ = watchface.draw(&mut display, || watchdog.pet());
+                    let _ = draw_slide_reveal(
+                        &watchface,
+                        &mut display,
+                        slide_buffer,
+                        direction,
+                        || watchdog.pet(),
+                    );
                 }
                 ScreenId::TouchTest => {
-                    let _ = touch_test.draw(&mut display, || watchdog.pet());
+                    let _ = draw_slide_reveal(
+                        &touch_test,
+                        &mut display,
+                        slide_buffer,
+                        direction,
+                        || watchdog.pet(),
+                    );
                 }
             },
             AppEffect::None => match app.active_screen() {
                 ScreenId::Watchface => {
-                    let _ = watchface.draw_update(&mut display, || watchdog.pet());
+                    let _ = watchface.draw_dirty(&mut display, || watchdog.pet());
                 }
                 ScreenId::TouchTest => {
-                    let _ = touch_test.draw_update(&mut display, || watchdog.pet());
+                    let _ = touch_test.draw_dirty(&mut display, || watchdog.pet());
                 }
             },
         }

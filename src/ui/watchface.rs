@@ -19,6 +19,8 @@ const VALUE_X: i32 = 70;
 const UPTIME_ROW: Rectangle = Rectangle::new(Point::new(0, 50), Size::new(240, ROW_HEIGHT));
 const SAFETY_ROW: Rectangle = Rectangle::new(Point::new(0, 150), Size::new(240, ROW_HEIGHT));
 const STATUS_ROW: Rectangle = Rectangle::new(Point::new(0, 175), Size::new(240, ROW_HEIGHT));
+const HEADER_AREA: Rectangle = Rectangle::new(Point::new(0, 0), Size::new(240, 25));
+const FOOTER_AREA: Rectangle = Rectangle::new(Point::new(0, 200), Size::new(240, 40));
 const TOUCH_TEST_BUTTON: Rectangle = Rectangle::new(Point::new(10, 205), Size::new(220, 30));
 const SAFE_TIMEOUT_SECONDS: u64 = 60;
 
@@ -240,14 +242,14 @@ impl Screen for TerminalWatchface {
         }
     }
 
-    fn draw<D>(&self, display: &mut D, mut keep_alive: impl FnMut()) -> Result<(), D::Error>
+    fn draw_full<D>(&self, display: &mut D, mut keep_alive: impl FnMut()) -> Result<(), D::Error>
     where
         D: DrawTarget<Color = Rgb565>,
     {
-        display.clear(Rgb565::BLACK)?;
-        keep_alive();
-
         let prompt = MonoTextStyle::new(&FONT_10X20, LIGHT_GRAY);
+        HEADER_AREA
+            .into_styled(PrimitiveStyle::with_fill(Rgb565::BLACK))
+            .draw(display)?;
         Text::new("user@watch:~ $ now", Point::new(0, 20), prompt).draw(display)?;
         keep_alive();
 
@@ -290,12 +292,15 @@ impl Screen for TerminalWatchface {
         self.draw_status(display)?;
         keep_alive();
 
+        FOOTER_AREA
+            .into_styled(PrimitiveStyle::with_fill(Rgb565::BLACK))
+            .draw(display)?;
         self.draw_touch_test_button(display)?;
         keep_alive();
         Ok(())
     }
 
-    fn draw_update<D>(&self, display: &mut D, mut keep_alive: impl FnMut()) -> Result<(), D::Error>
+    fn draw_dirty<D>(&self, display: &mut D, mut keep_alive: impl FnMut()) -> Result<(), D::Error>
     where
         D: DrawTarget<Color = Rgb565>,
     {

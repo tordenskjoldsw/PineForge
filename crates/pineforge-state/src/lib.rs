@@ -32,8 +32,14 @@ pub enum ScreenAction {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AppEffect {
     None,
-    Redraw,
+    Navigate(NavigationDirection),
     RequestRollback,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NavigationDirection {
+    Forward,
+    Backward,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -172,7 +178,7 @@ impl AppState {
             ScreenAction::Back => {
                 if self.screens.len() > 1 {
                     self.screens.pop();
-                    AppEffect::Redraw
+                    AppEffect::Navigate(NavigationDirection::Backward)
                 } else {
                     AppEffect::None
                 }
@@ -183,7 +189,7 @@ impl AppState {
                 }
 
                 if self.screens.push(screen).is_ok() {
-                    AppEffect::Redraw
+                    AppEffect::Navigate(NavigationDirection::Forward)
                 } else {
                     AppEffect::None
                 }
@@ -210,10 +216,13 @@ mod tests {
 
         assert_eq!(
             app.transition(ScreenAction::Push(ScreenId::TouchTest)),
-            AppEffect::Redraw
+            AppEffect::Navigate(NavigationDirection::Forward)
         );
         assert_eq!(app.active_screen(), ScreenId::TouchTest);
-        assert_eq!(app.transition(ScreenAction::Back), AppEffect::Redraw);
+        assert_eq!(
+            app.transition(ScreenAction::Back),
+            AppEffect::Navigate(NavigationDirection::Backward)
+        );
         assert_eq!(app.active_screen(), ScreenId::Watchface);
     }
 
@@ -237,7 +246,7 @@ mod tests {
         ] {
             assert_eq!(
                 app.transition(ScreenAction::Push(screen)),
-                AppEffect::Redraw
+                AppEffect::Navigate(NavigationDirection::Forward)
             );
         }
 
