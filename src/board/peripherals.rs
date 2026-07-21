@@ -32,6 +32,11 @@ pub struct SensorBusResources {
     pub scl: Peri<'static, peripherals::P0_07>,
 }
 
+#[cfg(feature = "diagnostics")]
+pub struct AccelerometerResources {
+    pub interrupt: Peri<'static, peripherals::P0_08>,
+}
+
 pub struct ButtonResources {
     pub input: Peri<'static, peripherals::P0_13>,
     pub enable: Peri<'static, peripherals::P0_15>,

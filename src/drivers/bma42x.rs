@@ -8,12 +8,18 @@ const ACCEL_DATA_REGISTER: u8 = 0x12;
 const ACCEL_CONFIG_REGISTER: u8 = 0x40;
 const ACCEL_RANGE_REGISTER: u8 = 0x41;
 const POWER_CONTROL_REGISTER: u8 = 0x7d;
+const INT1_IO_CONTROL_REGISTER: u8 = 0x53;
+const INTERRUPT_MAP_DATA_REGISTER: u8 = 0x58;
+const INTERRUPT_STATUS_1_REGISTER: u8 = 0x1d;
 
 const ACCEL_25_HZ_NORMAL_AVG4: u8 = 0x26;
 const ACCEL_12_5_HZ_NORMAL_AVG4: u8 = 0x25;
 const ACCEL_RANGE_2G: u8 = 0x00;
 const ACCEL_ENABLE: u8 = 1 << 2;
 const REGISTER_WRITE_DELAY: Duration = Duration::from_millis(1);
+const INT1_EDGE_ACTIVE_HIGH_PUSH_PULL: u8 = 0x0b;
+const INT1_DATA_READY: u8 = 1 << 2;
+const ACCEL_DATA_READY_STATUS: u8 = 1 << 7;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AccelerationPowerMode {
@@ -81,6 +87,21 @@ where
             y: decode_axis(data[2], data[3]),
             z: decode_axis(data[4], data[5]),
         })
+    }
+
+    /// Routes the non-latched accelerometer data-ready signal to INT1.
+    pub async fn enable_data_ready_interrupt(&mut self) -> Result<(), I2C::Error> {
+        self.write_register(INT1_IO_CONTROL_REGISTER, INT1_EDGE_ACTIVE_HIGH_PUSH_PULL)
+            .await?;
+        let mapping = self.read_register(INTERRUPT_MAP_DATA_REGISTER).await?;
+        self.write_register(INTERRUPT_MAP_DATA_REGISTER, mapping | INT1_DATA_READY)
+            .await
+    }
+
+    /// Reads and clears the hardware interrupt status for the current sample.
+    pub async fn acknowledge_data_ready(&mut self) -> Result<bool, I2C::Error> {
+        let status = self.read_register(INTERRUPT_STATUS_1_REGISTER).await?;
+        Ok(status & ACCEL_DATA_READY_STATUS != 0)
     }
 
     async fn read_register(&mut self, register: u8) -> Result<u8, I2C::Error> {

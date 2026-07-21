@@ -17,6 +17,8 @@ mod services;
 mod tasks;
 mod ui;
 
+#[cfg(feature = "diagnostics")]
+use board::peripherals::AccelerometerResources;
 use board::peripherals::{
     BatteryResources, ButtonResources, DisplayResources, SensorBusResources, TouchResources,
 };
@@ -51,9 +53,10 @@ async fn main(spawner: embassy_executor::Spawner) {
         scl: p.P0_07,
     });
     #[cfg(feature = "diagnostics")]
-    spawner.spawn(defmt::unwrap!(tasks::accelerometer::run(I2cDevice::new(
-        sensor_bus
-    ))));
+    spawner.spawn(defmt::unwrap!(tasks::accelerometer::run(
+        AccelerometerResources { interrupt: p.P0_08 },
+        I2cDevice::new(sensor_bus)
+    )));
 
     spawner.spawn(defmt::unwrap!(tasks::battery::run(BatteryResources {
         adc: p.SAADC,
