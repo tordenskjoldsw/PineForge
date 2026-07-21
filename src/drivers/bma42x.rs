@@ -19,8 +19,7 @@ const INIT_CONTROL_REGISTER: u8 = 0x59;
 const POWER_CONFIG_REGISTER: u8 = 0x7c;
 const COMMAND_REGISTER: u8 = 0x7e;
 
-const ACCEL_25_HZ_NORMAL_AVG4: u8 = 0x26;
-const ACCEL_12_5_HZ_NORMAL_AVG4: u8 = 0x25;
+const ACCEL_100_HZ_NORMAL_AVG4: u8 = 0x28;
 const ACCEL_RANGE_2G: u8 = 0x00;
 const ACCEL_ENABLE: u8 = 1 << 2;
 const REGISTER_WRITE_DELAY: Duration = Duration::from_millis(1);
@@ -31,6 +30,11 @@ const ADVANCED_POWER_SAVE: u8 = 1;
 const ASIC_INITIALIZED: u8 = 1;
 const SOFT_RESET_COMMAND: u8 = 0xb6;
 const FEATURE_CONFIG_CHUNK_SIZE: usize = 16;
+const FEATURE_CONFIG_SIZE: usize = 70;
+const STEP_COUNTER_CONFIG_OFFSET: usize = 0x3a;
+const STEP_COUNTER_ENABLE: u8 = 0x10;
+const STEP_DETECTOR_ENABLE: u8 = 0x08;
+const STEP_COUNTER_OUTPUT_REGISTER: u8 = 0x1e;
 
 const BMA421_FEATURE_CONFIG: &[u8; 6_144] = include_bytes!(concat!(env!("OUT_DIR"), "/bma421.bin"));
 const BMA425_FEATURE_CONFIG: &[u8; 6_144] = include_bytes!(concat!(env!("OUT_DIR"), "/bma425.bin"));
@@ -39,6 +43,7 @@ const BMA425_FEATURE_CONFIG: &[u8; 6_144] = include_bytes!(concat!(env!("OUT_DIR
 pub enum FeatureEngineError<E> {
     Bus(E),
     UnsupportedSensor,
+    NotInitialized,
     InitializationFailed(u8),
 }
 
@@ -52,6 +57,7 @@ pub enum AccelerationPowerMode {
 /// Minimal, non-mutating `BMA42x` identification driver.
 pub struct Bma42x<I2C> {
     i2c: I2C,
+    feature_config_start: Option<u16>,
 }
 
 impl<I2C> Bma42x<I2C>
@@ -60,7 +66,10 @@ where
 {
     #[must_use]
     pub const fn new(i2c: I2C) -> Self {
-        Self { i2c }
+        Self {
+            i2c,
+            feature_config_start: None,
+        }
     }
 
     pub async fn probe(&mut self) -> Result<AccelerometerKind, I2C::Error> {
@@ -144,7 +153,64 @@ where
             .map_err(FeatureEngineError::Bus)?;
         self.write_register(POWER_CONFIG_REGISTER, power | ADVANCED_POWER_SAVE)
             .await
+            .map_err(FeatureEngineError::Bus)?;
+
+        let low_nibble = self
+            .read_register(FEATURE_CONFIG_ADDRESS_LSB_REGISTER)
+            .await
+            .map_err(FeatureEngineError::Bus)?;
+        let upper_bits = self
+            .read_register(FEATURE_CONFIG_ADDRESS_MSB_REGISTER)
+            .await
+            .map_err(FeatureEngineError::Bus)?;
+        self.feature_config_start =
+            Some((u16::from(upper_bits) << 4) | u16::from(low_nibble & 0x0f));
+        Ok(())
+    }
+
+    pub async fn enable_step_counter(&mut self) -> Result<(), FeatureEngineError<I2C::Error>> {
+        let start = self
+            .feature_config_start
+            .ok_or(FeatureEngineError::NotInitialized)?;
+        let offset = STEP_COUNTER_CONFIG_OFFSET;
+        debug_assert!(offset + 1 < FEATURE_CONFIG_SIZE);
+
+        let power = self
+            .read_register(POWER_CONFIG_REGISTER)
+            .await
+            .map_err(FeatureEngineError::Bus)?;
+        self.write_register(POWER_CONFIG_REGISTER, power & !ADVANCED_POWER_SAVE)
+            .await
+            .map_err(FeatureEngineError::Bus)?;
+
+        self.set_feature_address(start + u16::try_from(offset / 2).unwrap_or(0))
+            .await
+            .map_err(FeatureEngineError::Bus)?;
+        let mut config = [0; 2];
+        self.i2c
+            .write_read(ADDRESS, &[FEATURE_CONFIG_DATA_REGISTER], &mut config)
+            .await
+            .map_err(FeatureEngineError::Bus)?;
+        config[1] |= STEP_COUNTER_ENABLE;
+        config[1] &= !STEP_DETECTOR_ENABLE;
+        self.set_feature_address(start + u16::try_from(offset / 2).unwrap_or(0))
+            .await
+            .map_err(FeatureEngineError::Bus)?;
+        self.write_feature_chunk(&config)
+            .await
+            .map_err(FeatureEngineError::Bus)?;
+
+        self.write_register(POWER_CONFIG_REGISTER, power)
+            .await
             .map_err(FeatureEngineError::Bus)
+    }
+
+    pub async fn read_step_count(&mut self) -> Result<u32, I2C::Error> {
+        let mut data = [0; 4];
+        self.i2c
+            .write_read(ADDRESS, &[STEP_COUNTER_OUTPUT_REGISTER], &mut data)
+            .await?;
+        Ok(u32::from_le_bytes(data))
     }
 
     /// Applies the requested power mode without enabling the optional feature engine.
@@ -157,8 +223,9 @@ where
         }
 
         let config = match mode {
-            AccelerationPowerMode::Active => ACCEL_25_HZ_NORMAL_AVG4,
-            AccelerationPowerMode::LowPower => ACCEL_12_5_HZ_NORMAL_AVG4,
+            AccelerationPowerMode::Active | AccelerationPowerMode::LowPower => {
+                ACCEL_100_HZ_NORMAL_AVG4
+            }
             AccelerationPowerMode::Off => unreachable!(),
         };
         self.write_register(ACCEL_CONFIG_REGISTER, config).await?;
@@ -183,11 +250,18 @@ where
     }
 
     /// Routes the non-latched accelerometer data-ready signal to INT1.
-    pub async fn enable_data_ready_interrupt(&mut self) -> Result<(), I2C::Error> {
-        self.write_register(INT1_IO_CONTROL_REGISTER, INT1_EDGE_ACTIVE_HIGH_PUSH_PULL)
-            .await?;
+    pub async fn set_data_ready_interrupt(&mut self, enabled: bool) -> Result<(), I2C::Error> {
+        if enabled {
+            self.write_register(INT1_IO_CONTROL_REGISTER, INT1_EDGE_ACTIVE_HIGH_PUSH_PULL)
+                .await?;
+        }
         let mapping = self.read_register(INTERRUPT_MAP_DATA_REGISTER).await?;
-        self.write_register(INTERRUPT_MAP_DATA_REGISTER, mapping | INT1_DATA_READY)
+        let mapping = if enabled {
+            mapping | INT1_DATA_READY
+        } else {
+            mapping & !INT1_DATA_READY
+        };
+        self.write_register(INTERRUPT_MAP_DATA_REGISTER, mapping)
             .await
     }
 
@@ -220,6 +294,19 @@ where
             .await?;
         Timer::after(REGISTER_WRITE_DELAY).await;
         Ok(())
+    }
+
+    async fn set_feature_address(&mut self, address: u16) -> Result<(), I2C::Error> {
+        self.write_register(
+            FEATURE_CONFIG_ADDRESS_LSB_REGISTER,
+            u8::try_from(address & 0x0f).unwrap_or(0),
+        )
+        .await?;
+        self.write_register(
+            FEATURE_CONFIG_ADDRESS_MSB_REGISTER,
+            u8::try_from(address >> 4).unwrap_or(u8::MAX),
+        )
+        .await
     }
 }
 

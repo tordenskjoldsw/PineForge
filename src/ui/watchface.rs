@@ -21,6 +21,8 @@ const UPTIME_ROW: Rectangle = Rectangle::new(Point::new(0, 50), Size::new(240, R
 const BATTERY_ROW: Rectangle = Rectangle::new(Point::new(0, 75), Size::new(240, ROW_HEIGHT));
 #[cfg(feature = "diagnostics")]
 const MOTION_ROW: Rectangle = Rectangle::new(Point::new(0, 100), Size::new(240, ROW_HEIGHT));
+#[cfg(feature = "diagnostics")]
+const STEP_ROW: Rectangle = Rectangle::new(Point::new(0, 125), Size::new(240, ROW_HEIGHT));
 const SAFETY_ROW: Rectangle = Rectangle::new(Point::new(0, 150), Size::new(240, ROW_HEIGHT));
 const STATUS_ROW: Rectangle = Rectangle::new(Point::new(0, 175), Size::new(240, ROW_HEIGHT));
 const HEADER_AREA: Rectangle = Rectangle::new(Point::new(0, 0), Size::new(240, 25));
@@ -41,6 +43,8 @@ enum DirtyRegion {
     Battery,
     #[cfg(feature = "diagnostics")]
     Motion,
+    #[cfg(feature = "diagnostics")]
+    Steps,
 }
 
 pub struct TerminalWatchface {
@@ -55,6 +59,8 @@ pub struct TerminalWatchface {
     acceleration: Option<AccelerationSample>,
     #[cfg(feature = "diagnostics")]
     feature_engine: Option<FeatureEngineStatus>,
+    #[cfg(feature = "diagnostics")]
+    steps: Option<u32>,
     dirty: DirtyRegion,
 }
 
@@ -72,6 +78,8 @@ impl Default for TerminalWatchface {
             acceleration: None,
             #[cfg(feature = "diagnostics")]
             feature_engine: None,
+            #[cfg(feature = "diagnostics")]
+            steps: None,
             dirty: DirtyRegion::None,
         }
     }
@@ -248,6 +256,20 @@ impl TerminalWatchface {
         Self::draw_row(display, STATUS_ROW, "[STAT]", status, TERMINAL_BLUE)
     }
 
+    #[cfg(feature = "diagnostics")]
+    fn draw_steps<D>(&self, display: &mut D) -> Result<(), D::Error>
+    where
+        D: DrawTarget<Color = Rgb565>,
+    {
+        let mut value: String<16> = String::new();
+        if let Some(steps) = self.steps {
+            let _ = write!(value, "{steps}");
+        } else {
+            let _ = value.push_str("---");
+        }
+        Self::draw_row(display, STEP_ROW, "[STEP]", &value, TERMINAL_ORANGE)
+    }
+
     fn update_clock<D>(&self, display: &mut D) -> Result<(), D::Error>
     where
         D: DrawTarget<Color = Rgb565>,
@@ -311,6 +333,11 @@ impl Screen for TerminalWatchface {
                 self.feature_engine = Some(status);
                 self.dirty = DirtyRegion::Motion;
             }
+            #[cfg(feature = "diagnostics")]
+            AppEvent::StepsUpdated(steps) => {
+                self.steps = Some(steps);
+                self.dirty = DirtyRegion::Steps;
+            }
             AppEvent::Swipe(SwipeDirection::Left) => {
                 #[cfg(feature = "diagnostics")]
                 return ScreenAction::Push(ScreenId::TouchTest);
@@ -354,6 +381,7 @@ impl Screen for TerminalWatchface {
             TERMINAL_ORANGE,
         )?;
         keep_alive();
+        #[cfg(not(feature = "diagnostics"))]
         Self::draw_row(
             display,
             Rectangle::new(Point::new(0, 125), Size::new(240, ROW_HEIGHT)),
@@ -361,6 +389,8 @@ impl Screen for TerminalWatchface {
             "---",
             Rgb565::new(20, 20, 20),
         )?;
+        #[cfg(feature = "diagnostics")]
+        self.draw_steps(display)?;
         keep_alive();
         self.draw_safety(display)?;
         keep_alive();
@@ -397,6 +427,8 @@ impl Screen for TerminalWatchface {
             DirtyRegion::Battery => self.draw_battery(display)?,
             #[cfg(feature = "diagnostics")]
             DirtyRegion::Motion => self.draw_accelerometer(display)?,
+            #[cfg(feature = "diagnostics")]
+            DirtyRegion::Steps => self.draw_steps(display)?,
             DirtyRegion::None => {}
         }
         keep_alive();
