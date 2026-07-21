@@ -14,7 +14,8 @@
 Embassy is the runtime. Each stateful peripheral is assigned to one long-running owner task. The current hardware-test baseline has:
 
 - input task: owns the touch controller and publishes `UiEvent` values
-- accelerometer task: probes the motion sensor without configuring features
+- accelerometer runner: exclusively owns the BMA42x and its interrupt; the
+  concrete Embassy task only binds PineTime peripherals and starts the runner
 - display task: owns the LCD and backlight, consumes UI events, and renders the active `Screen`
 - watchdog task: feeds the watchdog inherited from the bootloader
 - rollback tasks: monitor the physical side button and the test-image safety timeout
@@ -26,6 +27,12 @@ Planned subsystem tasks include:
 - BLE task: owns the radio/stack
 
 Use bounded `embassy-sync` channels for events. The current UI channel has a fixed capacity of eight events. Never share the display or SPI peripheral behind a global mutex merely for convenience; prefer single-owner tasks and message passing.
+
+Long-running services follow Embassy's runner pattern: executor-independent
+runner objects own their state and expose `run()`, while small concrete task
+functions bind board peripherals and spawn them. PineTime-specific register
+sequences are cross-checked against InfiniTime and Bosch's Sensor API; their
+central FreeRTOS `SystemTask` architecture is not copied into the async design.
 
 The touch controller and accelerometer are an intentional exception at the bus
 transport boundary because PineTime wires both devices to the same TWIM
