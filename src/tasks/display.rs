@@ -2,17 +2,17 @@ use core::cell::RefCell;
 
 use defmt::info;
 use embassy_embedded_hal::shared_bus::blocking::spi::SpiDevice;
+use embassy_futures::select::{Either, Either3, select, select3};
 use embassy_nrf::{
     gpio::{Level, Output, OutputDrive},
     spim,
 };
 use embassy_sync::blocking_mutex::NoopMutex;
-use embassy_time::{Delay, Duration, Instant, Timer, with_deadline};
+use embassy_time::{Delay, Duration, Instant, Timer};
 use mipidsi::interface::SpiInterface;
 use mipidsi::options::{ColorInversion, Orientation};
 use static_cell::StaticCell;
 
-use crate::services::events::SYSTEM_POWER;
 #[cfg(feature = "diagnostics")]
 use crate::ui::test_screen::TestScreen;
 use crate::{
@@ -22,17 +22,14 @@ use crate::{
     },
     boot::watchdog::BootloaderWatchdog,
     drivers::backlight::Backlight,
-    services::events::UI_EVENTS,
+    services::events::{UI_EVENTS, system_power_receiver},
     ui::{
         screen::Screen,
         transition::{SlideBuffer, draw_slide_reveal},
         watchface::TerminalWatchface,
     },
 };
-use pineforge_state::{
-    AppEffect, AppEvent, AppState, DisplayPowerConfig, DisplayPowerPolicy, DisplayPowerState,
-    ScreenId, SystemPowerState,
-};
+use pineforge_state::{AppEffect, AppEvent, AppState, ScreenId, SystemPowerState};
 
 static SPI_BUS: StaticCell<NoopMutex<RefCell<spim::Spim<'static>>>> = StaticCell::new();
 static DISPLAY_BUFFER: StaticCell<[u8; 512]> = StaticCell::new();
@@ -41,6 +38,11 @@ static SLIDE_BUFFER: StaticCell<SlideBuffer> = StaticCell::new();
 const ACTIVE_BRIGHTNESS: u8 = 4;
 const DIMMED_BRIGHTNESS: u8 = 1;
 const WAKE_INPUT_GUARD: Duration = Duration::from_millis(500);
+
+enum DisplayEvent {
+    Ui(AppEvent),
+    Power(SystemPowerState),
+}
 
 /// Owns the display and backlight and renders events received from the UI bus.
 // Keeping setup and the event loop in one function makes peripheral ownership
@@ -93,71 +95,93 @@ pub async fn run(resources: DisplayResources, watchdog: BootloaderWatchdog) {
     let mut touch_test = TestScreen::default();
     let slide_buffer = SLIDE_BUFFER.init(SlideBuffer::new());
     let mut app = AppState::new(ScreenId::Watchface);
-    let mut power = DisplayPowerPolicy::new(0, DisplayPowerConfig::DEFAULT);
+    let mut power_receiver = system_power_receiver();
+    let mut power = power_receiver.get().await;
     let mut ignore_input_until = started_at;
     let _ = watchface.draw_full(&mut display, || watchdog.pet());
+    match power {
+        SystemPowerState::Interactive => backlight.set_level(ACTIVE_BRIGHTNESS),
+        SystemPowerState::Idle => backlight.set_level(DIMMED_BRIGHTNESS),
+        SystemPowerState::Sleeping => {
+            backlight.set_level(0);
+            let _ = display.sleep(&mut delay);
+        }
+    }
 
     loop {
-        let event = if power.state() == DisplayPowerState::Off {
-            UI_EVENTS.receive().await
+        let display_event = if power == SystemPowerState::Sleeping {
+            match select(UI_EVENTS.receive(), power_receiver.changed()).await {
+                Either::First(event) => DisplayEvent::Ui(event),
+                Either::Second(state) => DisplayEvent::Power(state),
+            }
         } else {
-            with_deadline(next_tick, UI_EVENTS.receive())
-                .await
-                .unwrap_or_else(|_| {
+            match select3(
+                UI_EVENTS.receive(),
+                Timer::at(next_tick),
+                power_receiver.changed(),
+            )
+            .await
+            {
+                Either3::First(event) => DisplayEvent::Ui(event),
+                Either3::Second(()) => {
                     let now = Instant::now();
                     while next_tick <= now {
                         next_tick += Duration::from_secs(1);
                     }
-                    AppEvent::Tick {
+                    DisplayEvent::Ui(AppEvent::Tick {
                         uptime_seconds: now.duration_since(started_at).as_secs(),
-                    }
-                })
+                    })
+                }
+                Either3::Third(state) => DisplayEvent::Power(state),
+            }
         };
         let now = Instant::now();
-        let now_millis = now.duration_since(started_at).as_millis();
 
-        if event.is_user_activity() {
-            if now < ignore_input_until {
-                continue;
-            }
-            let was_off = power.state() == DisplayPowerState::Off;
-            if power.on_activity(now_millis).is_some() {
-                if was_off {
-                    let uptime = AppEvent::Tick {
-                        uptime_seconds: now.duration_since(started_at).as_secs(),
-                    };
-                    match app.active_screen() {
-                        ScreenId::Watchface => {
-                            let _ = watchface.handle_event(uptime);
-                            let _ = display.wake(&mut delay);
-                            let _ = watchface.draw_full(&mut display, || watchdog.pet());
-                        }
-                        #[cfg(feature = "diagnostics")]
-                        ScreenId::TouchTest => {
-                            let _ = touch_test.handle_event(uptime);
-                            let _ = display.wake(&mut delay);
-                            let _ = touch_test.draw_full(&mut display, || watchdog.pet());
-                        }
-                    }
-                    backlight.set_level(ACTIVE_BRIGHTNESS);
-                    SYSTEM_POWER.signal(SystemPowerState::Interactive);
-                    ignore_input_until = Instant::now() + WAKE_INPUT_GUARD;
-                    next_tick = Instant::now() + Duration::from_secs(1);
+        let event = match display_event {
+            DisplayEvent::Ui(event) => event,
+            DisplayEvent::Power(next) => {
+                if next == power {
                     continue;
                 }
-                backlight.set_level(ACTIVE_BRIGHTNESS);
-                SYSTEM_POWER.signal(SystemPowerState::Interactive);
-            }
-        } else if let Some(next) = power.advance(now_millis) {
-            SYSTEM_POWER.signal(system_power_state(next));
-            match next {
-                DisplayPowerState::Active => backlight.set_level(ACTIVE_BRIGHTNESS),
-                DisplayPowerState::Dimmed => backlight.set_level(DIMMED_BRIGHTNESS),
-                DisplayPowerState::Off => {
-                    backlight.set_level(0);
-                    let _ = display.sleep(&mut delay);
+                let was_sleeping = power == SystemPowerState::Sleeping;
+                power = next;
+                match next {
+                    SystemPowerState::Interactive if was_sleeping => {
+                        let uptime = AppEvent::Tick {
+                            uptime_seconds: now.duration_since(started_at).as_secs(),
+                        };
+                        match app.active_screen() {
+                            ScreenId::Watchface => {
+                                let _ = watchface.handle_event(uptime);
+                                let _ = display.wake(&mut delay);
+                                let _ = watchface.draw_full(&mut display, || watchdog.pet());
+                            }
+                            #[cfg(feature = "diagnostics")]
+                            ScreenId::TouchTest => {
+                                let _ = touch_test.handle_event(uptime);
+                                let _ = display.wake(&mut delay);
+                                let _ = touch_test.draw_full(&mut display, || watchdog.pet());
+                            }
+                        }
+                        backlight.set_level(ACTIVE_BRIGHTNESS);
+                        ignore_input_until = Instant::now() + WAKE_INPUT_GUARD;
+                        next_tick = Instant::now() + Duration::from_secs(1);
+                    }
+                    SystemPowerState::Interactive => backlight.set_level(ACTIVE_BRIGHTNESS),
+                    SystemPowerState::Idle => backlight.set_level(DIMMED_BRIGHTNESS),
+                    SystemPowerState::Sleeping => {
+                        backlight.set_level(0);
+                        let _ = display.sleep(&mut delay);
+                    }
                 }
+                continue;
             }
+        };
+
+        if power == SystemPowerState::Sleeping
+            || (event.is_user_activity() && now < ignore_input_until)
+        {
+            continue;
         }
 
         let action = match app.active_screen() {
@@ -166,10 +190,6 @@ pub async fn run(resources: DisplayResources, watchdog: BootloaderWatchdog) {
             ScreenId::TouchTest => touch_test.handle_event(event),
         };
         let effect = app.transition(action);
-
-        if power.state() == DisplayPowerState::Off {
-            continue;
-        }
 
         match effect {
             AppEffect::RequestRollback => {
@@ -218,13 +238,5 @@ pub async fn run(resources: DisplayResources, watchdog: BootloaderWatchdog) {
                 }
             },
         }
-    }
-}
-
-const fn system_power_state(display: DisplayPowerState) -> SystemPowerState {
-    match display {
-        DisplayPowerState::Active => SystemPowerState::Interactive,
-        DisplayPowerState::Dimmed => SystemPowerState::Idle,
-        DisplayPowerState::Off => SystemPowerState::Sleeping,
     }
 }

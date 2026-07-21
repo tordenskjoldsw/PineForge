@@ -37,21 +37,28 @@ central FreeRTOS `SystemTask` architecture is not copied into the async design.
 The touch controller and accelerometer are an intentional exception at the bus
 transport boundary because PineTime wires both devices to the same TWIM
 peripheral. They receive independent `embedded-hal-async` I²C device handles
-backed by one asynchronous mutex; critical sections protect only the mutex
-state, not the I²C transaction. Each driver still owns its local state, and no
-driver can access another device.
+backed by Embassy's blocking shared-bus adapter. Short transactions are
+serialized on the single thread executor. The latency-sensitive CST816S path
+uses `BlockingAsync` directly, while motion additionally uses `YieldingAsync`
+to preserve cooperative scheduling. Each driver still owns its local state,
+and no driver can access another device.
 
 ## Power policy
 
-Display power and future system power are separate state machines. The pure
-`DisplayPowerPolicy` lives in `pineforge-state`; the display task applies its
-decisions because that task exclusively owns the LCD and backlight. A validated
-`DisplayPowerConfig` currently supplies defaults of ten seconds until dimming
-and twenty seconds until sleep. A future settings service can replace those
-defaults without changing the policy or hardware boundary. While asleep,
-periodic UI ticks are suspended. Input wakes and fully redraws the active screen
-before the backlight is enabled, preventing stale framebuffer content from
-becoming visible.
+The pure `SystemPowerPolicy` lives in `pineforge-state`, independently from
+Embassy and hardware. A dedicated coordinator owns inactivity deadlines and
+publishes the latest `SystemPowerState` through an Embassy `Watch`. Input sends
+activity commands through a bounded channel; display and motion independently
+subscribe to the resulting state. The display task only applies LCD and
+backlight transitions and no longer decides global policy.
+
+A validated `PowerConfig` currently supplies defaults of ten seconds until
+idle and twenty seconds until sleep. A future settings service can replace
+those defaults without changing consumers or hardware boundaries. The same
+coordinator boundary is reserved for typed wake locks and a future nRF power
+backend. While sleeping, periodic UI and motion updates are suspended. Wake
+fully redraws the active screen before enabling the backlight, preventing stale
+framebuffer content from becoming visible.
 
 ## UI contract
 

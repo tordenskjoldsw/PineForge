@@ -11,18 +11,18 @@ pub const SCREEN_STACK_CAPACITY: usize = 4;
 pub const TEST_IMAGE_TIMEOUT_SECONDS: u64 = 10 * 60;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct DisplayPowerConfig {
+pub struct PowerConfig {
     dim_after_millis: u64,
     off_after_millis: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum DisplayPowerConfigError {
+pub enum PowerConfigError {
     ZeroDimTimeout,
     OffNotAfterDim,
 }
 
-impl DisplayPowerConfig {
+impl PowerConfig {
     pub const DEFAULT: Self = Self {
         dim_after_millis: 10_000,
         off_after_millis: 20_000,
@@ -31,12 +31,12 @@ impl DisplayPowerConfig {
     pub const fn new(
         dim_after_millis: u64,
         off_after_millis: u64,
-    ) -> Result<Self, DisplayPowerConfigError> {
+    ) -> Result<Self, PowerConfigError> {
         if dim_after_millis == 0 {
-            return Err(DisplayPowerConfigError::ZeroDimTimeout);
+            return Err(PowerConfigError::ZeroDimTimeout);
         }
         if off_after_millis <= dim_after_millis {
-            return Err(DisplayPowerConfigError::OffNotAfterDim);
+            return Err(PowerConfigError::OffNotAfterDim);
         }
         Ok(Self {
             dim_after_millis,
@@ -55,13 +55,6 @@ impl DisplayPowerConfig {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum DisplayPowerState {
-    Active,
-    Dimmed,
-    Off,
-}
-
 /// Hardware-independent activity state shared with power-aware services.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SystemPowerState {
@@ -70,48 +63,70 @@ pub enum SystemPowerState {
     Sleeping,
 }
 
-/// Deterministic display-power policy, independent from clocks and hardware.
-pub struct DisplayPowerPolicy {
-    config: DisplayPowerConfig,
-    state: DisplayPowerState,
+/// Requests accepted by the system power coordinator.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PowerCommand {
+    UserActivity,
+}
+
+/// Deterministic system-power policy, independent from clocks and hardware.
+pub struct SystemPowerPolicy {
+    config: PowerConfig,
+    state: SystemPowerState,
     last_activity_millis: u64,
 }
 
-impl DisplayPowerPolicy {
+impl SystemPowerPolicy {
     #[must_use]
-    pub const fn new(now_millis: u64, config: DisplayPowerConfig) -> Self {
+    pub const fn new(now_millis: u64, config: PowerConfig) -> Self {
         Self {
             config,
-            state: DisplayPowerState::Active,
+            state: SystemPowerState::Interactive,
             last_activity_millis: now_millis,
         }
     }
 
     #[must_use]
-    pub const fn state(&self) -> DisplayPowerState {
+    pub const fn state(&self) -> SystemPowerState {
         self.state
     }
 
     /// Records user activity and returns a state change, if any.
-    pub fn on_activity(&mut self, now_millis: u64) -> Option<DisplayPowerState> {
+    pub fn on_activity(&mut self, now_millis: u64) -> Option<SystemPowerState> {
         self.last_activity_millis = now_millis;
-        self.set_state(DisplayPowerState::Active)
+        self.set_state(SystemPowerState::Interactive)
     }
 
     /// Advances inactivity policy and returns a state change, if any.
-    pub fn advance(&mut self, now_millis: u64) -> Option<DisplayPowerState> {
+    pub fn advance(&mut self, now_millis: u64) -> Option<SystemPowerState> {
         let idle = now_millis.saturating_sub(self.last_activity_millis);
         let next = if idle >= self.config.off_after_millis() {
-            DisplayPowerState::Off
+            SystemPowerState::Sleeping
         } else if idle >= self.config.dim_after_millis() {
-            DisplayPowerState::Dimmed
+            SystemPowerState::Idle
         } else {
-            DisplayPowerState::Active
+            SystemPowerState::Interactive
         };
         self.set_state(next)
     }
 
-    fn set_state(&mut self, next: DisplayPowerState) -> Option<DisplayPowerState> {
+    /// Returns the next absolute inactivity deadline, or `None` while sleeping.
+    #[must_use]
+    pub const fn next_deadline_millis(&self) -> Option<u64> {
+        match self.state {
+            SystemPowerState::Interactive => Some(
+                self.last_activity_millis
+                    .saturating_add(self.config.dim_after_millis()),
+            ),
+            SystemPowerState::Idle => Some(
+                self.last_activity_millis
+                    .saturating_add(self.config.off_after_millis()),
+            ),
+            SystemPowerState::Sleeping => None,
+        }
+    }
+
+    fn set_state(&mut self, next: SystemPowerState) -> Option<SystemPowerState> {
         if self.state == next {
             None
         } else {
@@ -455,34 +470,41 @@ mod tests {
     }
 
     #[test]
-    fn display_power_policy_dims_sleeps_and_wakes() {
-        let mut policy = DisplayPowerPolicy::new(1_000, DisplayPowerConfig::DEFAULT);
+    fn system_power_policy_idles_sleeps_and_wakes() {
+        let mut policy = SystemPowerPolicy::new(1_000, PowerConfig::DEFAULT);
 
         assert_eq!(policy.advance(10_999), None);
-        assert_eq!(policy.advance(11_000), Some(DisplayPowerState::Dimmed));
+        assert_eq!(policy.next_deadline_millis(), Some(11_000));
+        assert_eq!(policy.advance(11_000), Some(SystemPowerState::Idle));
         assert_eq!(policy.advance(20_999), None);
-        assert_eq!(policy.advance(21_000), Some(DisplayPowerState::Off));
-        assert_eq!(policy.on_activity(25_000), Some(DisplayPowerState::Active));
-        assert_eq!(policy.state(), DisplayPowerState::Active);
+        assert_eq!(policy.next_deadline_millis(), Some(21_000));
+        assert_eq!(policy.advance(21_000), Some(SystemPowerState::Sleeping));
+        assert_eq!(policy.next_deadline_millis(), None);
+        assert_eq!(
+            policy.on_activity(25_000),
+            Some(SystemPowerState::Interactive)
+        );
+        assert_eq!(policy.state(), SystemPowerState::Interactive);
+        assert_eq!(policy.next_deadline_millis(), Some(35_000));
     }
 
     #[test]
-    fn display_power_policy_uses_saturating_elapsed_time() {
-        let mut policy = DisplayPowerPolicy::new(5_000, DisplayPowerConfig::DEFAULT);
+    fn system_power_policy_uses_saturating_time_math() {
+        let mut policy = SystemPowerPolicy::new(5_000, PowerConfig::DEFAULT);
 
         assert_eq!(policy.advance(4_000), None);
-        assert_eq!(policy.state(), DisplayPowerState::Active);
+        assert_eq!(policy.state(), SystemPowerState::Interactive);
     }
 
     #[test]
-    fn display_power_config_rejects_invalid_timeout_order() {
+    fn power_config_rejects_invalid_timeout_order() {
         assert_eq!(
-            DisplayPowerConfig::new(0, 20_000),
-            Err(DisplayPowerConfigError::ZeroDimTimeout)
+            PowerConfig::new(0, 20_000),
+            Err(PowerConfigError::ZeroDimTimeout)
         );
         assert_eq!(
-            DisplayPowerConfig::new(20_000, 20_000),
-            Err(DisplayPowerConfigError::OffNotAfterDim)
+            PowerConfig::new(20_000, 20_000),
+            Err(PowerConfigError::OffNotAfterDim)
         );
     }
 

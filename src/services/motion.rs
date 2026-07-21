@@ -8,7 +8,7 @@ use pineforge_state::{AccelerometerKind, AppEvent, SystemPowerState};
 
 use crate::{
     drivers::bma42x::{AccelerationPowerMode, Bma42x, FeatureEngineError},
-    services::events::{SYSTEM_POWER, UI_EVENTS},
+    services::events::{SystemPowerReceiver, UI_EVENTS, system_power_receiver},
 };
 
 const ACTIVE_UPDATE_INTERVAL: Duration = Duration::from_millis(100);
@@ -32,24 +32,34 @@ where
     }
 
     pub async fn run(mut self) {
+        let mut power_receiver = system_power_receiver();
         let Some(()) = self.initialize().await else {
             return;
         };
 
-        let power = SystemPowerState::Interactive;
+        let power = power_receiver.get().await;
         if self.apply_power_mode(power).await.is_err() {
             return;
         }
 
-        self.run_motion(power).await;
+        self.run_motion(power, &mut power_receiver).await;
     }
 
-    async fn run_motion(&mut self, mut power: SystemPowerState) -> ! {
+    async fn run_motion(
+        &mut self,
+        mut power: SystemPowerState,
+        power_receiver: &mut SystemPowerReceiver,
+    ) -> ! {
         let mut ticks_until_step_update = 1;
         loop {
             match power {
                 SystemPowerState::Interactive => {
-                    match select(SYSTEM_POWER.wait(), Timer::after(ACTIVE_UPDATE_INTERVAL)).await {
+                    match select(
+                        power_receiver.changed(),
+                        Timer::after(ACTIVE_UPDATE_INTERVAL),
+                    )
+                    .await
+                    {
                         Either::First(next) => {
                             power = next;
                             let _ = self.apply_power_mode(power).await;
@@ -67,7 +77,8 @@ where
                     }
                 }
                 SystemPowerState::Idle => {
-                    match select(SYSTEM_POWER.wait(), Timer::after(IDLE_UPDATE_INTERVAL)).await {
+                    match select(power_receiver.changed(), Timer::after(IDLE_UPDATE_INTERVAL)).await
+                    {
                         Either::First(next) => {
                             power = next;
                             let _ = self.apply_power_mode(power).await;
@@ -81,7 +92,7 @@ where
                     }
                 }
                 SystemPowerState::Sleeping => {
-                    power = SYSTEM_POWER.wait().await;
+                    power = power_receiver.changed().await;
                     let _ = self.apply_power_mode(power).await;
                     ticks_until_step_update = 1;
                     self.publish_step_count().await;

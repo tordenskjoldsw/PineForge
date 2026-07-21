@@ -5,9 +5,9 @@ use embassy_time::Delay;
 use crate::{
     board::{buses::TouchI2c, peripherals::TouchResources},
     drivers::touch::{Cst816s, Gesture},
-    services::events::UI_EVENTS,
+    services::events::{POWER_COMMANDS, UI_EVENTS},
 };
-use pineforge_state::{AppEvent, SwipeDirection};
+use pineforge_state::{AppEvent, PowerCommand, SwipeDirection};
 
 /// Owns the touch controller and publishes hardware-independent UI events.
 #[embassy_executor::task]
@@ -29,6 +29,7 @@ pub async fn run(resources: TouchResources, i2c: TouchI2c) {
                 "Touch x={} y={} pressed={} gesture={:?}",
                 event.x, event.y, event.touching, event.gesture
             );
+            POWER_COMMANDS.send(PowerCommand::UserActivity).await;
             UI_EVENTS
                 .send(AppEvent::Touch {
                     x: i32::from(event.x),
