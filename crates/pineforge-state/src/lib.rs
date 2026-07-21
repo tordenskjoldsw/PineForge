@@ -134,6 +134,14 @@ pub enum AccelerometerKind {
 }
 
 #[cfg(feature = "diagnostics")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AccelerationSample {
+    pub x: i16,
+    pub y: i16,
+    pub z: i16,
+}
+
+#[cfg(feature = "diagnostics")]
 #[must_use]
 pub const fn accelerometer_kind(chip_id: u8) -> AccelerometerKind {
     match chip_id {
@@ -208,6 +216,8 @@ pub enum AppEvent {
     BatteryUpdated(BatteryStatus),
     #[cfg(feature = "diagnostics")]
     AccelerometerDetected(AccelerometerKind),
+    #[cfg(feature = "diagnostics")]
+    AccelerationUpdated(AccelerationSample),
 }
 
 impl AppEvent {

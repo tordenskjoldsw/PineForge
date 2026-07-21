@@ -10,7 +10,7 @@ use heapless::String;
 
 use crate::ui::{render::draw_mono_text_visible, screen::Screen};
 #[cfg(feature = "diagnostics")]
-use pineforge_state::{AccelerometerKind, ScreenId};
+use pineforge_state::{AccelerationSample, AccelerometerKind, ScreenId};
 use pineforge_state::{
     AppEvent, BatteryStatus, ScreenAction, SwipeDirection, TEST_IMAGE_TIMEOUT_SECONDS,
 };
@@ -51,6 +51,8 @@ pub struct TerminalWatchface {
     battery: Option<BatteryStatus>,
     #[cfg(feature = "diagnostics")]
     accelerometer: Option<AccelerometerKind>,
+    #[cfg(feature = "diagnostics")]
+    acceleration: Option<AccelerationSample>,
     dirty: DirtyRegion,
 }
 
@@ -64,6 +66,8 @@ impl Default for TerminalWatchface {
             battery: None,
             #[cfg(feature = "diagnostics")]
             accelerometer: None,
+            #[cfg(feature = "diagnostics")]
+            acceleration: None,
             dirty: DirtyRegion::None,
         }
     }
@@ -196,22 +200,26 @@ impl TerminalWatchface {
     where
         D: DrawTarget<Color = Rgb565>,
     {
-        let mut value: String<16> = String::new();
-        match self.accelerometer {
-            Some(AccelerometerKind::Bma421) => {
-                let _ = value.push_str("BMA421");
-            }
-            Some(AccelerometerKind::Bma425) => {
-                let _ = value.push_str("BMA425");
-            }
-            Some(AccelerometerKind::Unknown(chip_id)) => {
-                let _ = write!(value, "ID 0x{chip_id:02X}");
-            }
-            Some(AccelerometerKind::Unavailable) => {
-                let _ = value.push_str("ERROR");
-            }
-            None => {
-                let _ = value.push_str("---");
+        let mut value: String<20> = String::new();
+        if let Some(sample) = self.acceleration {
+            let _ = write!(value, "{:+} {:+} {:+}", sample.x, sample.y, sample.z);
+        } else {
+            match self.accelerometer {
+                Some(AccelerometerKind::Bma421) => {
+                    let _ = value.push_str("BMA421");
+                }
+                Some(AccelerometerKind::Bma425) => {
+                    let _ = value.push_str("BMA425");
+                }
+                Some(AccelerometerKind::Unknown(chip_id)) => {
+                    let _ = write!(value, "ID 0x{chip_id:02X}");
+                }
+                Some(AccelerometerKind::Unavailable) => {
+                    let _ = value.push_str("ERROR");
+                }
+                None => {
+                    let _ = value.push_str("---");
+                }
             }
         }
         Self::draw_row(display, MOTION_ROW, "[IMU ]", &value, TERMINAL_ORANGE)
@@ -280,6 +288,11 @@ impl Screen for TerminalWatchface {
             #[cfg(feature = "diagnostics")]
             AppEvent::AccelerometerDetected(kind) => {
                 self.accelerometer = Some(kind);
+                self.dirty = DirtyRegion::Motion;
+            }
+            #[cfg(feature = "diagnostics")]
+            AppEvent::AccelerationUpdated(sample) => {
+                self.acceleration = Some(sample);
                 self.dirty = DirtyRegion::Motion;
             }
             AppEvent::Swipe(SwipeDirection::Left) => {

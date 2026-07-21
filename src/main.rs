@@ -51,7 +51,7 @@ async fn main(spawner: embassy_executor::Spawner) {
         scl: p.P0_07,
     });
     #[cfg(feature = "diagnostics")]
-    spawner.spawn(defmt::unwrap!(tasks::accelerometer::probe(I2cDevice::new(
+    spawner.spawn(defmt::unwrap!(tasks::accelerometer::run(I2cDevice::new(
         sensor_bus
     ))));
 

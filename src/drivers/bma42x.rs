@@ -1,8 +1,17 @@
+use embassy_time::{Duration, Timer};
 use embedded_hal_async::i2c::I2c;
-use pineforge_state::{AccelerometerKind, accelerometer_kind};
+use pineforge_state::{AccelerationSample, AccelerometerKind, accelerometer_kind};
 
 const ADDRESS: u8 = 0x18;
 const CHIP_ID_REGISTER: u8 = 0x00;
+const ACCEL_DATA_REGISTER: u8 = 0x12;
+const ACCEL_CONFIG_REGISTER: u8 = 0x40;
+const ACCEL_RANGE_REGISTER: u8 = 0x41;
+const POWER_CONTROL_REGISTER: u8 = 0x7d;
+
+const ACCEL_25_HZ_NORMAL_AVG4: u8 = 0x26;
+const ACCEL_RANGE_2G: u8 = 0x00;
+const ACCEL_ENABLE: u8 = 1 << 2;
 
 /// Minimal, non-mutating `BMA42x` identification driver.
 pub struct Bma42x<I2C> {
@@ -29,4 +38,46 @@ where
             .await?;
         Ok(accelerometer_kind(chip_id))
     }
+
+    /// Enables 25 Hz, ±2 g acceleration sampling without the optional feature engine.
+    pub async fn enable_acceleration(&mut self) -> Result<(), I2C::Error> {
+        self.write_register(ACCEL_CONFIG_REGISTER, ACCEL_25_HZ_NORMAL_AVG4)
+            .await?;
+        self.write_register(ACCEL_RANGE_REGISTER, ACCEL_RANGE_2G)
+            .await?;
+
+        let power = self.read_register(POWER_CONTROL_REGISTER).await?;
+        self.write_register(POWER_CONTROL_REGISTER, power | ACCEL_ENABLE)
+            .await?;
+        Timer::after(Duration::from_millis(2)).await;
+        Ok(())
+    }
+
+    pub async fn read_acceleration(&mut self) -> Result<AccelerationSample, I2C::Error> {
+        let mut data = [0; 6];
+        self.i2c
+            .write_read(ADDRESS, &[ACCEL_DATA_REGISTER], &mut data)
+            .await?;
+        Ok(AccelerationSample {
+            x: decode_axis(data[0], data[1]),
+            y: decode_axis(data[2], data[3]),
+            z: decode_axis(data[4], data[5]),
+        })
+    }
+
+    async fn read_register(&mut self, register: u8) -> Result<u8, I2C::Error> {
+        let mut value = 0;
+        self.i2c
+            .write_read(ADDRESS, &[register], core::slice::from_mut(&mut value))
+            .await?;
+        Ok(value)
+    }
+
+    async fn write_register(&mut self, register: u8, value: u8) -> Result<(), I2C::Error> {
+        self.i2c.write(ADDRESS, &[register, value]).await
+    }
+}
+
+const fn decode_axis(lsb: u8, msb: u8) -> i16 {
+    i16::from_le_bytes([lsb, msb]) >> 4
 }
