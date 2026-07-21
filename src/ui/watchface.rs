@@ -5,18 +5,21 @@ use embedded_graphics::{
     pixelcolor::Rgb565,
     prelude::*,
     primitives::{PrimitiveStyle, Rectangle},
-    text::Text,
+    text::{Alignment, Text},
 };
 use heapless::String;
 
 use crate::ui::screen::Screen;
-use pineforge_state::{AppEvent, ScreenAction};
+use pineforge_state::{
+    AppEvent, Button, ButtonBounds, ButtonOutcome, ButtonState, ScreenAction, ScreenId,
+};
 
 const ROW_HEIGHT: u32 = 25;
 const VALUE_X: i32 = 70;
 const UPTIME_ROW: Rectangle = Rectangle::new(Point::new(0, 50), Size::new(240, ROW_HEIGHT));
 const SAFETY_ROW: Rectangle = Rectangle::new(Point::new(0, 150), Size::new(240, ROW_HEIGHT));
 const STATUS_ROW: Rectangle = Rectangle::new(Point::new(0, 175), Size::new(240, ROW_HEIGHT));
+const TOUCH_TEST_BUTTON: Rectangle = Rectangle::new(Point::new(10, 205), Size::new(220, 30));
 const SAFE_TIMEOUT_SECONDS: u64 = 60;
 
 const LIGHT_GRAY: Rgb565 = Rgb565::new(20, 40, 20);
@@ -31,15 +34,29 @@ enum DirtyRegion {
     None,
     Clock,
     Status,
+    StatusAndButton,
 }
 
-#[derive(Default)]
 pub struct TerminalWatchface {
     previous_uptime_seconds: u64,
     uptime_seconds: u64,
     previous_touching: bool,
     touching: bool,
     dirty: DirtyRegion,
+    touch_test_button: Button,
+}
+
+impl Default for TerminalWatchface {
+    fn default() -> Self {
+        Self {
+            previous_uptime_seconds: 0,
+            uptime_seconds: 0,
+            previous_touching: false,
+            touching: false,
+            dirty: DirtyRegion::None,
+            touch_test_button: Button::new(ButtonBounds::new(10, 205, 220, 30)),
+        }
+    }
 }
 
 impl TerminalWatchface {
@@ -173,10 +190,33 @@ impl TerminalWatchface {
         };
         Self::draw_changed_value(display, old, new, 195, TERMINAL_BLUE)
     }
+
+    fn draw_touch_test_button<D>(&self, display: &mut D) -> Result<(), D::Error>
+    where
+        D: DrawTarget<Color = Rgb565>,
+    {
+        let color = match self.touch_test_button.state() {
+            ButtonState::Idle => TERMINAL_GREEN,
+            ButtonState::Pressed => TERMINAL_BLUE,
+            ButtonState::Disabled => LIGHT_GRAY,
+        };
+        TOUCH_TEST_BUTTON
+            .into_styled(PrimitiveStyle::with_fill(color))
+            .draw(display)?;
+        Text::with_alignment(
+            "OPEN TOUCH TEST",
+            Point::new(120, 226),
+            MonoTextStyle::new(&FONT_10X20, Rgb565::BLACK),
+            Alignment::Center,
+        )
+        .draw(display)?;
+        Ok(())
+    }
 }
 
 impl Screen for TerminalWatchface {
     fn handle_event(&mut self, event: AppEvent) -> ScreenAction {
+        let button_outcome = self.touch_test_button.handle_event(event);
         match event {
             AppEvent::Tick { uptime_seconds } => {
                 self.previous_uptime_seconds = self.uptime_seconds;
@@ -186,10 +226,18 @@ impl Screen for TerminalWatchface {
             AppEvent::Touch { pressed, .. } => {
                 self.previous_touching = self.touching;
                 self.touching = pressed;
-                self.dirty = DirtyRegion::Status;
+                self.dirty = if button_outcome == ButtonOutcome::None {
+                    DirtyRegion::Status
+                } else {
+                    DirtyRegion::StatusAndButton
+                };
             }
         }
-        ScreenAction::None
+        if button_outcome == ButtonOutcome::Activated {
+            ScreenAction::Push(ScreenId::TouchTest)
+        } else {
+            ScreenAction::None
+        }
     }
 
     fn draw<D>(&self, display: &mut D, mut keep_alive: impl FnMut()) -> Result<(), D::Error>
@@ -242,7 +290,7 @@ impl Screen for TerminalWatchface {
         self.draw_status(display)?;
         keep_alive();
 
-        Text::new("user@watch:~ $", Point::new(0, 220), prompt).draw(display)?;
+        self.draw_touch_test_button(display)?;
         keep_alive();
         Ok(())
     }
@@ -258,6 +306,11 @@ impl Screen for TerminalWatchface {
                 keep_alive();
             }
             DirtyRegion::Status => self.update_status(display)?,
+            DirtyRegion::StatusAndButton => {
+                self.update_status(display)?;
+                keep_alive();
+                self.draw_touch_test_button(display)?;
+            }
             DirtyRegion::None => {}
         }
         keep_alive();

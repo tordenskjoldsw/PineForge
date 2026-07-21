@@ -36,6 +36,108 @@ pub enum AppEffect {
     RequestRollback,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ButtonBounds {
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+}
+
+impl ButtonBounds {
+    #[must_use]
+    pub const fn new(x: i32, y: i32, width: i32, height: i32) -> Self {
+        Self {
+            x,
+            y,
+            width,
+            height,
+        }
+    }
+
+    const fn contains(self, x: i32, y: i32) -> bool {
+        x >= self.x
+            && y >= self.y
+            && x < self.x.saturating_add(self.width)
+            && y < self.y.saturating_add(self.height)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ButtonState {
+    Idle,
+    Pressed,
+    Disabled,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ButtonOutcome {
+    None,
+    Redraw,
+    Activated,
+}
+
+/// Heap-free button interaction state with press-and-release activation.
+pub struct Button {
+    bounds: ButtonBounds,
+    state: ButtonState,
+}
+
+impl Button {
+    #[must_use]
+    pub const fn new(bounds: ButtonBounds) -> Self {
+        Self {
+            bounds,
+            state: ButtonState::Idle,
+        }
+    }
+
+    #[must_use]
+    pub const fn state(&self) -> ButtonState {
+        self.state
+    }
+
+    pub fn set_enabled(&mut self, enabled: bool) -> ButtonOutcome {
+        let next = if enabled {
+            ButtonState::Idle
+        } else {
+            ButtonState::Disabled
+        };
+        if self.state == next {
+            ButtonOutcome::None
+        } else {
+            self.state = next;
+            ButtonOutcome::Redraw
+        }
+    }
+
+    pub fn handle_event(&mut self, event: AppEvent) -> ButtonOutcome {
+        let AppEvent::Touch { x, y, pressed } = event else {
+            return ButtonOutcome::None;
+        };
+        if self.state == ButtonState::Disabled {
+            return ButtonOutcome::None;
+        }
+
+        let inside = self.bounds.contains(x, y);
+        match (self.state, pressed, inside) {
+            (ButtonState::Idle, true, true) => {
+                self.state = ButtonState::Pressed;
+                ButtonOutcome::Redraw
+            }
+            (ButtonState::Pressed, false, true) => {
+                self.state = ButtonState::Idle;
+                ButtonOutcome::Activated
+            }
+            (ButtonState::Pressed, _, false) => {
+                self.state = ButtonState::Idle;
+                ButtonOutcome::Redraw
+            }
+            _ => ButtonOutcome::None,
+        }
+    }
+}
+
 /// Owns application-wide navigation state.
 ///
 /// Peripheral state remains owned by its Embassy task; this controller only
@@ -154,5 +256,65 @@ mod tests {
             app.transition(ScreenAction::RequestRollback),
             AppEffect::RequestRollback
         );
+    }
+
+    #[test]
+    fn button_activates_only_after_press_and_release_inside() {
+        let mut button = Button::new(ButtonBounds::new(10, 20, 100, 40));
+
+        assert_eq!(
+            button.handle_event(AppEvent::Touch {
+                x: 20,
+                y: 30,
+                pressed: true,
+            }),
+            ButtonOutcome::Redraw
+        );
+        assert_eq!(button.state(), ButtonState::Pressed);
+        assert_eq!(
+            button.handle_event(AppEvent::Touch {
+                x: 20,
+                y: 30,
+                pressed: false,
+            }),
+            ButtonOutcome::Activated
+        );
+        assert_eq!(button.state(), ButtonState::Idle);
+    }
+
+    #[test]
+    fn dragging_outside_cancels_button_activation() {
+        let mut button = Button::new(ButtonBounds::new(10, 20, 100, 40));
+        let _ = button.handle_event(AppEvent::Touch {
+            x: 20,
+            y: 30,
+            pressed: true,
+        });
+
+        assert_eq!(
+            button.handle_event(AppEvent::Touch {
+                x: 200,
+                y: 30,
+                pressed: true,
+            }),
+            ButtonOutcome::Redraw
+        );
+        assert_eq!(button.state(), ButtonState::Idle);
+    }
+
+    #[test]
+    fn disabled_button_ignores_touch() {
+        let mut button = Button::new(ButtonBounds::new(10, 20, 100, 40));
+        assert_eq!(button.set_enabled(false), ButtonOutcome::Redraw);
+
+        assert_eq!(
+            button.handle_event(AppEvent::Touch {
+                x: 20,
+                y: 30,
+                pressed: true,
+            }),
+            ButtonOutcome::None
+        );
+        assert_eq!(button.state(), ButtonState::Disabled);
     }
 }

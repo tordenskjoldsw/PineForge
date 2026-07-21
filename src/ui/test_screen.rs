@@ -34,7 +34,7 @@ impl Screen for TestScreen {
             ScreenAction::None
         } else if core::mem::take(&mut self.return_button_pressed) && RETURN_BUTTON.contains(point)
         {
-            ScreenAction::RequestRollback
+            ScreenAction::Back
         } else {
             ScreenAction::None
         }
@@ -76,7 +76,7 @@ impl Screen for TestScreen {
 
         let button_text = MonoTextStyle::new(&FONT_6X10, Rgb565::BLACK);
         Text::with_alignment(
-            "Touch: Neustart",
+            "Touch: Zurueck",
             Point::new(120, 188),
             button_text,
             Alignment::Center,

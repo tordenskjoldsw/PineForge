@@ -1,5 +1,6 @@
 # Rust build output
 target/
+crates/*/Cargo.lock
 
 # Generated firmware and DFU packages
 /dist
