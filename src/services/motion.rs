@@ -2,13 +2,16 @@ use defmt::{info, warn};
 use embassy_futures::select::{Either, select};
 use embassy_time::{Duration, Timer};
 use embedded_hal_async::{digital::Wait, i2c::I2c};
-use pineforge_state::{AccelerometerKind, AppEvent, FeatureEngineStatus, SystemPowerState};
+#[cfg(feature = "diagnostics")]
+use pineforge_state::FeatureEngineStatus;
+use pineforge_state::{AccelerometerKind, AppEvent, SystemPowerState};
 
 use crate::{
     drivers::bma42x::{AccelerationPowerMode, Bma42x, FeatureEngineError},
     services::events::{SYSTEM_POWER, UI_EVENTS},
 };
 
+#[cfg(feature = "diagnostics")]
 const ACTIVE_UI_DIVISOR: u8 = 20;
 const ACTIVE_STEP_DIVISOR: u8 = 100;
 const IDLE_UPDATE_INTERVAL: Duration = Duration::from_secs(1);
@@ -37,11 +40,16 @@ where
             return;
         };
 
-        let mut power = SystemPowerState::Interactive;
+        let power = SystemPowerState::Interactive;
         if self.apply_power_mode(power).await.is_err() {
             return;
         }
 
+        self.run_motion(power).await;
+    }
+
+    async fn run_motion(&mut self, mut power: SystemPowerState) -> ! {
+        #[cfg(feature = "diagnostics")]
         let mut samples_until_update = 1;
         let mut samples_until_step_update = 1;
         loop {
@@ -51,7 +59,10 @@ where
                         Either::First(next) => {
                             power = next;
                             let _ = self.apply_power_mode(power).await;
-                            samples_until_update = 1;
+                            #[cfg(feature = "diagnostics")]
+                            {
+                                samples_until_update = 1;
+                            }
                             samples_until_step_update = 1;
                         }
                         Either::Second(result) => {
@@ -67,10 +78,13 @@ where
                                     continue;
                                 }
                             }
-                            samples_until_update -= 1;
-                            if samples_until_update == 0 {
-                                self.publish_acceleration().await;
-                                samples_until_update = ACTIVE_UI_DIVISOR;
+                            #[cfg(feature = "diagnostics")]
+                            {
+                                samples_until_update -= 1;
+                                if samples_until_update == 0 {
+                                    self.publish_acceleration().await;
+                                    samples_until_update = ACTIVE_UI_DIVISOR;
+                                }
                             }
                             samples_until_step_update -= 1;
                             if samples_until_step_update == 0 {
@@ -85,10 +99,14 @@ where
                         Either::First(next) => {
                             power = next;
                             let _ = self.apply_power_mode(power).await;
-                            samples_until_update = 1;
+                            #[cfg(feature = "diagnostics")]
+                            {
+                                samples_until_update = 1;
+                            }
                             samples_until_step_update = 1;
                         }
                         Either::Second(()) => {
+                            #[cfg(feature = "diagnostics")]
                             self.publish_acceleration().await;
                             self.publish_step_count().await;
                         }
@@ -97,7 +115,10 @@ where
                 SystemPowerState::Sleeping => {
                     power = SYSTEM_POWER.wait().await;
                     let _ = self.apply_power_mode(power).await;
-                    samples_until_update = 1;
+                    #[cfg(feature = "diagnostics")]
+                    {
+                        samples_until_update = 1;
+                    }
                     samples_until_step_update = 1;
                     self.publish_step_count().await;
                 }
@@ -126,6 +147,7 @@ where
                 kind
             },
         );
+        #[cfg(feature = "diagnostics")]
         UI_EVENTS
             .send(AppEvent::AccelerometerDetected(result))
             .await;
@@ -148,11 +170,13 @@ where
                     warn!("Accelerometer feature-engine initialization failed");
                 }
             }
+            #[cfg(feature = "diagnostics")]
             UI_EVENTS
                 .send(AppEvent::FeatureEngineUpdated(FeatureEngineStatus::Failed))
                 .await;
             return None;
         }
+        #[cfg(feature = "diagnostics")]
         UI_EVENTS
             .send(AppEvent::FeatureEngineUpdated(FeatureEngineStatus::Ready))
             .await;
@@ -175,9 +199,10 @@ where
             return Err(());
         }
 
+        let data_ready_enabled = state == SystemPowerState::Interactive;
         if self
             .accelerometer
-            .set_data_ready_interrupt(state == SystemPowerState::Interactive)
+            .set_data_ready_interrupt(data_ready_enabled)
             .await
             .is_err()
         {
@@ -201,6 +226,7 @@ where
         }
     }
 
+    #[cfg(feature = "diagnostics")]
     async fn publish_acceleration(&mut self) {
         if let Ok(sample) = self.accelerometer.read_acceleration().await {
             UI_EVENTS.send(AppEvent::AccelerationUpdated(sample)).await;

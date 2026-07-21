@@ -1,18 +1,19 @@
-use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
+use core::cell::RefCell;
+
+use embassy_embedded_hal::{
+    adapter::BlockingAsync, shared_bus::blocking::i2c::I2cDevice as BlockingI2cDevice,
+};
 use embassy_nrf::{twim, twim::Twim};
-use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, mutex::Mutex};
+use embassy_sync::blocking_mutex::{Mutex, raw::NoopRawMutex};
 use static_cell::StaticCell;
 
 use crate::board::peripherals::{Irqs, SensorBusResources};
 
-pub type SensorBus = Mutex<CriticalSectionRawMutex, Twim<'static>>;
-pub type SensorI2c = I2cDevice<'static, CriticalSectionRawMutex, Twim<'static>>;
+pub type SensorBus = Mutex<NoopRawMutex, RefCell<Twim<'static>>>;
+pub type SensorI2c = BlockingAsync<BlockingI2cDevice<'static, NoopRawMutex, Twim<'static>>>;
 
 static SENSOR_BUS: StaticCell<SensorBus> = StaticCell::new();
-#[cfg(feature = "diagnostics")]
 const SENSOR_BUS_BUFFER_SIZE: usize = 32;
-#[cfg(not(feature = "diagnostics"))]
-const SENSOR_BUS_BUFFER_SIZE: usize = 16;
 static SENSOR_BUS_BUFFER: StaticCell<[u8; SENSOR_BUS_BUFFER_SIZE]> = StaticCell::new();
 
 /// Initializes the shared 400 kHz bus used by touch and motion sensors.
@@ -27,5 +28,11 @@ pub fn init_sensor_bus(resources: SensorBusResources) -> &'static SensorBus {
         config,
         SENSOR_BUS_BUFFER.init([0; SENSOR_BUS_BUFFER_SIZE]),
     );
-    SENSOR_BUS.init(Mutex::new(bus))
+    SENSOR_BUS.init(Mutex::new(RefCell::new(bus)))
+}
+
+/// Creates an async-trait-compatible device backed by Embassy's blocking
+/// shared-bus implementation.
+pub fn sensor_device(bus: &'static SensorBus) -> SensorI2c {
+    BlockingAsync::new(BlockingI2cDevice::new(bus))
 }

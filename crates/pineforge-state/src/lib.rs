@@ -232,7 +232,6 @@ pub enum AppEvent {
     AccelerationUpdated(AccelerationSample),
     #[cfg(feature = "diagnostics")]
     FeatureEngineUpdated(FeatureEngineStatus),
-    #[cfg(feature = "diagnostics")]
     StepsUpdated(u32),
 }
 

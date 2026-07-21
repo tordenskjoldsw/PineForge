@@ -6,7 +6,6 @@
 
 use defmt::info;
 use defmt_rtt as _;
-use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
 use panic_probe as _;
 
@@ -17,10 +16,9 @@ mod services;
 mod tasks;
 mod ui;
 
-#[cfg(feature = "diagnostics")]
-use board::peripherals::AccelerometerResources;
 use board::peripherals::{
-    BatteryResources, ButtonResources, DisplayResources, SensorBusResources, TouchResources,
+    AccelerometerResources, BatteryResources, ButtonResources, DisplayResources,
+    SensorBusResources, TouchResources,
 };
 use boot::watchdog::BootloaderWatchdog;
 
@@ -52,10 +50,9 @@ async fn main(spawner: embassy_executor::Spawner) {
         sda: p.P0_06,
         scl: p.P0_07,
     });
-    #[cfg(feature = "diagnostics")]
     spawner.spawn(defmt::unwrap!(tasks::accelerometer::run(
         AccelerometerResources { interrupt: p.P0_08 },
-        I2cDevice::new(sensor_bus)
+        board::buses::sensor_device(sensor_bus)
     )));
 
     spawner.spawn(defmt::unwrap!(tasks::battery::run(BatteryResources {
@@ -95,6 +92,6 @@ async fn main(spawner: embassy_executor::Spawner) {
             reset: p.P0_10,
             interrupt: p.P0_28,
         },
-        I2cDevice::new(sensor_bus)
+        board::buses::sensor_device(sensor_bus)
     )));
 }
