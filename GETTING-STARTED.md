@@ -9,7 +9,7 @@ This repository contains experimental source code. Only flash a DFU ZIP that has
 - The Rust image is never confirmed.
 - The running firmware feeds the watchdog started by the bootloader.
 - Pressing the side button triggers a system reset after a short debounce delay.
-- A 60-second safety timeout also triggers a system reset.
+- A 10-minute safety timeout also triggers a system reset.
 - On the next boot, MCUBoot should roll back to the previous InfiniTime firmware.
 
 ## 1. Preparation
@@ -95,7 +95,7 @@ Normal path:
 
 Fallback:
 
-1. If no button input is received, wait for the 60-second safety timeout.
+1. If no button input is received, wait for the 10-minute safety timeout.
 2. If the executor stalls, the inherited hardware watchdog should reset the device after approximately seven seconds.
 3. After a successful rollback, InfiniTime should start again.
 

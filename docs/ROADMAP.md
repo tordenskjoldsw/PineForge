@@ -11,7 +11,7 @@ milestone should leave the sealed PineTime in a testable and recoverable state.
 - continuous integration for formatting, Clippy, host tests, release builds, and size budgets
 - unconfirmed test-image workflow with automatic rollback
 - physical side-button reset and rollback
-- 60-second safety reset
+- 10-minute safety reset
 - bootloader watchdog handover
 - ST7789 display initialization
 - InfiniTime-compatible CST816S initialization and interrupt handling

@@ -8,7 +8,7 @@ This variant is intentionally an **unconfirmed MCUBoot test image**.
 2. Open the ZIP on Android with the Gadgetbridge firmware installer.
 3. The Rust test firmware starts after the firmware swap.
 4. Test touch input. The most recently read coordinates are displayed.
-5. Press the physical side button, or wait for the 60-second safety timeout.
+5. Press the physical side button, or wait for the 10-minute safety timeout.
 6. The firmware performs only a system reset.
 7. Because the image was not confirmed, MCUBoot restores the previous InfiniTime image.
 

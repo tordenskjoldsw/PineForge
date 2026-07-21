@@ -11,7 +11,9 @@ use heapless::String;
 use crate::ui::{render::draw_mono_text_visible, screen::Screen};
 #[cfg(feature = "diagnostics")]
 use pineforge_state::ScreenId;
-use pineforge_state::{AppEvent, BatteryStatus, ScreenAction, SwipeDirection};
+use pineforge_state::{
+    AppEvent, BatteryStatus, ScreenAction, SwipeDirection, TEST_IMAGE_TIMEOUT_SECONDS,
+};
 
 const ROW_HEIGHT: u32 = 25;
 const VALUE_X: i32 = 70;
@@ -21,7 +23,6 @@ const SAFETY_ROW: Rectangle = Rectangle::new(Point::new(0, 150), Size::new(240, 
 const STATUS_ROW: Rectangle = Rectangle::new(Point::new(0, 175), Size::new(240, ROW_HEIGHT));
 const HEADER_AREA: Rectangle = Rectangle::new(Point::new(0, 0), Size::new(240, 25));
 const FOOTER_AREA: Rectangle = Rectangle::new(Point::new(0, 200), Size::new(240, 40));
-const SAFE_TIMEOUT_SECONDS: u64 = 60;
 
 const LIGHT_GRAY: Rgb565 = Rgb565::new(20, 40, 20);
 const TERMINAL_GREEN: Rgb565 = Rgb565::new(4, 51, 10);
@@ -71,7 +72,7 @@ impl TerminalWatchface {
     }
 
     fn format_safety(uptime_seconds: u64) -> String<16> {
-        let remaining = SAFE_TIMEOUT_SECONDS.saturating_sub(uptime_seconds);
+        let remaining = TEST_IMAGE_TIMEOUT_SECONDS.saturating_sub(uptime_seconds);
         let mut safety = String::new();
         let _ = write!(safety, "{:02}:{:02}", remaining / 60, remaining % 60);
         safety

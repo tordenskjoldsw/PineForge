@@ -8,6 +8,7 @@
 use heapless::Vec;
 
 pub const SCREEN_STACK_CAPACITY: usize = 4;
+pub const TEST_IMAGE_TIMEOUT_SECONDS: u64 = 10 * 60;
 
 /// Latest directly observed battery state.
 ///
