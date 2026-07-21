@@ -9,6 +9,61 @@ use heapless::Vec;
 
 pub const SCREEN_STACK_CAPACITY: usize = 4;
 
+/// Latest directly observed battery state.
+///
+/// Percentage is deliberately absent until the voltage readings and discharge
+/// curve have been validated on real hardware.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BatteryStatus {
+    pub millivolts: u16,
+    pub percent: u8,
+    pub charging: bool,
+}
+
+/// Converts a 12-bit SAADC sample into battery millivolts.
+///
+/// `PineTime` divides the battery voltage by two. With the SAADC's 600 mV
+/// internal reference and 1/4 gain, the ADC input range is 2400 mV and the
+/// corresponding battery range is 4800 mV.
+#[must_use]
+pub fn battery_millivolts(raw: i16) -> u16 {
+    let raw = u32::from(raw.max(0).cast_unsigned()).min(4095);
+    u16::try_from((raw * 4_800 + 2_048) / 4_096).unwrap_or(u16::MAX)
+}
+
+/// Estimates remaining capacity from `InfiniTime`'s measured `PineTime`
+/// discharge curve using piecewise-linear interpolation.
+#[must_use]
+pub fn battery_percent(millivolts: u16) -> u8 {
+    const CURVE: [(u16, u8); 6] = [
+        (3_500, 0),
+        (3_616, 3),
+        (3_723, 22),
+        (3_776, 48),
+        (3_979, 79),
+        (4_180, 100),
+    ];
+
+    if millivolts <= CURVE[0].0 {
+        return CURVE[0].1;
+    }
+    for window in CURVE.windows(2) {
+        let [low, high] = window else {
+            continue;
+        };
+        let (low_mv, low_percent) = *low;
+        let (high_mv, high_percent) = *high;
+        if millivolts <= high_mv {
+            let position = u32::from(millivolts - low_mv);
+            let span = u32::from(high_mv - low_mv);
+            let percent_span = u32::from(high_percent - low_percent);
+            let interpolated = u32::from(low_percent) + (position * percent_span + span / 2) / span;
+            return u8::try_from(interpolated).unwrap_or(100);
+        }
+    }
+    100
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ScreenId {
     Watchface,
@@ -21,6 +76,7 @@ pub enum AppEvent {
     Touch { x: i32, y: i32, pressed: bool },
     Swipe(SwipeDirection),
     Tick { uptime_seconds: u64 },
+    BatteryUpdated(BatteryStatus),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -211,6 +267,29 @@ impl AppState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn battery_conversion_uses_the_full_12_bit_range() {
+        assert_eq!(battery_millivolts(0), 0);
+        assert_eq!(battery_millivolts(4095), 4_799);
+        assert_eq!(battery_millivolts(3584), 4_200);
+    }
+
+    #[test]
+    fn battery_conversion_clamps_out_of_range_samples() {
+        assert_eq!(battery_millivolts(-1), 0);
+        assert_eq!(battery_millivolts(i16::MAX), 4_799);
+    }
+
+    #[test]
+    fn battery_percentage_interpolates_the_pinetime_curve() {
+        assert_eq!(battery_percent(3_400), 0);
+        assert_eq!(battery_percent(3_500), 0);
+        assert_eq!(battery_percent(3_723), 22);
+        assert_eq!(battery_percent(3_878), 64);
+        assert_eq!(battery_percent(4_180), 100);
+        assert_eq!(battery_percent(4_300), 100);
+    }
 
     #[test]
     fn root_cannot_be_popped() {

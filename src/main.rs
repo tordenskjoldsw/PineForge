@@ -16,7 +16,7 @@ mod services;
 mod tasks;
 mod ui;
 
-use board::peripherals::{ButtonResources, DisplayResources, TouchResources};
+use board::peripherals::{BatteryResources, ButtonResources, DisplayResources, TouchResources};
 use boot::watchdog::BootloaderWatchdog;
 
 #[embassy_executor::main]
@@ -41,6 +41,12 @@ async fn main(spawner: embassy_executor::Spawner) {
     watchdog.pet();
     spawner.spawn(defmt::unwrap!(tasks::watchdog::run(watchdog)));
     spawner.spawn(defmt::unwrap!(boot::rollback::safety_timeout()));
+
+    spawner.spawn(defmt::unwrap!(tasks::battery::run(BatteryResources {
+        adc: p.SAADC,
+        voltage: p.P0_31,
+        charge_status: p.P0_12,
+    })));
 
     let button = ButtonResources {
         input: p.P0_13,

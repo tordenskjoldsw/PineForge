@@ -1,10 +1,11 @@
 //! Concrete peripheral bundles owned by long-running firmware tasks.
 
-use embassy_nrf::{Peri, bind_interrupts, peripherals, spim, twim};
+use embassy_nrf::{Peri, bind_interrupts, peripherals, saadc, spim, twim};
 
 bind_interrupts!(pub struct Irqs {
     TWISPI0 => spim::InterruptHandler<peripherals::TWISPI0>;
     TWISPI1 => twim::InterruptHandler<peripherals::TWISPI1>;
+    SAADC => saadc::InterruptHandler;
 });
 
 pub struct DisplayResources {
@@ -31,4 +32,10 @@ pub struct TouchResources {
 pub struct ButtonResources {
     pub input: Peri<'static, peripherals::P0_13>,
     pub enable: Peri<'static, peripherals::P0_15>,
+}
+
+pub struct BatteryResources {
+    pub adc: Peri<'static, peripherals::SAADC>,
+    pub voltage: Peri<'static, peripherals::P0_31>,
+    pub charge_status: Peri<'static, peripherals::P0_12>,
 }

@@ -11,11 +11,12 @@ use heapless::String;
 use crate::ui::{render::draw_mono_text_visible, screen::Screen};
 #[cfg(feature = "diagnostics")]
 use pineforge_state::ScreenId;
-use pineforge_state::{AppEvent, ScreenAction, SwipeDirection};
+use pineforge_state::{AppEvent, BatteryStatus, ScreenAction, SwipeDirection};
 
 const ROW_HEIGHT: u32 = 25;
 const VALUE_X: i32 = 70;
 const UPTIME_ROW: Rectangle = Rectangle::new(Point::new(0, 50), Size::new(240, ROW_HEIGHT));
+const BATTERY_ROW: Rectangle = Rectangle::new(Point::new(0, 75), Size::new(240, ROW_HEIGHT));
 const SAFETY_ROW: Rectangle = Rectangle::new(Point::new(0, 150), Size::new(240, ROW_HEIGHT));
 const STATUS_ROW: Rectangle = Rectangle::new(Point::new(0, 175), Size::new(240, ROW_HEIGHT));
 const HEADER_AREA: Rectangle = Rectangle::new(Point::new(0, 0), Size::new(240, 25));
@@ -34,6 +35,7 @@ enum DirtyRegion {
     None,
     Clock,
     Status,
+    Battery,
 }
 
 pub struct TerminalWatchface {
@@ -41,6 +43,7 @@ pub struct TerminalWatchface {
     uptime_seconds: u64,
     previous_touching: bool,
     touching: bool,
+    battery: Option<BatteryStatus>,
     dirty: DirtyRegion,
 }
 
@@ -51,6 +54,7 @@ impl Default for TerminalWatchface {
             uptime_seconds: 0,
             previous_touching: false,
             touching: false,
+            battery: None,
             dirty: DirtyRegion::None,
         }
     }
@@ -151,6 +155,33 @@ impl TerminalWatchface {
         Self::draw_row(display, SAFETY_ROW, "[SAFE]", &safety, TERMINAL_ORANGE)
     }
 
+    fn format_battery(&self) -> String<16> {
+        let mut value = String::new();
+        if let Some(status) = self.battery {
+            let power = if status.charging { "CHG" } else { "BAT" };
+            #[cfg(feature = "diagnostics")]
+            let _ = write!(value, "{}mV {}% {power}", status.millivolts, status.percent);
+            #[cfg(not(feature = "diagnostics"))]
+            let _ = write!(value, "{}% {power}", status.percent);
+        } else {
+            let _ = value.push_str("---");
+        }
+        value
+    }
+
+    fn draw_battery<D>(&self, display: &mut D) -> Result<(), D::Error>
+    where
+        D: DrawTarget<Color = Rgb565>,
+    {
+        Self::draw_row(
+            display,
+            BATTERY_ROW,
+            "[BATT]",
+            &self.format_battery(),
+            TERMINAL_RED,
+        )
+    }
+
     fn draw_status<D>(&self, display: &mut D) -> Result<(), D::Error>
     where
         D: DrawTarget<Color = Rgb565>,
@@ -207,6 +238,10 @@ impl Screen for TerminalWatchface {
                 self.touching = pressed;
                 self.dirty = DirtyRegion::Status;
             }
+            AppEvent::BatteryUpdated(status) => {
+                self.battery = Some(status);
+                self.dirty = DirtyRegion::Battery;
+            }
             AppEvent::Swipe(SwipeDirection::Left) => {
                 #[cfg(feature = "diagnostics")]
                 return ScreenAction::Push(ScreenId::TouchTest);
@@ -237,13 +272,7 @@ impl Screen for TerminalWatchface {
         keep_alive();
         self.draw_uptime(display)?;
         keep_alive();
-        Self::draw_row(
-            display,
-            Rectangle::new(Point::new(0, 75), Size::new(240, ROW_HEIGHT)),
-            "[BATT]",
-            "---",
-            TERMINAL_RED,
-        )?;
+        self.draw_battery(display)?;
         keep_alive();
         Self::draw_row(
             display,
@@ -293,6 +322,7 @@ impl Screen for TerminalWatchface {
                 keep_alive();
             }
             DirtyRegion::Status => self.update_status(display)?,
+            DirtyRegion::Battery => self.draw_battery(display)?,
             DirtyRegion::None => {}
         }
         keep_alive();
