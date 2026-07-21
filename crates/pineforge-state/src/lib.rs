@@ -124,6 +124,25 @@ pub struct BatteryStatus {
     pub charging: bool,
 }
 
+#[cfg(feature = "diagnostics")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AccelerometerKind {
+    Bma421,
+    Bma425,
+    Unknown(u8),
+    Unavailable,
+}
+
+#[cfg(feature = "diagnostics")]
+#[must_use]
+pub const fn accelerometer_kind(chip_id: u8) -> AccelerometerKind {
+    match chip_id {
+        0x11 => AccelerometerKind::Bma421,
+        0x13 => AccelerometerKind::Bma425,
+        value => AccelerometerKind::Unknown(value),
+    }
+}
+
 /// Converts a 12-bit SAADC sample into battery millivolts.
 ///
 /// `PineTime` divides the battery voltage by two. With the SAADC's 600 mV
@@ -177,10 +196,18 @@ pub enum ScreenId {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AppEvent {
-    Touch { x: i32, y: i32, pressed: bool },
+    Touch {
+        x: i32,
+        y: i32,
+        pressed: bool,
+    },
     Swipe(SwipeDirection),
-    Tick { uptime_seconds: u64 },
+    Tick {
+        uptime_seconds: u64,
+    },
     BatteryUpdated(BatteryStatus),
+    #[cfg(feature = "diagnostics")]
+    AccelerometerDetected(AccelerometerKind),
 }
 
 impl AppEvent {
@@ -432,6 +459,14 @@ mod tests {
             DisplayPowerConfig::new(20_000, 20_000),
             Err(DisplayPowerConfigError::OffNotAfterDim)
         );
+    }
+
+    #[cfg(feature = "diagnostics")]
+    #[test]
+    fn accelerometer_chip_ids_distinguish_pinetime_variants() {
+        assert_eq!(accelerometer_kind(0x11), AccelerometerKind::Bma421);
+        assert_eq!(accelerometer_kind(0x13), AccelerometerKind::Bma425);
+        assert_eq!(accelerometer_kind(0xff), AccelerometerKind::Unknown(0xff));
     }
 
     #[test]

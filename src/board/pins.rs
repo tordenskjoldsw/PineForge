@@ -30,3 +30,5 @@ pub const TOUCH_SDA: u8 = 6;
 pub const TOUCH_SCL: u8 = 7;
 pub const TOUCH_RESET: u8 = 10;
 pub const TOUCH_INTERRUPT: u8 = 28;
+
+pub const ACCELEROMETER_INTERRUPT: u8 = 8;

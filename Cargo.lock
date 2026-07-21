@@ -757,6 +757,7 @@ dependencies = [
  "embassy-time",
  "embedded-graphics",
  "embedded-hal 1.0.0",
+ "embedded-hal-async",
  "heapless 0.9.3",
  "mipidsi",
  "panic-probe",

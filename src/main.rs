@@ -6,6 +6,7 @@
 
 use defmt::info;
 use defmt_rtt as _;
+use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
 use panic_probe as _;
 
@@ -16,7 +17,9 @@ mod services;
 mod tasks;
 mod ui;
 
-use board::peripherals::{BatteryResources, ButtonResources, DisplayResources, TouchResources};
+use board::peripherals::{
+    BatteryResources, ButtonResources, DisplayResources, SensorBusResources, TouchResources,
+};
 use boot::watchdog::BootloaderWatchdog;
 
 #[embassy_executor::main]
@@ -41,6 +44,16 @@ async fn main(spawner: embassy_executor::Spawner) {
     watchdog.pet();
     spawner.spawn(defmt::unwrap!(tasks::watchdog::run(watchdog)));
     spawner.spawn(defmt::unwrap!(boot::rollback::safety_timeout()));
+
+    let sensor_bus = board::buses::init_sensor_bus(SensorBusResources {
+        i2c: p.TWISPI1,
+        sda: p.P0_06,
+        scl: p.P0_07,
+    });
+    #[cfg(feature = "diagnostics")]
+    spawner.spawn(defmt::unwrap!(tasks::accelerometer::probe(I2cDevice::new(
+        sensor_bus
+    ))));
 
     spawner.spawn(defmt::unwrap!(tasks::battery::run(BatteryResources {
         adc: p.SAADC,
@@ -74,11 +87,11 @@ async fn main(spawner: embassy_executor::Spawner) {
         },
         watchdog
     )));
-    spawner.spawn(defmt::unwrap!(tasks::input::run(TouchResources {
-        i2c: p.TWISPI1,
-        sda: p.P0_06,
-        scl: p.P0_07,
-        reset: p.P0_10,
-        interrupt: p.P0_28,
-    })));
+    spawner.spawn(defmt::unwrap!(tasks::input::run(
+        TouchResources {
+            reset: p.P0_10,
+            interrupt: p.P0_28,
+        },
+        I2cDevice::new(sensor_bus)
+    )));
 }

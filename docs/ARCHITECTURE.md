@@ -14,6 +14,7 @@
 Embassy is the runtime. Each stateful peripheral is assigned to one long-running owner task. The current hardware-test baseline has:
 
 - input task: owns the touch controller and publishes `UiEvent` values
+- accelerometer task: probes the motion sensor without configuring features
 - display task: owns the LCD and backlight, consumes UI events, and renders the active `Screen`
 - watchdog task: feeds the watchdog inherited from the bootloader
 - rollback tasks: monitor the physical side button and the test-image safety timeout
@@ -25,6 +26,13 @@ Planned subsystem tasks include:
 - BLE task: owns the radio/stack
 
 Use bounded `embassy-sync` channels for events. The current UI channel has a fixed capacity of eight events. Never share the display or SPI peripheral behind a global mutex merely for convenience; prefer single-owner tasks and message passing.
+
+The touch controller and accelerometer are an intentional exception at the bus
+transport boundary because PineTime wires both devices to the same TWIM
+peripheral. They receive independent `embedded-hal-async` I²C device handles
+backed by one asynchronous mutex; critical sections protect only the mutex
+state, not the I²C transaction. Each driver still owns its local state, and no
+driver can access another device.
 
 ## Power policy
 

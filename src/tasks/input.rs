@@ -1,46 +1,30 @@
 use defmt::{info, warn};
-use embassy_nrf::{
-    gpio::{Input, Level, Output, OutputDrive, Pull},
-    twim,
-};
+use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
 use embassy_time::Delay;
-use static_cell::StaticCell;
 
 use crate::{
-    board::peripherals::{Irqs, TouchResources},
+    board::{buses::SensorI2c, peripherals::TouchResources},
     drivers::touch::{Cst816s, Gesture},
     services::events::UI_EVENTS,
 };
 use pineforge_state::{AppEvent, SwipeDirection};
 
-static TWIM_BUFFER: StaticCell<[u8; 16]> = StaticCell::new();
-
 /// Owns the touch controller and publishes hardware-independent UI events.
 #[embassy_executor::task]
-pub async fn run(resources: TouchResources) {
-    let mut config = twim::Config::default();
-    config.frequency = twim::Frequency::K400;
-    let i2c = twim::Twim::new(
-        resources.i2c,
-        Irqs,
-        resources.sda,
-        resources.scl,
-        config,
-        TWIM_BUFFER.init([0; 16]),
-    );
+pub async fn run(resources: TouchResources, i2c: SensorI2c) {
     let mut interrupt = Input::new(resources.interrupt, Pull::Up);
     let reset = Output::new(resources.reset, Level::High, OutputDrive::Standard);
     let mut touch = Cst816s::new(i2c, reset);
     let mut delay = Delay;
 
-    if touch.setup(&mut delay).is_err() {
+    if touch.setup(&mut delay).await.is_err() {
         warn!("Touch controller setup failed");
     }
 
     loop {
         interrupt.wait_for_falling_edge().await;
 
-        if let Ok(event) = touch.read_touch() {
+        if let Ok(event) = touch.read_touch().await {
             info!(
                 "Touch x={} y={} pressed={} gesture={:?}",
                 event.x, event.y, event.touching, event.gesture

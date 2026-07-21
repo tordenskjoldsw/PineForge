@@ -10,7 +10,7 @@ use heapless::String;
 
 use crate::ui::{render::draw_mono_text_visible, screen::Screen};
 #[cfg(feature = "diagnostics")]
-use pineforge_state::ScreenId;
+use pineforge_state::{AccelerometerKind, ScreenId};
 use pineforge_state::{
     AppEvent, BatteryStatus, ScreenAction, SwipeDirection, TEST_IMAGE_TIMEOUT_SECONDS,
 };
@@ -19,6 +19,8 @@ const ROW_HEIGHT: u32 = 25;
 const VALUE_X: i32 = 70;
 const UPTIME_ROW: Rectangle = Rectangle::new(Point::new(0, 50), Size::new(240, ROW_HEIGHT));
 const BATTERY_ROW: Rectangle = Rectangle::new(Point::new(0, 75), Size::new(240, ROW_HEIGHT));
+#[cfg(feature = "diagnostics")]
+const MOTION_ROW: Rectangle = Rectangle::new(Point::new(0, 100), Size::new(240, ROW_HEIGHT));
 const SAFETY_ROW: Rectangle = Rectangle::new(Point::new(0, 150), Size::new(240, ROW_HEIGHT));
 const STATUS_ROW: Rectangle = Rectangle::new(Point::new(0, 175), Size::new(240, ROW_HEIGHT));
 const HEADER_AREA: Rectangle = Rectangle::new(Point::new(0, 0), Size::new(240, 25));
@@ -37,6 +39,8 @@ enum DirtyRegion {
     Clock,
     Status,
     Battery,
+    #[cfg(feature = "diagnostics")]
+    Motion,
 }
 
 pub struct TerminalWatchface {
@@ -45,6 +49,8 @@ pub struct TerminalWatchface {
     previous_touching: bool,
     touching: bool,
     battery: Option<BatteryStatus>,
+    #[cfg(feature = "diagnostics")]
+    accelerometer: Option<AccelerometerKind>,
     dirty: DirtyRegion,
 }
 
@@ -56,6 +62,8 @@ impl Default for TerminalWatchface {
             previous_touching: false,
             touching: false,
             battery: None,
+            #[cfg(feature = "diagnostics")]
+            accelerometer: None,
             dirty: DirtyRegion::None,
         }
     }
@@ -183,6 +191,32 @@ impl TerminalWatchface {
         )
     }
 
+    #[cfg(feature = "diagnostics")]
+    fn draw_accelerometer<D>(&self, display: &mut D) -> Result<(), D::Error>
+    where
+        D: DrawTarget<Color = Rgb565>,
+    {
+        let mut value: String<16> = String::new();
+        match self.accelerometer {
+            Some(AccelerometerKind::Bma421) => {
+                let _ = value.push_str("BMA421");
+            }
+            Some(AccelerometerKind::Bma425) => {
+                let _ = value.push_str("BMA425");
+            }
+            Some(AccelerometerKind::Unknown(chip_id)) => {
+                let _ = write!(value, "ID 0x{chip_id:02X}");
+            }
+            Some(AccelerometerKind::Unavailable) => {
+                let _ = value.push_str("ERROR");
+            }
+            None => {
+                let _ = value.push_str("---");
+            }
+        }
+        Self::draw_row(display, MOTION_ROW, "[IMU ]", &value, TERMINAL_ORANGE)
+    }
+
     fn draw_status<D>(&self, display: &mut D) -> Result<(), D::Error>
     where
         D: DrawTarget<Color = Rgb565>,
@@ -243,6 +277,11 @@ impl Screen for TerminalWatchface {
                 self.battery = Some(status);
                 self.dirty = DirtyRegion::Battery;
             }
+            #[cfg(feature = "diagnostics")]
+            AppEvent::AccelerometerDetected(kind) => {
+                self.accelerometer = Some(kind);
+                self.dirty = DirtyRegion::Motion;
+            }
             AppEvent::Swipe(SwipeDirection::Left) => {
                 #[cfg(feature = "diagnostics")]
                 return ScreenAction::Push(ScreenId::TouchTest);
@@ -275,6 +314,9 @@ impl Screen for TerminalWatchface {
         keep_alive();
         self.draw_battery(display)?;
         keep_alive();
+        #[cfg(feature = "diagnostics")]
+        self.draw_accelerometer(display)?;
+        #[cfg(not(feature = "diagnostics"))]
         Self::draw_row(
             display,
             Rectangle::new(Point::new(0, 100), Size::new(240, ROW_HEIGHT)),
@@ -324,6 +366,8 @@ impl Screen for TerminalWatchface {
             }
             DirtyRegion::Status => self.update_status(display)?,
             DirtyRegion::Battery => self.draw_battery(display)?,
+            #[cfg(feature = "diagnostics")]
+            DirtyRegion::Motion => self.draw_accelerometer(display)?,
             DirtyRegion::None => {}
         }
         keep_alive();

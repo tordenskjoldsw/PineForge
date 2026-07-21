@@ -22,11 +22,14 @@ pub struct DisplayResources {
 }
 
 pub struct TouchResources {
+    pub reset: Peri<'static, peripherals::P0_10>,
+    pub interrupt: Peri<'static, peripherals::P0_28>,
+}
+
+pub struct SensorBusResources {
     pub i2c: Peri<'static, peripherals::TWISPI1>,
     pub sda: Peri<'static, peripherals::P0_06>,
     pub scl: Peri<'static, peripherals::P0_07>,
-    pub reset: Peri<'static, peripherals::P0_10>,
-    pub interrupt: Peri<'static, peripherals::P0_28>,
 }
 
 pub struct ButtonResources {

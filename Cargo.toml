@@ -34,6 +34,7 @@ embassy-sync = "0.8.0"
 embassy-time = { version = "0.5.1", features = ["defmt"] }
 embedded-graphics = "0.8.2"
 embedded-hal = "1.0.0"
+embedded-hal-async = "1.0.0"
 heapless = "0.9.3"
 mipidsi = "0.10.0"
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }

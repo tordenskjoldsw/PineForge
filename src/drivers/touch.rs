@@ -1,6 +1,7 @@
 //! CST816S touch controller support based on `InfiniTime`'s proven setup.
 
-use embedded_hal::{delay::DelayNs, digital::OutputPin, i2c::I2c};
+use embedded_hal::{delay::DelayNs, digital::OutputPin};
+use embedded_hal_async::i2c::I2c;
 
 const ADDRESS: u8 = 0x15;
 const TOUCH_DATA_START: u8 = 0x01;
@@ -66,7 +67,10 @@ where
         Self { i2c, reset }
     }
 
-    pub fn setup(&mut self, delay: &mut impl DelayNs) -> Result<(), Error<I2C::Error, RST::Error>> {
+    pub async fn setup(
+        &mut self,
+        delay: &mut impl DelayNs,
+    ) -> Result<(), Error<I2C::Error, RST::Error>> {
         self.reset.set_low().map_err(Error::Pin)?;
         delay.delay_ms(5);
         self.reset.set_high().map_err(Error::Pin)?;
@@ -74,25 +78,26 @@ where
 
         // InfiniTime performs these reads to wake controllers that do not
         // answer immediately after reset.
-        let _ = self.read_register(0x15);
+        let _ = self.read_register(0x15).await;
         delay.delay_ms(5);
-        let _ = self.read_register(0xa7);
+        let _ = self.read_register(0xa7).await;
         delay.delay_ms(5);
 
-        self.write_register(0xec, MOTION_MASK)?;
-        self.write_register(0xfa, IRQ_CONTROL)?;
+        self.write_register(0xec, MOTION_MASK).await?;
+        self.write_register(0xfa, IRQ_CONTROL).await?;
         // Disable the controller's five-second automatic reset, which would
         // otherwise interrupt long touches and drawing gestures.
-        self.write_register(0xfb, 0)?;
+        self.write_register(0xfb, 0).await?;
         Ok(())
     }
 
-    pub fn read_touch(&mut self) -> Result<TouchInfo, Error<I2C::Error, RST::Error>> {
+    pub async fn read_touch(&mut self) -> Result<TouchInfo, Error<I2C::Error, RST::Error>> {
         // InfiniTime reads registers 1..=6. This includes zero-point reports,
         // which are required to observe the finger being released.
         let mut data = [0_u8; 6];
         self.i2c
             .write_read(ADDRESS, &[TOUCH_DATA_START], &mut data)
+            .await
             .map_err(Error::I2c)?;
 
         let x = (u16::from(data[2] & 0x0f) << 8) | u16::from(data[3]);
@@ -109,21 +114,23 @@ where
         })
     }
 
-    fn read_register(&mut self, register: u8) -> Result<u8, Error<I2C::Error, RST::Error>> {
+    async fn read_register(&mut self, register: u8) -> Result<u8, Error<I2C::Error, RST::Error>> {
         let mut value = 0;
         self.i2c
             .write_read(ADDRESS, &[register], core::slice::from_mut(&mut value))
+            .await
             .map_err(Error::I2c)?;
         Ok(value)
     }
 
-    fn write_register(
+    async fn write_register(
         &mut self,
         register: u8,
         value: u8,
     ) -> Result<(), Error<I2C::Error, RST::Error>> {
         self.i2c
             .write(ADDRESS, &[register, value])
+            .await
             .map_err(Error::I2c)
     }
 }
