@@ -4,9 +4,9 @@ use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channe
 
 use pineforge_state::AppEvent;
 #[cfg(feature = "diagnostics")]
-use pineforge_state::DisplayPowerState;
+use pineforge_state::SystemPowerState;
 
 pub static UI_EVENTS: Channel<CriticalSectionRawMutex, AppEvent, 8> = Channel::new();
 
 #[cfg(feature = "diagnostics")]
-pub static SENSOR_POWER: Signal<CriticalSectionRawMutex, DisplayPowerState> = Signal::new();
+pub static SYSTEM_POWER: Signal<CriticalSectionRawMutex, SystemPowerState> = Signal::new();

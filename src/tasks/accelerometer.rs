@@ -1,12 +1,12 @@
 use defmt::{info, warn};
 use embassy_futures::select::{Either, select};
 use embassy_time::{Duration, Timer};
-use pineforge_state::{AccelerometerKind, AppEvent, DisplayPowerState};
+use pineforge_state::{AccelerometerKind, AppEvent, SystemPowerState};
 
 use crate::{
     board::buses::SensorI2c,
     drivers::bma42x::{AccelerationPowerMode, Bma42x},
-    services::events::{SENSOR_POWER, UI_EVENTS},
+    services::events::{SYSTEM_POWER, UI_EVENTS},
 };
 
 const ACTIVE_UPDATE_INTERVAL: Duration = Duration::from_millis(200);
@@ -43,7 +43,7 @@ pub async fn run(i2c: SensorI2c) {
     ) {
         return;
     }
-    let mut power = DisplayPowerState::Active;
+    let mut power = SystemPowerState::Interactive;
     if accelerometer
         .set_power_mode(acceleration_mode(power))
         .await
@@ -54,18 +54,18 @@ pub async fn run(i2c: SensorI2c) {
     }
 
     loop {
-        if power == DisplayPowerState::Off {
-            power = SENSOR_POWER.wait().await;
+        if power == SystemPowerState::Sleeping {
+            power = SYSTEM_POWER.wait().await;
             apply_power_mode(&mut accelerometer, power).await;
             continue;
         }
 
-        let interval = if power == DisplayPowerState::Active {
+        let interval = if power == SystemPowerState::Interactive {
             ACTIVE_UPDATE_INTERVAL
         } else {
             LOW_POWER_UPDATE_INTERVAL
         };
-        match select(SENSOR_POWER.wait(), Timer::after(interval)).await {
+        match select(SYSTEM_POWER.wait(), Timer::after(interval)).await {
             Either::First(next) => {
                 power = next;
                 apply_power_mode(&mut accelerometer, power).await;
@@ -81,15 +81,15 @@ pub async fn run(i2c: SensorI2c) {
     }
 }
 
-const fn acceleration_mode(state: DisplayPowerState) -> AccelerationPowerMode {
+const fn acceleration_mode(state: SystemPowerState) -> AccelerationPowerMode {
     match state {
-        DisplayPowerState::Active => AccelerationPowerMode::Active,
-        DisplayPowerState::Dimmed => AccelerationPowerMode::LowPower,
-        DisplayPowerState::Off => AccelerationPowerMode::Off,
+        SystemPowerState::Interactive => AccelerationPowerMode::Active,
+        SystemPowerState::Idle => AccelerationPowerMode::LowPower,
+        SystemPowerState::Sleeping => AccelerationPowerMode::Off,
     }
 }
 
-async fn apply_power_mode(accelerometer: &mut Bma42x<SensorI2c>, state: DisplayPowerState) {
+async fn apply_power_mode(accelerometer: &mut Bma42x<SensorI2c>, state: SystemPowerState) {
     if accelerometer
         .set_power_mode(acceleration_mode(state))
         .await

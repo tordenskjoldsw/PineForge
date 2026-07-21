@@ -62,6 +62,14 @@ pub enum DisplayPowerState {
     Off,
 }
 
+/// Hardware-independent activity state shared with power-aware services.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SystemPowerState {
+    Interactive,
+    Idle,
+    Sleeping,
+}
+
 /// Deterministic display-power policy, independent from clocks and hardware.
 pub struct DisplayPowerPolicy {
     config: DisplayPowerConfig,

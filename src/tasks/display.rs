@@ -13,7 +13,7 @@ use mipidsi::options::{ColorInversion, Orientation};
 use static_cell::StaticCell;
 
 #[cfg(feature = "diagnostics")]
-use crate::services::events::SENSOR_POWER;
+use crate::services::events::SYSTEM_POWER;
 #[cfg(feature = "diagnostics")]
 use crate::ui::test_screen::TestScreen;
 use crate::{
@@ -30,6 +30,8 @@ use crate::{
         watchface::TerminalWatchface,
     },
 };
+#[cfg(feature = "diagnostics")]
+use pineforge_state::SystemPowerState;
 use pineforge_state::{
     AppEffect, AppEvent, AppState, DisplayPowerConfig, DisplayPowerPolicy, DisplayPowerState,
     ScreenId,
@@ -142,18 +144,18 @@ pub async fn run(resources: DisplayResources, watchdog: BootloaderWatchdog) {
                     }
                     backlight.set_level(ACTIVE_BRIGHTNESS);
                     #[cfg(feature = "diagnostics")]
-                    SENSOR_POWER.signal(DisplayPowerState::Active);
+                    SYSTEM_POWER.signal(SystemPowerState::Interactive);
                     ignore_input_until = Instant::now() + WAKE_INPUT_GUARD;
                     next_tick = Instant::now() + Duration::from_secs(1);
                     continue;
                 }
                 backlight.set_level(ACTIVE_BRIGHTNESS);
                 #[cfg(feature = "diagnostics")]
-                SENSOR_POWER.signal(DisplayPowerState::Active);
+                SYSTEM_POWER.signal(SystemPowerState::Interactive);
             }
         } else if let Some(next) = power.advance(now_millis) {
             #[cfg(feature = "diagnostics")]
-            SENSOR_POWER.signal(next);
+            SYSTEM_POWER.signal(system_power_state(next));
             match next {
                 DisplayPowerState::Active => backlight.set_level(ACTIVE_BRIGHTNESS),
                 DisplayPowerState::Dimmed => backlight.set_level(DIMMED_BRIGHTNESS),
@@ -222,5 +224,14 @@ pub async fn run(resources: DisplayResources, watchdog: BootloaderWatchdog) {
                 }
             },
         }
+    }
+}
+
+#[cfg(feature = "diagnostics")]
+const fn system_power_state(display: DisplayPowerState) -> SystemPowerState {
+    match display {
+        DisplayPowerState::Active => SystemPowerState::Interactive,
+        DisplayPowerState::Dimmed => SystemPowerState::Idle,
+        DisplayPowerState::Off => SystemPowerState::Sleeping,
     }
 }
