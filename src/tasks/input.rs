@@ -3,7 +3,7 @@ use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
 use embassy_time::Delay;
 
 use crate::{
-    board::{buses::SensorI2c, peripherals::TouchResources},
+    board::{buses::TouchI2c, peripherals::TouchResources},
     drivers::touch::{Cst816s, Gesture},
     services::events::UI_EVENTS,
 };
@@ -11,7 +11,7 @@ use pineforge_state::{AppEvent, SwipeDirection};
 
 /// Owns the touch controller and publishes hardware-independent UI events.
 #[embassy_executor::task]
-pub async fn run(resources: TouchResources, i2c: SensorI2c) {
+pub async fn run(resources: TouchResources, i2c: TouchI2c) {
     let mut interrupt = Input::new(resources.interrupt, Pull::Up);
     let reset = Output::new(resources.reset, Level::High, OutputDrive::Standard);
     let mut touch = Cst816s::new(i2c, reset);

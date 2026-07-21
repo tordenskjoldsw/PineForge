@@ -13,7 +13,6 @@ const ACCEL_RANGE_REGISTER: u8 = 0x41;
 const POWER_CONTROL_REGISTER: u8 = 0x7d;
 const INT1_IO_CONTROL_REGISTER: u8 = 0x53;
 const INTERRUPT_MAP_DATA_REGISTER: u8 = 0x58;
-const INTERRUPT_STATUS_1_REGISTER: u8 = 0x1d;
 const INTERNAL_STATUS_REGISTER: u8 = 0x2a;
 const FEATURE_CONFIG_ADDRESS_LSB_REGISTER: u8 = 0x5b;
 const FEATURE_CONFIG_ADDRESS_MSB_REGISTER: u8 = 0x5c;
@@ -28,7 +27,6 @@ const ACCEL_ENABLE: u8 = 1 << 2;
 const REGISTER_WRITE_DELAY: Duration = Duration::from_millis(1);
 const INT1_EDGE_ACTIVE_HIGH_PUSH_PULL: u8 = 0x0b;
 const INT1_DATA_READY: u8 = 1 << 2;
-const ACCEL_DATA_READY_STATUS: u8 = 1 << 7;
 const ADVANCED_POWER_SAVE: u8 = 1;
 const ASIC_INITIALIZED: u8 = 1;
 const SOFT_RESET_COMMAND: u8 = 0xb6;
@@ -270,11 +268,6 @@ where
     }
 
     /// Reads and clears the hardware interrupt status for the current sample.
-    pub async fn acknowledge_data_ready(&mut self) -> Result<bool, I2C::Error> {
-        let status = self.read_register(INTERRUPT_STATUS_1_REGISTER).await?;
-        Ok(status & ACCEL_DATA_READY_STATUS != 0)
-    }
-
     async fn read_register(&mut self, register: u8) -> Result<u8, I2C::Error> {
         let mut value = 0;
         self.i2c

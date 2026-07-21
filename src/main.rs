@@ -17,8 +17,7 @@ mod tasks;
 mod ui;
 
 use board::peripherals::{
-    AccelerometerResources, BatteryResources, ButtonResources, DisplayResources,
-    SensorBusResources, TouchResources,
+    BatteryResources, ButtonResources, DisplayResources, SensorBusResources, TouchResources,
 };
 use boot::watchdog::BootloaderWatchdog;
 
@@ -51,8 +50,7 @@ async fn main(spawner: embassy_executor::Spawner) {
         scl: p.P0_07,
     });
     spawner.spawn(defmt::unwrap!(tasks::accelerometer::run(
-        AccelerometerResources { interrupt: p.P0_08 },
-        board::buses::sensor_device(sensor_bus)
+        board::buses::motion_device(sensor_bus)
     )));
 
     spawner.spawn(defmt::unwrap!(tasks::battery::run(BatteryResources {
@@ -92,6 +90,6 @@ async fn main(spawner: embassy_executor::Spawner) {
             reset: p.P0_10,
             interrupt: p.P0_28,
         },
-        board::buses::sensor_device(sensor_bus)
+        board::buses::touch_device(sensor_bus)
     )));
 }

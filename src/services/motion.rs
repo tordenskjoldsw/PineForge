@@ -1,7 +1,7 @@
 use defmt::{info, warn};
 use embassy_futures::select::{Either, select};
 use embassy_time::{Duration, Timer};
-use embedded_hal_async::{digital::Wait, i2c::I2c};
+use embedded_hal_async::i2c::I2c;
 #[cfg(feature = "diagnostics")]
 use pineforge_state::FeatureEngineStatus;
 use pineforge_state::{AccelerometerKind, AppEvent, SystemPowerState};
@@ -11,27 +11,23 @@ use crate::{
     services::events::{SYSTEM_POWER, UI_EVENTS},
 };
 
-#[cfg(feature = "diagnostics")]
-const ACTIVE_UI_DIVISOR: u8 = 20;
-const ACTIVE_STEP_DIVISOR: u8 = 100;
+const ACTIVE_UPDATE_INTERVAL: Duration = Duration::from_millis(100);
+const ACTIVE_STEP_DIVISOR: u8 = 10;
 const IDLE_UPDATE_INTERVAL: Duration = Duration::from_secs(1);
 
 /// Owns the motion sensor lifecycle independently from the executor task.
-pub struct AccelerometerRunner<I2C, IRQ> {
+pub struct AccelerometerRunner<I2C> {
     accelerometer: Bma42x<I2C>,
-    interrupt: IRQ,
 }
 
-impl<I2C, IRQ> AccelerometerRunner<I2C, IRQ>
+impl<I2C> AccelerometerRunner<I2C>
 where
     I2C: I2c,
-    IRQ: Wait,
 {
     #[must_use]
-    pub const fn new(i2c: I2C, interrupt: IRQ) -> Self {
+    pub const fn new(i2c: I2C) -> Self {
         Self {
             accelerometer: Bma42x::new(i2c),
-            interrupt,
         }
     }
 
@@ -49,47 +45,23 @@ where
     }
 
     async fn run_motion(&mut self, mut power: SystemPowerState) -> ! {
-        #[cfg(feature = "diagnostics")]
-        let mut samples_until_update = 1;
-        let mut samples_until_step_update = 1;
+        let mut ticks_until_step_update = 1;
         loop {
             match power {
                 SystemPowerState::Interactive => {
-                    match select(SYSTEM_POWER.wait(), self.interrupt.wait_for_rising_edge()).await {
+                    match select(SYSTEM_POWER.wait(), Timer::after(ACTIVE_UPDATE_INTERVAL)).await {
                         Either::First(next) => {
                             power = next;
                             let _ = self.apply_power_mode(power).await;
-                            #[cfg(feature = "diagnostics")]
-                            {
-                                samples_until_update = 1;
-                            }
-                            samples_until_step_update = 1;
+                            ticks_until_step_update = 1;
                         }
-                        Either::Second(result) => {
-                            if result.is_err() {
-                                warn!("Accelerometer interrupt wait failed");
-                                continue;
-                            }
-                            match self.accelerometer.acknowledge_data_ready().await {
-                                Ok(true) => {}
-                                Ok(false) => continue,
-                                Err(_) => {
-                                    warn!("Accelerometer interrupt acknowledgement failed");
-                                    continue;
-                                }
-                            }
+                        Either::Second(()) => {
                             #[cfg(feature = "diagnostics")]
-                            {
-                                samples_until_update -= 1;
-                                if samples_until_update == 0 {
-                                    self.publish_acceleration().await;
-                                    samples_until_update = ACTIVE_UI_DIVISOR;
-                                }
-                            }
-                            samples_until_step_update -= 1;
-                            if samples_until_step_update == 0 {
+                            self.publish_acceleration().await;
+                            ticks_until_step_update -= 1;
+                            if ticks_until_step_update == 0 {
                                 self.publish_step_count().await;
-                                samples_until_step_update = ACTIVE_STEP_DIVISOR;
+                                ticks_until_step_update = ACTIVE_STEP_DIVISOR;
                             }
                         }
                     }
@@ -99,11 +71,7 @@ where
                         Either::First(next) => {
                             power = next;
                             let _ = self.apply_power_mode(power).await;
-                            #[cfg(feature = "diagnostics")]
-                            {
-                                samples_until_update = 1;
-                            }
-                            samples_until_step_update = 1;
+                            ticks_until_step_update = 1;
                         }
                         Either::Second(()) => {
                             #[cfg(feature = "diagnostics")]
@@ -115,11 +83,7 @@ where
                 SystemPowerState::Sleeping => {
                     power = SYSTEM_POWER.wait().await;
                     let _ = self.apply_power_mode(power).await;
-                    #[cfg(feature = "diagnostics")]
-                    {
-                        samples_until_update = 1;
-                    }
-                    samples_until_step_update = 1;
+                    ticks_until_step_update = 1;
                     self.publish_step_count().await;
                 }
             }
@@ -199,10 +163,9 @@ where
             return Err(());
         }
 
-        let data_ready_enabled = state == SystemPowerState::Interactive;
         if self
             .accelerometer
-            .set_data_ready_interrupt(data_ready_enabled)
+            .set_data_ready_interrupt(false)
             .await
             .is_err()
         {
@@ -210,11 +173,6 @@ where
             return Err(());
         }
 
-        // A power signal can cancel the GPIO future while INT1 is asserted.
-        // Clear that pending status before arming the next rising-edge wait.
-        if self.accelerometer.acknowledge_data_ready().await.is_err() {
-            warn!("Accelerometer interrupt rearm failed");
-        }
         Ok(())
     }
 
