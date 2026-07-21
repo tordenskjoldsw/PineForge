@@ -44,6 +44,10 @@ mkdir -p tools/mcuboot
 ./scripts/build-dfu.sh 0.1.0
 ```
 
+The DFU script enables the `diagnostics` feature by default for sealed-device
+hardware testing. Use `PINEFORGE_FEATURES= ./scripts/build-dfu.sh 0.1.0` to
+build without the touch-test screen and render telemetry.
+
 Output:
 
 ```text

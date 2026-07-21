@@ -12,6 +12,7 @@ pub const SCREEN_STACK_CAPACITY: usize = 4;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ScreenId {
     Watchface,
+    #[cfg(feature = "diagnostics")]
     TouchTest,
 }
 
@@ -219,6 +220,7 @@ mod tests {
         assert_eq!(app.active_screen(), ScreenId::Watchface);
     }
 
+    #[cfg(feature = "diagnostics")]
     #[test]
     fn push_and_back_change_the_active_screen() {
         let mut app = AppState::new(ScreenId::Watchface);
@@ -245,6 +247,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "diagnostics")]
     #[test]
     fn full_stack_rejects_another_screen_without_losing_state() {
         let mut app = AppState::new(ScreenId::Watchface);

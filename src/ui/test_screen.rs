@@ -1,3 +1,5 @@
+use core::fmt::Write;
+
 use embedded_graphics::{
     mono_font::{MonoTextStyle, ascii::FONT_6X10, ascii::FONT_10X20},
     pixelcolor::Rgb565,
@@ -5,11 +7,17 @@ use embedded_graphics::{
     primitives::{PrimitiveStyle, Rectangle},
     text::{Alignment, Text},
 };
+use heapless::String;
 
-use crate::ui::{render::draw_visible, screen::Screen};
-use pineforge_state::{AppEvent, ScreenAction, SwipeDirection};
+use crate::ui::{
+    metrics::RenderMetrics,
+    render::{draw_mono_text_visible, draw_visible},
+    screen::Screen,
+};
+use pineforge_state::{AppEvent, NavigationDirection, ScreenAction, SwipeDirection};
 
-const TOUCH_AREA: Rectangle = Rectangle::new(Point::new(0, 64), Size::new(240, 150));
+const TOUCH_AREA: Rectangle = Rectangle::new(Point::new(0, 64), Size::new(240, 76));
+const METRICS_AREA: Rectangle = Rectangle::new(Point::new(0, 140), Size::new(240, 74));
 const FOOTER_AREA: Rectangle = Rectangle::new(Point::new(0, 214), Size::new(240, 26));
 const TOUCH_MARKER_SIZE: Size = Size::new(13, 13);
 
@@ -17,6 +25,90 @@ const TOUCH_MARKER_SIZE: Size = Size::new(13, 13);
 pub struct TestScreen {
     last_touch: Option<Point>,
     previous_touch: Option<Point>,
+    forward_metrics: Option<RenderMetrics>,
+    backward_metrics: Option<RenderMetrics>,
+}
+
+impl TestScreen {
+    pub const fn record_transition(
+        &mut self,
+        direction: NavigationDirection,
+        metrics: RenderMetrics,
+    ) {
+        match direction {
+            NavigationDirection::Forward => self.forward_metrics = Some(metrics),
+            NavigationDirection::Backward => self.backward_metrics = Some(metrics),
+        }
+    }
+
+    pub fn draw_metrics<D>(&self, display: &mut D) -> Result<(), D::Error>
+    where
+        D: DrawTarget<Color = Rgb565>,
+    {
+        METRICS_AREA
+            .into_styled(PrimitiveStyle::with_fill(Rgb565::BLACK))
+            .draw(display)?;
+        let style = MonoTextStyle::new(&FONT_6X10, Rgb565::WHITE);
+        Self::draw_metric_line(display, "F", self.forward_metrics, 154, style)?;
+        Self::draw_metric_line(display, "B", self.backward_metrics, 170, style)?;
+        Self::draw_max_line(
+            display,
+            self.forward_metrics,
+            self.backward_metrics,
+            190,
+            style,
+        )?;
+        let tiles = self
+            .forward_metrics
+            .or(self.backward_metrics)
+            .map_or(0, |metrics| metrics.stripe_count);
+        let mut tile_line = String::<24>::new();
+        let _ = write!(tile_line, "TILES {tiles}");
+        draw_mono_text_visible(&tile_line, Point::new(0, 206), style, display)?;
+        Ok(())
+    }
+
+    fn draw_metric_line<D>(
+        display: &mut D,
+        label: &str,
+        metrics: Option<RenderMetrics>,
+        baseline: i32,
+        style: MonoTextStyle<'_, Rgb565>,
+    ) -> Result<(), D::Error>
+    where
+        D: DrawTarget<Color = Rgb565>,
+    {
+        let mut line = String::<24>::new();
+        if let Some(metrics) = metrics {
+            let _ = write!(
+                line,
+                "{label} {} C{} S{}",
+                metrics.total_us / 1_000,
+                metrics.compose_us / 1_000,
+                metrics.transfer_us / 1_000,
+            );
+        } else {
+            let _ = write!(line, "{label} ---");
+        }
+        draw_mono_text_visible(&line, Point::new(0, baseline), style, display)
+    }
+
+    fn draw_max_line<D>(
+        display: &mut D,
+        forward: Option<RenderMetrics>,
+        backward: Option<RenderMetrics>,
+        baseline: i32,
+        style: MonoTextStyle<'_, Rgb565>,
+    ) -> Result<(), D::Error>
+    where
+        D: DrawTarget<Color = Rgb565>,
+    {
+        let mut line = String::<24>::new();
+        let forward_max = forward.map_or(0, |metrics| metrics.max_stripe_us / 1_000);
+        let backward_max = backward.map_or(0, |metrics| metrics.max_stripe_us / 1_000);
+        let _ = write!(line, "MAX F{forward_max} B{backward_max}");
+        draw_mono_text_visible(&line, Point::new(0, baseline), style, display)
+    }
 }
 
 impl Screen for TestScreen {
@@ -64,6 +156,9 @@ impl Screen for TestScreen {
                 .into_styled(PrimitiveStyle::with_fill(Rgb565::YELLOW))
                 .draw(display)?;
         }
+        keep_alive();
+
+        self.draw_metrics(display)?;
         keep_alive();
 
         FOOTER_AREA

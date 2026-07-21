@@ -7,6 +7,10 @@ license = "MIT OR Apache-2.0"
 description = "PineForge: a modern, modular Rust firmware for the PINE64 PineTime"
 publish = false
 
+[features]
+default = []
+diagnostics = ["pineforge-state/diagnostics"]
+
 [[bin]]
 name = "pineforge"
 path = "src/main.rs"

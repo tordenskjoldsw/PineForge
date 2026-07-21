@@ -1,5 +1,7 @@
 use core::convert::Infallible;
 
+#[cfg(feature = "diagnostics")]
+use embassy_time::Instant;
 use embedded_graphics::{
     Pixel,
     draw_target::DrawTarget,
@@ -9,6 +11,8 @@ use embedded_graphics::{
 };
 use pineforge_state::NavigationDirection;
 
+#[cfg(feature = "diagnostics")]
+use super::metrics::RenderMetrics;
 use super::screen::Screen;
 
 const STRIPE_WIDTH: u32 = 24;
@@ -105,15 +109,21 @@ pub fn draw_slide_reveal<S, D>(
     buffer: &mut SlideBuffer,
     direction: NavigationDirection,
     mut keep_alive: impl FnMut(),
-) -> Result<(), D::Error>
+) -> Result<TransitionOutput, D::Error>
 where
     S: Screen,
     D: DrawTarget<Color = Rgb565>,
 {
+    #[cfg(feature = "diagnostics")]
+    let transition_started = Instant::now();
+    #[cfg(feature = "diagnostics")]
+    let mut metrics = RenderMetrics::default();
     let screen_area = display.bounding_box();
     let stripe_count = screen_area.size.width.div_ceil(STRIPE_WIDTH);
 
     for index in 0..stripe_count {
+        #[cfg(feature = "diagnostics")]
+        let stripe_started = Instant::now();
         let stripe_index = match direction {
             NavigationDirection::Forward => stripe_count - index - 1,
             NavigationDirection::Backward => index,
@@ -128,9 +138,15 @@ where
             Size::new(width, screen_area.size.height),
         );
         buffer.prepare(area);
+        #[cfg(feature = "diagnostics")]
+        let compose_started = Instant::now();
         match screen.draw_full(buffer, &mut keep_alive) {
             Ok(()) => {}
             Err(error) => match error {},
+        }
+        #[cfg(feature = "diagnostics")]
+        {
+            metrics.compose_us += compose_started.elapsed().as_micros();
         }
 
         let width = usize::try_from(width).unwrap_or(0);
@@ -138,9 +154,31 @@ where
         let pixels = &buffer.pixels;
         let colors =
             (0..height).flat_map(|y| (0..width).map(move |x| pixels[y * STRIPE_WIDTH_USIZE + x]));
+        #[cfg(feature = "diagnostics")]
+        let transfer_started = Instant::now();
         display.fill_contiguous(&area, colors)?;
+        #[cfg(feature = "diagnostics")]
+        {
+            metrics.transfer_us += transfer_started.elapsed().as_micros();
+            metrics.max_stripe_us = metrics
+                .max_stripe_us
+                .max(stripe_started.elapsed().as_micros());
+            metrics.stripe_count = metrics.stripe_count.saturating_add(1);
+        }
         keep_alive();
     }
 
+    #[cfg(feature = "diagnostics")]
+    {
+        metrics.total_us = transition_started.elapsed().as_micros();
+        Ok(metrics)
+    }
+    #[cfg(not(feature = "diagnostics"))]
     Ok(())
 }
+
+#[cfg(feature = "diagnostics")]
+pub type TransitionOutput = RenderMetrics;
+
+#[cfg(not(feature = "diagnostics"))]
+pub type TransitionOutput = ();

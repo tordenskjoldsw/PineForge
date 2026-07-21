@@ -5,12 +5,13 @@ use embedded_graphics::{
     pixelcolor::Rgb565,
     prelude::*,
     primitives::{PrimitiveStyle, Rectangle},
-    text::Text,
 };
 use heapless::String;
 
-use crate::ui::{render::draw_visible, screen::Screen};
-use pineforge_state::{AppEvent, ScreenAction, ScreenId, SwipeDirection};
+use crate::ui::{render::draw_mono_text_visible, screen::Screen};
+#[cfg(feature = "diagnostics")]
+use pineforge_state::ScreenId;
+use pineforge_state::{AppEvent, ScreenAction, SwipeDirection};
 
 const ROW_HEIGHT: u32 = 25;
 const VALUE_X: i32 = 70;
@@ -97,8 +98,10 @@ impl TerminalWatchface {
             .background_color(Rgb565::BLACK)
             .build();
         let x = VALUE_X + i32::try_from(first_changed).unwrap_or(0) * 10;
-        draw_visible(
-            &Text::new(&new[first_changed..], Point::new(x, baseline), style),
+        draw_mono_text_visible(
+            &new[first_changed..],
+            Point::new(x, baseline),
+            style,
             display,
         )?;
         Ok(())
@@ -117,20 +120,16 @@ impl TerminalWatchface {
         area.into_styled(PrimitiveStyle::with_fill(Rgb565::BLACK))
             .draw(display)?;
         let baseline = area.top_left.y + 20;
-        draw_visible(
-            &Text::new(
-                label,
-                Point::new(0, baseline),
-                MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE),
-            ),
+        draw_mono_text_visible(
+            label,
+            Point::new(0, baseline),
+            MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE),
             display,
         )?;
-        draw_visible(
-            &Text::new(
-                value,
-                Point::new(VALUE_X, baseline),
-                MonoTextStyle::new(&FONT_10X20, value_color),
-            ),
+        draw_mono_text_visible(
+            value,
+            Point::new(VALUE_X, baseline),
+            MonoTextStyle::new(&FONT_10X20, value_color),
             display,
         )?;
         Ok(())
@@ -209,6 +208,7 @@ impl Screen for TerminalWatchface {
                 self.dirty = DirtyRegion::Status;
             }
             AppEvent::Swipe(SwipeDirection::Left) => {
+                #[cfg(feature = "diagnostics")]
                 return ScreenAction::Push(ScreenId::TouchTest);
             }
             AppEvent::Swipe(_) => {}
@@ -224,10 +224,7 @@ impl Screen for TerminalWatchface {
         HEADER_AREA
             .into_styled(PrimitiveStyle::with_fill(Rgb565::BLACK))
             .draw(display)?;
-        draw_visible(
-            &Text::new("user@watch:~ $ now", Point::new(0, 20), prompt),
-            display,
-        )?;
+        draw_mono_text_visible("user@watch:~ $ now", Point::new(0, 20), prompt, display)?;
         keep_alive();
 
         Self::draw_row(
@@ -272,14 +269,15 @@ impl Screen for TerminalWatchface {
         FOOTER_AREA
             .into_styled(PrimitiveStyle::with_fill(Rgb565::BLACK))
             .draw(display)?;
-        draw_visible(
-            &Text::new(
-                "swipe left >",
-                Point::new(0, 226),
-                MonoTextStyle::new(&FONT_10X20, TERMINAL_GREEN),
-            ),
+        #[cfg(feature = "diagnostics")]
+        draw_mono_text_visible(
+            "swipe left >",
+            Point::new(0, 226),
+            MonoTextStyle::new(&FONT_10X20, TERMINAL_GREEN),
             display,
         )?;
+        #[cfg(not(feature = "diagnostics"))]
+        draw_mono_text_visible("user@watch:~ $", Point::new(0, 226), prompt, display)?;
         keep_alive();
         Ok(())
     }

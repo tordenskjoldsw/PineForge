@@ -1,5 +1,8 @@
+#[cfg(feature = "diagnostics")]
+pub mod metrics;
 pub mod render;
 pub mod screen;
+#[cfg(feature = "diagnostics")]
 pub mod test_screen;
 pub mod transition;
 pub mod watchface;

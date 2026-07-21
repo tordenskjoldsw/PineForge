@@ -2,6 +2,7 @@
 set -euo pipefail
 
 VERSION="${1:-0.1.0}"
+FEATURES="${PINEFORGE_FEATURES-diagnostics}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST="$ROOT/dist"
 MCUBOOT="$ROOT/tools/mcuboot-src/scripts/imgtool.py"
@@ -14,8 +15,12 @@ command -v adafruit-nrfutil >/dev/null || { echo "adafruit-nrfutil is missing" >
 }
 
 mkdir -p "$DIST"
-cargo build --release
-cargo objcopy --release -- -O binary "$DIST/pineforge.bin"
+CARGO_ARGS=(--release)
+if [[ -n "$FEATURES" ]]; then
+  CARGO_ARGS+=(--features "$FEATURES")
+fi
+cargo build "${CARGO_ARGS[@]}"
+cargo objcopy "${CARGO_ARGS[@]}" -- -O binary "$DIST/pineforge.bin"
 python3 "$MCUBOOT" create \
   --align 4 \
   --version "$VERSION" \

@@ -6,6 +6,10 @@ rust-version = "1.87"
 license = "MIT OR Apache-2.0"
 publish = false
 
+[features]
+default = []
+diagnostics = []
+
 [dependencies]
 heapless = "0.9.3"
 
