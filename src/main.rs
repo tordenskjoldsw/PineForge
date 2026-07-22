@@ -64,6 +64,7 @@ async fn main(spawner: embassy_executor::Spawner) {
         adc: p.SAADC,
         voltage: p.P0_31,
         charge_status: p.P0_12,
+        power_present: p.P0_19,
     })));
 
     let button = ButtonResources {

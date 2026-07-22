@@ -60,6 +60,17 @@ backend. While sleeping, periodic UI and motion updates are suspended. Wake
 fully redraws the active screen before enabling the backlight, preventing stale
 framebuffer content from becoming visible.
 
+The battery task owns SAADC plus PineTime's active-low charge-status and
+external-power inputs. It uses Embassy one-shot conversions every ten minutes
+while discharging in production, every minute on external power, and every 30
+seconds in diagnostics. Charger edges publish power flags immediately without
+taking a capacity sample. A hardware-independent estimator applies the
+InfiniTime direction rule and limits visible movement to one percentage point
+per elapsed minute. This keeps diagnostic cadence from accelerating capacity
+changes and prevents charger terminal voltage from becoming an immediate
+percentage jump. The diagnostics UI retains raw millivolts for validation;
+future low-voltage protection must continue to use that raw measurement.
+
 ## UI contract
 
 Screens implement the `Screen` trait. A screen receives hardware-independent `UiEvent` values, updates its private state, renders through an `embedded-graphics` draw target, and may return a high-level `ScreenAction`. It does not own or access touch, SPI, BLE, or sensor peripherals directly. Watchfaces will use the same boundary with application state supplied by services.

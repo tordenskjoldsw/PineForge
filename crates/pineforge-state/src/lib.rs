@@ -135,15 +135,58 @@ impl SystemPowerPolicy {
     }
 }
 
-/// Latest directly observed battery state.
-///
-/// Percentage is deliberately absent until the voltage readings and discharge
-/// curve have been validated on real hardware.
+/// Latest battery measurement and stabilized capacity state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BatteryStatus {
     pub millivolts: u16,
     pub percent: u8,
     pub charging: bool,
+    pub power_present: bool,
+}
+
+/// Directional capacity estimate based on `InfiniTime`'s battery policy.
+///
+/// Charger terminal voltage must not make capacity fall while externally
+/// powered, and voltage recovery must not make it rise while discharging.
+pub struct BatteryCapacityEstimator {
+    basis_points: Option<u16>,
+}
+
+impl BatteryCapacityEstimator {
+    const BASIS_POINTS_PER_PERCENT: u16 = 100;
+    const MAX_BASIS_POINTS_PER_MINUTE: u64 = 100;
+
+    #[must_use]
+    pub const fn new() -> Self {
+        Self { basis_points: None }
+    }
+
+    pub fn observe(&mut self, millivolts: u16, power_present: bool, elapsed_seconds: u64) -> u8 {
+        let measured = u16::from(battery_percent(millivolts)) * Self::BASIS_POINTS_PER_PERCENT;
+        let basis_points = self.basis_points.map_or(measured, |previous| {
+            let target = if power_present {
+                previous.max(measured)
+            } else {
+                previous.min(measured)
+            };
+            let allowance = elapsed_seconds.saturating_mul(Self::MAX_BASIS_POINTS_PER_MINUTE) / 60;
+            let allowance = u16::try_from(allowance).unwrap_or(u16::MAX);
+
+            if target >= previous {
+                target.min(previous.saturating_add(allowance))
+            } else {
+                target.max(previous.saturating_sub(allowance))
+            }
+        });
+        self.basis_points = Some(basis_points);
+        u8::try_from(basis_points / Self::BASIS_POINTS_PER_PERCENT).unwrap_or(100)
+    }
+}
+
+impl Default for BatteryCapacityEstimator {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -476,6 +519,28 @@ mod tests {
         assert_eq!(battery_percent(3_878), 64);
         assert_eq!(battery_percent(4_180), 100);
         assert_eq!(battery_percent(4_300), 100);
+    }
+
+    #[test]
+    fn battery_capacity_moves_only_in_the_power_state_direction() {
+        let mut estimator = BatteryCapacityEstimator::new();
+
+        assert_eq!(estimator.observe(3_878, false, 0), 64);
+        assert_eq!(estimator.observe(3_979, false, 3_600), 64);
+        assert_eq!(estimator.observe(3_776, true, 3_600), 64);
+        assert_eq!(estimator.observe(3_979, true, 3_600), 79);
+        assert_eq!(estimator.observe(3_776, false, 3_600), 48);
+    }
+
+    #[test]
+    fn battery_capacity_is_slew_limited_by_elapsed_time() {
+        let mut estimator = BatteryCapacityEstimator::new();
+
+        assert_eq!(estimator.observe(3_850, false, 0), 59);
+        assert_eq!(estimator.observe(3_979, true, 30), 59);
+        assert_eq!(estimator.observe(3_979, true, 30), 60);
+        assert_eq!(estimator.observe(3_500, false, 30), 59);
+        assert_eq!(estimator.observe(3_500, false, 30), 59);
     }
 
     #[test]

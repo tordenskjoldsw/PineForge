@@ -174,7 +174,13 @@ impl TerminalWatchface {
     fn format_battery(&self) -> String<16> {
         let mut value = String::new();
         if let Some(status) = self.battery {
-            let power = if status.charging { "CHG" } else { "BAT" };
+            let power = if status.charging {
+                "CHG"
+            } else if status.power_present {
+                "PWR"
+            } else {
+                "BAT"
+            };
             #[cfg(feature = "diagnostics")]
             let _ = write!(value, "{}mV {}% {power}", status.millivolts, status.percent);
             #[cfg(not(feature = "diagnostics"))]

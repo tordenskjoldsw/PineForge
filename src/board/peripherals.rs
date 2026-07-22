@@ -46,4 +46,5 @@ pub struct BatteryResources {
     pub adc: Peri<'static, peripherals::SAADC>,
     pub voltage: Peri<'static, peripherals::P0_31>,
     pub charge_status: Peri<'static, peripherals::P0_12>,
+    pub power_present: Peri<'static, peripherals::P0_19>,
 }
