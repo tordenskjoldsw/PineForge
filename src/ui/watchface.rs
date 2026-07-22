@@ -65,6 +65,8 @@ pub struct TerminalWatchface {
     feature_engine: Option<FeatureEngineStatus>,
     #[cfg(feature = "diagnostics")]
     heart_rate_sensor: Option<HeartRateSensorKind>,
+    #[cfg(feature = "diagnostics")]
+    heart_rate_raw: Option<u16>,
     steps: Option<u32>,
     dirty: DirtyRegion,
 }
@@ -85,6 +87,8 @@ impl Default for TerminalWatchface {
             feature_engine: None,
             #[cfg(feature = "diagnostics")]
             heart_rate_sensor: None,
+            #[cfg(feature = "diagnostics")]
+            heart_rate_raw: None,
             steps: None,
             dirty: DirtyRegion::None,
         }
@@ -269,6 +273,10 @@ impl TerminalWatchface {
     #[cfg(feature = "diagnostics")]
     fn format_heart_rate_sensor(&self) -> String<12> {
         let mut value = String::new();
+        if let Some(raw) = self.heart_rate_raw {
+            let _ = write!(value, "HRS {raw}");
+            return value;
+        }
         match self.heart_rate_sensor {
             Some(HeartRateSensorKind::Hrs3300) => {
                 let _ = value.push_str("HRS3300");
@@ -366,6 +374,11 @@ impl Screen for TerminalWatchface {
             #[cfg(feature = "diagnostics")]
             AppEvent::HeartRateSensorDetected(kind) => {
                 self.heart_rate_sensor = Some(kind);
+                self.dirty = DirtyRegion::HeartRateSensor;
+            }
+            #[cfg(feature = "diagnostics")]
+            AppEvent::HeartRateRawSampleUpdated(raw) => {
+                self.heart_rate_raw = Some(raw);
                 self.dirty = DirtyRegion::HeartRateSensor;
             }
             AppEvent::StepsUpdated(steps) => {

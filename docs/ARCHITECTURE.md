@@ -77,6 +77,12 @@ changes and prevents charger terminal voltage from becoming an immediate
 percentage jump. The diagnostics UI retains raw millivolts for validation;
 future low-voltage protection must continue to use that raw measurement.
 
+Heart-rate bring-up remains diagnostics-only. The HRS3300 register layer owns
+explicit configure, power-up, heart-signal read, and power-down operations;
+BPM processing stays outside the driver. The first acquisition stage performs
+one bounded HRS-channel read after a 100 ms settling delay and always attempts
+to disable the conversion engine and LED before publishing the result.
+
 ## UI contract
 
 Screens implement the `Screen` trait. A screen receives hardware-independent `UiEvent` values, updates its private state, renders through an `embedded-graphics` draw target, and may return a high-level `ScreenAction`. It does not own or access touch, SPI, BLE, or sensor peripherals directly. Watchfaces will use the same boundary with application state supplied by services.

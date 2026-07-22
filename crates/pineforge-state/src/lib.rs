@@ -299,6 +299,8 @@ pub enum AppEvent {
     FeatureEngineUpdated(FeatureEngineStatus),
     #[cfg(feature = "diagnostics")]
     HeartRateSensorDetected(HeartRateSensorKind),
+    #[cfg(feature = "diagnostics")]
+    HeartRateRawSampleUpdated(u16),
     StepsUpdated(u32),
 }
 

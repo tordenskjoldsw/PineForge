@@ -5,8 +5,17 @@ const DEVICE_ID: u8 = 0x21;
 
 const REG_ID: u8 = 0x00;
 const REG_ENABLE: u8 = 0x01;
+const REG_HRS_DATA_MIDDLE: u8 = 0x09;
+const REG_HRS_DATA_HIGH: u8 = 0x0a;
 const REG_LED_DRIVER: u8 = 0x0c;
+const REG_HRS_DATA_LOW: u8 = 0x0f;
+const REG_RESOLUTION: u8 = 0x16;
+const REG_HRS_GAIN: u8 = 0x17;
 const HRS_ENABLE: u8 = 0x80;
+const CONFIG_DISABLED_50_MS: u8 = 0x50;
+const LED_DRIVE_12_5_MA: u8 = 0x2f;
+const RESOLUTION_15_BIT: u8 = 0x77;
+const HRS_GAIN_1X: u8 = 0x00;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Hrs3300Kind {
@@ -37,6 +46,38 @@ where
         } else {
             Hrs3300Kind::Unknown(id)
         })
+    }
+
+    /// Applies `InfiniTime`'s proven `PineTime` acquisition configuration while
+    /// leaving the conversion engine disabled.
+    pub async fn configure(&mut self) -> Result<(), I2C::Error> {
+        self.write_register(REG_ENABLE, CONFIG_DISABLED_50_MS)
+            .await?;
+        self.write_register(REG_LED_DRIVER, LED_DRIVE_12_5_MA)
+            .await?;
+        self.write_register(REG_RESOLUTION, RESOLUTION_15_BIT)
+            .await?;
+        self.write_register(REG_HRS_GAIN, HRS_GAIN_1X).await
+    }
+
+    pub async fn power_up(&mut self) -> Result<(), I2C::Error> {
+        let enable = self.read_register(REG_ENABLE).await? | HRS_ENABLE;
+        self.write_register(REG_ENABLE, enable).await?;
+        self.write_register(REG_LED_DRIVER, LED_DRIVE_12_5_MA).await
+    }
+
+    pub async fn power_down(&mut self) -> Result<(), I2C::Error> {
+        self.disable().await
+    }
+
+    /// Reads only the optical heart-signal channel. Ambient-light acquisition
+    /// remains outside this first hardware-validation step.
+    pub async fn read_hrs(&mut self) -> Result<u16, I2C::Error> {
+        let middle = self.read_register(REG_HRS_DATA_MIDDLE).await?;
+        let high = self.read_register(REG_HRS_DATA_HIGH).await?;
+        let low = self.read_register(REG_HRS_DATA_LOW).await?;
+
+        Ok((u16::from(middle) << 8) | (u16::from(high & 0x0f) << 4) | u16::from(low & 0x0f))
     }
 
     async fn disable(&mut self) -> Result<(), I2C::Error> {
