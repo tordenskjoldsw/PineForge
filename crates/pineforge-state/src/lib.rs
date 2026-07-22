@@ -333,6 +333,86 @@ pub enum SwipeDirection {
     Down,
 }
 
+const SWIPE_MIN_DISTANCE: i32 = 40;
+const SWIPE_AXIS_DOMINANCE_NUMERATOR: i32 = 3;
+const SWIPE_AXIS_DOMINANCE_DENOMINATOR: i32 = 2;
+
+/// Combines controller-provided gestures with a coordinate-based fallback.
+///
+/// The fallback only accepts a clearly dominant axis, preserving taps and
+/// diagonal drawing input while covering missed `CST816S` gesture reports.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SwipeRecognizer {
+    start: Option<(i32, i32)>,
+    emitted: bool,
+}
+
+impl SwipeRecognizer {
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            start: None,
+            emitted: false,
+        }
+    }
+
+    pub fn update(
+        &mut self,
+        x: i32,
+        y: i32,
+        pressed: bool,
+        controller_gesture: Option<SwipeDirection>,
+    ) -> Option<SwipeDirection> {
+        if !pressed {
+            let gesture = controller_gesture.filter(|_| !self.emitted);
+            self.reset();
+            return gesture;
+        }
+
+        let start = *self.start.get_or_insert((x, y));
+        if self.emitted {
+            return None;
+        }
+        if let Some(gesture) = controller_gesture {
+            self.emitted = true;
+            return Some(gesture);
+        }
+
+        let delta_x = x - start.0;
+        let delta_y = y - start.1;
+        let horizontal = delta_x.abs();
+        let vertical = delta_y.abs();
+        let direction = if horizontal >= SWIPE_MIN_DISTANCE
+            && horizontal * SWIPE_AXIS_DOMINANCE_DENOMINATOR
+                >= vertical * SWIPE_AXIS_DOMINANCE_NUMERATOR
+        {
+            Some(if delta_x < 0 {
+                SwipeDirection::Left
+            } else {
+                SwipeDirection::Right
+            })
+        } else if vertical >= SWIPE_MIN_DISTANCE
+            && vertical * SWIPE_AXIS_DOMINANCE_DENOMINATOR
+                >= horizontal * SWIPE_AXIS_DOMINANCE_NUMERATOR
+        {
+            Some(if delta_y < 0 {
+                SwipeDirection::Up
+            } else {
+                SwipeDirection::Down
+            })
+        } else {
+            None
+        };
+        self.emitted = direction.is_some();
+        direction
+    }
+
+    pub const fn reset(&mut self) {
+        self.start = None;
+        self.emitted = false;
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ScreenAction {
     None,
@@ -604,6 +684,37 @@ mod tests {
         assert_eq!(accelerometer_kind(0x11), AccelerometerKind::Bma421);
         assert_eq!(accelerometer_kind(0x13), AccelerometerKind::Bma425);
         assert_eq!(accelerometer_kind(0xff), AccelerometerKind::Unknown(0xff));
+    }
+
+    #[test]
+    fn swipe_recognizer_falls_back_to_dominant_coordinate_motion() {
+        let mut recognizer = SwipeRecognizer::new();
+
+        assert_eq!(recognizer.update(120, 190, true, None), None);
+        assert_eq!(
+            recognizer.update(118, 145, true, None),
+            Some(SwipeDirection::Up)
+        );
+        assert_eq!(recognizer.update(116, 90, true, None), None);
+        assert_eq!(recognizer.update(0, 0, false, None), None);
+    }
+
+    #[test]
+    fn swipe_recognizer_prefers_hardware_and_preserves_taps() {
+        let mut recognizer = SwipeRecognizer::new();
+
+        assert_eq!(recognizer.update(100, 100, true, None), None);
+        assert_eq!(recognizer.update(105, 103, true, None), None);
+        assert_eq!(recognizer.update(105, 103, false, None), None);
+        assert_eq!(recognizer.update(180, 100, true, None), None);
+        assert_eq!(
+            recognizer.update(170, 100, true, Some(SwipeDirection::Left)),
+            Some(SwipeDirection::Left)
+        );
+        assert_eq!(
+            recognizer.update(100, 100, true, Some(SwipeDirection::Left)),
+            None
+        );
     }
 
     #[test]
