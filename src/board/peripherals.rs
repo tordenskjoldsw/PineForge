@@ -26,6 +26,11 @@ pub struct TouchResources {
     pub interrupt: Peri<'static, peripherals::P0_28>,
 }
 
+#[cfg(feature = "diagnostics")]
+pub struct HeartRateResources {
+    pub interrupt: Peri<'static, peripherals::P0_30>,
+}
+
 pub struct SensorBusResources {
     pub i2c: Peri<'static, peripherals::TWISPI1>,
     pub sda: Peri<'static, peripherals::P0_06>,

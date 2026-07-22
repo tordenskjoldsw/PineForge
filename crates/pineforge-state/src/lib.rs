@@ -169,6 +169,14 @@ pub enum FeatureEngineStatus {
     Failed,
 }
 
+#[cfg(feature = "diagnostics")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HeartRateSensorKind {
+    Hrs3300,
+    Unknown(u8),
+    Unavailable,
+}
+
 #[must_use]
 pub const fn accelerometer_kind(chip_id: u8) -> AccelerometerKind {
     match chip_id {
@@ -247,6 +255,8 @@ pub enum AppEvent {
     AccelerationUpdated(AccelerationSample),
     #[cfg(feature = "diagnostics")]
     FeatureEngineUpdated(FeatureEngineStatus),
+    #[cfg(feature = "diagnostics")]
+    HeartRateSensorDetected(HeartRateSensorKind),
     StepsUpdated(u32),
 }
 

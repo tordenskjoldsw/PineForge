@@ -16,6 +16,8 @@ mod services;
 mod tasks;
 mod ui;
 
+#[cfg(feature = "diagnostics")]
+use board::peripherals::HeartRateResources;
 use board::peripherals::{
     BatteryResources, ButtonResources, DisplayResources, SensorBusResources, TouchResources,
 };
@@ -52,6 +54,11 @@ async fn main(spawner: embassy_executor::Spawner) {
     });
     spawner.spawn(defmt::unwrap!(tasks::accelerometer::run(
         board::buses::motion_device(sensor_bus)
+    )));
+    #[cfg(feature = "diagnostics")]
+    spawner.spawn(defmt::unwrap!(tasks::heart_rate::run(
+        HeartRateResources { interrupt: p.P0_30 },
+        board::buses::heart_rate_device(sensor_bus)
     )));
 
     spawner.spawn(defmt::unwrap!(tasks::battery::run(BatteryResources {

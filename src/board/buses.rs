@@ -14,6 +14,8 @@ pub type SensorBus = Mutex<NoopRawMutex, RefCell<Twim<'static>>>;
 type BlockingSensorI2c = BlockingI2cDevice<'static, NoopRawMutex, Twim<'static>>;
 pub type TouchI2c = BlockingAsync<BlockingSensorI2c>;
 pub type MotionI2c = YieldingAsync<BlockingAsync<BlockingSensorI2c>>;
+#[cfg(feature = "diagnostics")]
+pub type HeartRateI2c = YieldingAsync<BlockingAsync<BlockingSensorI2c>>;
 
 static SENSOR_BUS: StaticCell<SensorBus> = StaticCell::new();
 const SENSOR_BUS_BUFFER_SIZE: usize = 32;
@@ -43,5 +45,12 @@ pub fn touch_device(bus: &'static SensorBus) -> TouchI2c {
 /// Creates the motion device. Its runner provides explicit timer and signal
 /// yield points between short, serialized transactions.
 pub fn motion_device(bus: &'static SensorBus) -> MotionI2c {
+    YieldingAsync::new(BlockingAsync::new(BlockingI2cDevice::new(bus)))
+}
+
+/// Creates the heart-rate device used by the diagnostics probe. Heart-rate
+/// sampling is not latency-sensitive, so every short transaction yields.
+#[cfg(feature = "diagnostics")]
+pub fn heart_rate_device(bus: &'static SensorBus) -> HeartRateI2c {
     YieldingAsync::new(BlockingAsync::new(BlockingI2cDevice::new(bus)))
 }

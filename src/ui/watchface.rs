@@ -10,10 +10,11 @@ use heapless::String;
 
 use crate::ui::{render::draw_mono_text_visible, screen::Screen};
 #[cfg(feature = "diagnostics")]
-use pineforge_state::{AccelerationSample, AccelerometerKind, FeatureEngineStatus, ScreenId};
 use pineforge_state::{
-    AppEvent, BatteryStatus, ScreenAction, SwipeDirection, TEST_IMAGE_TIMEOUT_SECONDS,
+    AccelerationSample, AccelerometerKind, FeatureEngineStatus, HeartRateSensorKind, ScreenId,
+    SwipeDirection,
 };
+use pineforge_state::{AppEvent, BatteryStatus, ScreenAction, TEST_IMAGE_TIMEOUT_SECONDS};
 
 const ROW_HEIGHT: u32 = 25;
 const VALUE_X: i32 = 70;
@@ -45,6 +46,8 @@ enum DirtyRegion {
     Battery,
     #[cfg(feature = "diagnostics")]
     Motion,
+    #[cfg(feature = "diagnostics")]
+    HeartRateSensor,
     Steps,
 }
 
@@ -60,6 +63,8 @@ pub struct TerminalWatchface {
     acceleration: Option<AccelerationSample>,
     #[cfg(feature = "diagnostics")]
     feature_engine: Option<FeatureEngineStatus>,
+    #[cfg(feature = "diagnostics")]
+    heart_rate_sensor: Option<HeartRateSensorKind>,
     steps: Option<u32>,
     dirty: DirtyRegion,
 }
@@ -78,6 +83,8 @@ impl Default for TerminalWatchface {
             acceleration: None,
             #[cfg(feature = "diagnostics")]
             feature_engine: None,
+            #[cfg(feature = "diagnostics")]
+            heart_rate_sensor: None,
             steps: None,
             dirty: DirtyRegion::None,
         }
@@ -268,6 +275,44 @@ impl TerminalWatchface {
         Self::draw_row(display, STEP_ROW, "[STEP]", &value, TERMINAL_ORANGE)
     }
 
+    #[cfg(feature = "diagnostics")]
+    fn format_heart_rate_sensor(&self) -> String<12> {
+        let mut value = String::new();
+        match self.heart_rate_sensor {
+            Some(HeartRateSensorKind::Hrs3300) => {
+                let _ = value.push_str("HRS3300");
+            }
+            Some(HeartRateSensorKind::Unknown(id)) => {
+                let _ = write!(value, "HRS 0x{id:02X}");
+            }
+            Some(HeartRateSensorKind::Unavailable) => {
+                let _ = value.push_str("HRS ERROR");
+            }
+            None => {
+                let _ = value.push_str("HRS ---");
+            }
+        }
+        value
+    }
+
+    #[cfg(feature = "diagnostics")]
+    fn draw_diagnostics_footer<D>(&self, display: &mut D) -> Result<(), D::Error>
+    where
+        D: DrawTarget<Color = Rgb565>,
+    {
+        FOOTER_AREA
+            .into_styled(PrimitiveStyle::with_fill(Rgb565::BLACK))
+            .draw(display)?;
+        let mut footer: String<24> = String::new();
+        let _ = write!(footer, "{} | swipe >", self.format_heart_rate_sensor());
+        draw_mono_text_visible(
+            &footer,
+            Point::new(0, 226),
+            MonoTextStyle::new(&FONT_10X20, TERMINAL_GREEN),
+            display,
+        )
+    }
+
     fn update_clock<D>(&self, display: &mut D) -> Result<(), D::Error>
     where
         D: DrawTarget<Color = Rgb565>,
@@ -330,6 +375,11 @@ impl Screen for TerminalWatchface {
             AppEvent::FeatureEngineUpdated(status) => {
                 self.feature_engine = Some(status);
                 self.dirty = DirtyRegion::Motion;
+            }
+            #[cfg(feature = "diagnostics")]
+            AppEvent::HeartRateSensorDetected(kind) => {
+                self.heart_rate_sensor = Some(kind);
+                self.dirty = DirtyRegion::HeartRateSensor;
             }
             AppEvent::StepsUpdated(steps) => {
                 self.steps = Some(steps);
@@ -402,12 +452,7 @@ impl Screen for TerminalWatchface {
             .into_styled(PrimitiveStyle::with_fill(Rgb565::BLACK))
             .draw(display)?;
         #[cfg(feature = "diagnostics")]
-        draw_mono_text_visible(
-            "swipe left >",
-            Point::new(0, 226),
-            MonoTextStyle::new(&FONT_10X20, TERMINAL_GREEN),
-            display,
-        )?;
+        self.draw_diagnostics_footer(display)?;
         #[cfg(not(feature = "diagnostics"))]
         draw_mono_text_visible("user@watch:~ $", Point::new(0, 226), prompt, display)?;
         keep_alive();
@@ -428,6 +473,8 @@ impl Screen for TerminalWatchface {
             DirtyRegion::Battery => self.draw_battery(display)?,
             #[cfg(feature = "diagnostics")]
             DirtyRegion::Motion => self.draw_accelerometer(display)?,
+            #[cfg(feature = "diagnostics")]
+            DirtyRegion::HeartRateSensor => self.draw_diagnostics_footer(display)?,
             DirtyRegion::Steps => self.draw_steps(display)?,
             DirtyRegion::None => {}
         }
