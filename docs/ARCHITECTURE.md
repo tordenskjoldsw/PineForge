@@ -80,8 +80,9 @@ future low-voltage protection must continue to use that raw measurement.
 Heart-rate bring-up remains diagnostics-only. The HRS3300 register layer owns
 explicit configure, power-up, heart-signal read, and power-down operations;
 BPM processing stays outside the driver. The first acquisition stage performs
-one bounded HRS-channel read after a 100 ms settling delay and always attempts
-to disable the conversion engine and LED before publishing the result.
+one bounded, coherent register-block read after a 100 ms settling delay,
+decodes only the HRS channel, and always attempts to disable the conversion
+engine and LED before publishing the result.
 
 ## UI contract
 

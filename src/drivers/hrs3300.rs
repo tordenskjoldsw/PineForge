@@ -5,12 +5,11 @@ const DEVICE_ID: u8 = 0x21;
 
 const REG_ID: u8 = 0x00;
 const REG_ENABLE: u8 = 0x01;
-const REG_HRS_DATA_MIDDLE: u8 = 0x09;
-const REG_HRS_DATA_HIGH: u8 = 0x0a;
+const REG_DATA_START: u8 = 0x08;
 const REG_LED_DRIVER: u8 = 0x0c;
-const REG_HRS_DATA_LOW: u8 = 0x0f;
 const REG_RESOLUTION: u8 = 0x16;
 const REG_HRS_GAIN: u8 = 0x17;
+const DATA_REGISTER_COUNT: usize = 8;
 const HRS_ENABLE: u8 = 0x80;
 const CONFIG_DISABLED_50_MS: u8 = 0x50;
 const LED_DRIVE_12_5_MA: u8 = 0x2f;
@@ -70,14 +69,17 @@ where
         self.disable().await
     }
 
-    /// Reads only the optical heart-signal channel. Ambient-light acquisition
-    /// remains outside this first hardware-validation step.
+    /// Reads `InfiniTime`'s coherent data-register block and decodes only the
+    /// optical heart-signal channel in this hardware-validation step.
     pub async fn read_hrs(&mut self) -> Result<u16, I2C::Error> {
-        let middle = self.read_register(REG_HRS_DATA_MIDDLE).await?;
-        let high = self.read_register(REG_HRS_DATA_HIGH).await?;
-        let low = self.read_register(REG_HRS_DATA_LOW).await?;
+        let mut registers = [0; DATA_REGISTER_COUNT];
+        self.i2c
+            .write_read(ADDRESS, &[REG_DATA_START], &mut registers)
+            .await?;
 
-        Ok((u16::from(middle) << 8) | (u16::from(high & 0x0f) << 4) | u16::from(low & 0x0f))
+        Ok((u16::from(registers[1]) << 8)
+            | (u16::from(registers[2] & 0x0f) << 4)
+            | u16::from(registers[7] & 0x0f))
     }
 
     async fn disable(&mut self) -> Result<(), I2C::Error> {
