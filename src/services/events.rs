@@ -5,15 +5,20 @@ use embassy_sync::{
     watch::{Receiver, Watch},
 };
 
+#[cfg(feature = "diagnostics")]
+use pineforge_state::HeartRateCommand;
 use pineforge_state::{AppEvent, PowerCommand, SystemPowerState};
 
 pub static UI_EVENTS: Channel<CriticalSectionRawMutex, AppEvent, 8> = Channel::new();
 
 pub static POWER_COMMANDS: Channel<CriticalSectionRawMutex, PowerCommand, 8> = Channel::new();
 
-/// Enforces `PineTime`'s proven touch -> motion bus bring-up.
+/// Enforces `PineTime`'s proven touch -> motion -> heart-rate bus bring-up.
 pub static TOUCH_READY: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 pub static MOTION_READY: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+#[cfg(feature = "diagnostics")]
+pub static HEART_RATE_COMMANDS: Channel<CriticalSectionRawMutex, HeartRateCommand, 2> =
+    Channel::new();
 
 /// Latest logical system state for display, motion, and future services.
 pub static SYSTEM_POWER: Watch<CriticalSectionRawMutex, SystemPowerState, 3> = Watch::new();

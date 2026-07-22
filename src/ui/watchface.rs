@@ -417,6 +417,8 @@ impl Screen for TerminalWatchface {
                 self.heart_rate_analysis = Some(analysis);
                 self.dirty = DirtyRegion::HeartRate;
             }
+            #[cfg(feature = "diagnostics")]
+            AppEvent::HeartRateStateUpdated(_) => {}
             AppEvent::StepsUpdated(steps) => {
                 self.steps = Some(steps);
                 self.dirty = DirtyRegion::Steps;
@@ -432,6 +434,10 @@ impl Screen for TerminalWatchface {
                 #[cfg(feature = "diagnostics")]
                 if direction == SwipeDirection::Left {
                     return ScreenAction::Push(ScreenId::TouchTest);
+                }
+                #[cfg(feature = "diagnostics")]
+                if direction == SwipeDirection::Up {
+                    return ScreenAction::Push(ScreenId::HeartRate);
                 }
                 #[cfg(not(feature = "diagnostics"))]
                 let _ = direction;

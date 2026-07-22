@@ -231,6 +231,83 @@ pub struct HeartRateRawSample {
     pub als: u16,
 }
 
+#[cfg(feature = "diagnostics")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HeartRateCommand {
+    Start,
+    Stop,
+}
+
+#[cfg(feature = "diagnostics")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HeartRateState {
+    Disabled,
+    Starting,
+    Collecting,
+    Measuring,
+    Result(u16),
+    NoSignal,
+    AmbientLight,
+    Error,
+}
+
+#[cfg(feature = "diagnostics")]
+pub struct HeartRateSession {
+    state: HeartRateState,
+}
+
+#[cfg(feature = "diagnostics")]
+impl HeartRateSession {
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            state: HeartRateState::Disabled,
+        }
+    }
+
+    #[must_use]
+    pub const fn state(&self) -> HeartRateState {
+        self.state
+    }
+
+    pub const fn start(&mut self) -> HeartRateState {
+        self.state = HeartRateState::Starting;
+        self.state
+    }
+
+    pub const fn collecting(&mut self) -> HeartRateState {
+        self.state = HeartRateState::Collecting;
+        self.state
+    }
+
+    pub const fn apply(&mut self, analysis: PpgAnalysis) -> HeartRateState {
+        self.state = match analysis {
+            PpgAnalysis::Collecting { .. } => HeartRateState::Collecting,
+            PpgAnalysis::HeartRate { bpm } => HeartRateState::Result(bpm),
+            PpgAnalysis::NoSignal => HeartRateState::NoSignal,
+            PpgAnalysis::AmbientLight => HeartRateState::AmbientLight,
+        };
+        self.state
+    }
+
+    pub const fn stop(&mut self) -> HeartRateState {
+        self.state = HeartRateState::Disabled;
+        self.state
+    }
+
+    pub const fn fail(&mut self) -> HeartRateState {
+        self.state = HeartRateState::Error;
+        self.state
+    }
+}
+
+#[cfg(feature = "diagnostics")]
+impl Default for HeartRateSession {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[must_use]
 pub const fn accelerometer_kind(chip_id: u8) -> AccelerometerKind {
     match chip_id {
@@ -289,6 +366,8 @@ pub enum ScreenId {
     Watchface,
     #[cfg(feature = "diagnostics")]
     TouchTest,
+    #[cfg(feature = "diagnostics")]
+    HeartRate,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -315,6 +394,8 @@ pub enum AppEvent {
     HeartRateRawSampleUpdated(HeartRateRawSample),
     #[cfg(feature = "diagnostics")]
     HeartRateAnalysisUpdated(PpgAnalysis),
+    #[cfg(feature = "diagnostics")]
+    HeartRateStateUpdated(HeartRateState),
     StepsUpdated(u32),
 }
 
@@ -684,6 +765,20 @@ mod tests {
         assert_eq!(accelerometer_kind(0x11), AccelerometerKind::Bma421);
         assert_eq!(accelerometer_kind(0x13), AccelerometerKind::Bma425);
         assert_eq!(accelerometer_kind(0xff), AccelerometerKind::Unknown(0xff));
+    }
+
+    #[cfg(feature = "diagnostics")]
+    #[test]
+    fn heart_rate_session_has_explicit_lifecycle() {
+        let mut session = HeartRateSession::new();
+        assert_eq!(session.state(), HeartRateState::Disabled);
+        assert_eq!(session.start(), HeartRateState::Starting);
+        assert_eq!(session.collecting(), HeartRateState::Collecting);
+        assert_eq!(
+            session.apply(PpgAnalysis::HeartRate { bpm: 72 }),
+            HeartRateState::Result(72)
+        );
+        assert_eq!(session.stop(), HeartRateState::Disabled);
     }
 
     #[test]

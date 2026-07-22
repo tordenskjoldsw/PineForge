@@ -86,12 +86,19 @@ the cadence used by InfiniTime and decodes coherent HRS and ambient-light values
 from the same eight-byte transaction. It publishes the paired raw sample to the
 UI only once per second, keeping display traffic independent from signal
 acquisition. The
-diagnostics runner waits on an explicit startup barrier until touch and motion
-have completed their shared-bus initialization, matching PineTime's proven
-sequential peripheral bring-up rather than racing three clients at boot. The
+board startup uses one-shot Embassy signals to enforce touch, then motion, then
+heart-rate shared-bus initialization, matching PineTime's proven sequential
+peripheral bring-up rather than racing any clients at boot. The
 runner disables the conversion engine and LED during system sleep and performs
 a fresh settling delay after wake. Future settings and background-measurement
 policy belong above this runner rather than in the register driver.
+
+Heart-rate acquisition is command-driven and disabled by default. Entering the
+dedicated diagnostics screen sends `Start`; leaving it or entering system sleep
+sends or implies `Stop`. The runner remains the sole sensor owner and always
+disables the conversion engine and LED when a session ends. This command
+boundary is independent from display rendering and can later accept persistent
+disabled, on-demand, continuous, or periodic measurement policy.
 
 The diagnostics PPG processor is hardware-independent and heapless. It uses a
 64-sample window at 10 Hz, linear detrending, a four-stage 0.5--4 Hz band-pass,

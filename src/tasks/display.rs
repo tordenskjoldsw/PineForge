@@ -14,6 +14,10 @@ use mipidsi::options::{ColorInversion, Orientation};
 use static_cell::StaticCell;
 
 #[cfg(feature = "diagnostics")]
+use crate::services::events::HEART_RATE_COMMANDS;
+#[cfg(feature = "diagnostics")]
+use crate::ui::heart_rate::HeartRateScreen;
+#[cfg(feature = "diagnostics")]
 use crate::ui::test_screen::TestScreen;
 use crate::{
     board::{
@@ -29,6 +33,8 @@ use crate::{
         watchface::TerminalWatchface,
     },
 };
+#[cfg(feature = "diagnostics")]
+use pineforge_state::HeartRateCommand;
 use pineforge_state::{AppEffect, AppEvent, AppState, ScreenId, SystemPowerState};
 
 static SPI_BUS: StaticCell<NoopMutex<RefCell<spim::Spim<'static>>>> = StaticCell::new();
@@ -93,6 +99,8 @@ pub async fn run(resources: DisplayResources, watchdog: BootloaderWatchdog) {
     let mut watchface = TerminalWatchface::default();
     #[cfg(feature = "diagnostics")]
     let mut touch_test = TestScreen::default();
+    #[cfg(feature = "diagnostics")]
+    let mut heart_rate = HeartRateScreen::default();
     let slide_buffer = SLIDE_BUFFER.init(SlideBuffer::new());
     let mut app = AppState::new(ScreenId::Watchface);
     let mut power_receiver = system_power_receiver();
@@ -162,6 +170,12 @@ pub async fn run(resources: DisplayResources, watchdog: BootloaderWatchdog) {
                                 let _ = display.wake(&mut delay);
                                 let _ = touch_test.draw_full(&mut display, || watchdog.pet());
                             }
+                            #[cfg(feature = "diagnostics")]
+                            ScreenId::HeartRate => {
+                                let _ = heart_rate.handle_event(uptime);
+                                let _ = display.wake(&mut delay);
+                                let _ = heart_rate.draw_full(&mut display, || watchdog.pet());
+                            }
                         }
                         backlight.set_level(ACTIVE_BRIGHTNESS);
                         ignore_input_until = Instant::now() + WAKE_INPUT_GUARD;
@@ -170,6 +184,12 @@ pub async fn run(resources: DisplayResources, watchdog: BootloaderWatchdog) {
                     SystemPowerState::Interactive => backlight.set_level(ACTIVE_BRIGHTNESS),
                     SystemPowerState::Idle => backlight.set_level(DIMMED_BRIGHTNESS),
                     SystemPowerState::Sleeping => {
+                        #[cfg(feature = "diagnostics")]
+                        if app.active_screen() == ScreenId::HeartRate {
+                            let _ = heart_rate.handle_event(AppEvent::HeartRateStateUpdated(
+                                pineforge_state::HeartRateState::Disabled,
+                            ));
+                        }
                         backlight.set_level(0);
                         let _ = display.sleep(&mut delay);
                     }
@@ -188,6 +208,8 @@ pub async fn run(resources: DisplayResources, watchdog: BootloaderWatchdog) {
             ScreenId::Watchface => watchface.handle_event(event),
             #[cfg(feature = "diagnostics")]
             ScreenId::TouchTest => touch_test.handle_event(event),
+            #[cfg(feature = "diagnostics")]
+            ScreenId::HeartRate => heart_rate.handle_event(event),
         };
         let effect = app.transition(action);
 
@@ -197,37 +219,61 @@ pub async fn run(resources: DisplayResources, watchdog: BootloaderWatchdog) {
                 Timer::after_millis(250).await;
                 cortex_m::peripheral::SCB::sys_reset();
             }
-            AppEffect::Navigate(direction) => match app.active_screen() {
-                ScreenId::Watchface => {
-                    let result = draw_slide_reveal(
-                        &watchface,
-                        &mut display,
-                        slide_buffer,
-                        direction,
-                        || watchdog.pet(),
-                    );
-                    #[cfg(feature = "diagnostics")]
-                    if let Ok(metrics) = result {
-                        touch_test.record_transition(direction, metrics);
-                    }
-                    #[cfg(not(feature = "diagnostics"))]
-                    let _ = result;
+            AppEffect::Navigate(direction) => {
+                #[cfg(feature = "diagnostics")]
+                if app.active_screen() == ScreenId::HeartRate {
+                    heart_rate.begin_measurement();
                 }
                 #[cfg(feature = "diagnostics")]
-                ScreenId::TouchTest => {
-                    if let Ok(metrics) = draw_slide_reveal(
-                        &touch_test,
-                        &mut display,
-                        slide_buffer,
-                        direction,
-                        || watchdog.pet(),
-                    ) {
-                        touch_test.record_transition(direction, metrics);
-                        let _ = touch_test.draw_metrics(&mut display);
-                        watchdog.pet();
+                HEART_RATE_COMMANDS
+                    .send(if app.active_screen() == ScreenId::HeartRate {
+                        HeartRateCommand::Start
+                    } else {
+                        HeartRateCommand::Stop
+                    })
+                    .await;
+                match app.active_screen() {
+                    ScreenId::Watchface => {
+                        let result = draw_slide_reveal(
+                            &watchface,
+                            &mut display,
+                            slide_buffer,
+                            direction,
+                            || watchdog.pet(),
+                        );
+                        #[cfg(feature = "diagnostics")]
+                        if let Ok(metrics) = result {
+                            touch_test.record_transition(direction, metrics);
+                        }
+                        #[cfg(not(feature = "diagnostics"))]
+                        let _ = result;
+                    }
+                    #[cfg(feature = "diagnostics")]
+                    ScreenId::TouchTest => {
+                        if let Ok(metrics) = draw_slide_reveal(
+                            &touch_test,
+                            &mut display,
+                            slide_buffer,
+                            direction,
+                            || watchdog.pet(),
+                        ) {
+                            touch_test.record_transition(direction, metrics);
+                            let _ = touch_test.draw_metrics(&mut display);
+                            watchdog.pet();
+                        }
+                    }
+                    #[cfg(feature = "diagnostics")]
+                    ScreenId::HeartRate => {
+                        let _ = draw_slide_reveal(
+                            &heart_rate,
+                            &mut display,
+                            slide_buffer,
+                            direction,
+                            || watchdog.pet(),
+                        );
                     }
                 }
-            },
+            }
             AppEffect::None => match app.active_screen() {
                 ScreenId::Watchface => {
                     let _ = watchface.draw_dirty(&mut display, || watchdog.pet());
@@ -235,6 +281,10 @@ pub async fn run(resources: DisplayResources, watchdog: BootloaderWatchdog) {
                 #[cfg(feature = "diagnostics")]
                 ScreenId::TouchTest => {
                     let _ = touch_test.draw_dirty(&mut display, || watchdog.pet());
+                }
+                #[cfg(feature = "diagnostics")]
+                ScreenId::HeartRate => {
+                    let _ = heart_rate.draw_dirty(&mut display, || watchdog.pet());
                 }
             },
         }
