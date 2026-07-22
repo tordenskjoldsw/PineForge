@@ -28,14 +28,6 @@ pub async fn run(resources: BatteryResources) {
     let mut config = Config::default();
     config.resolution = Resolution::_12bit;
     let mut adc = Saadc::new(resources.adc, Irqs, config, [channel]);
-    adc.calibrate().await;
-
-    // nRF52832 anomaly 86 can place an invalid first result in RAM when
-    // sampling starts after offset calibration. Consume exactly that result;
-    // subsequent one-shot samples are valid and stop the peripheral cleanly.
-    let mut post_calibration_sample = [0_i16; 1];
-    adc.sample(&mut post_calibration_sample).await;
-
     let mut millivolts = sample_millivolts(&mut adc).await;
     publish(millivolts, charge_status.is_low()).await;
 
