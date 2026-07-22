@@ -8,9 +8,7 @@ use pineforge_state::{
 
 use crate::{
     drivers::hrs3300::{Hrs3300, Hrs3300Kind},
-    services::events::{
-        SENSOR_BUS_READY, SensorBusClient, SystemPowerReceiver, UI_EVENTS, system_power_receiver,
-    },
+    services::events::{MOTION_READY, SystemPowerReceiver, UI_EVENTS, system_power_receiver},
 };
 
 const SAMPLE_INTERVAL: Duration = Duration::from_millis(100);
@@ -35,7 +33,7 @@ where
     }
 
     pub async fn run(mut self) {
-        Self::wait_for_sensor_bus_clients().await;
+        MOTION_READY.wait().await;
         if !self.initialize().await {
             return;
         }
@@ -49,17 +47,6 @@ where
             }
 
             power = self.measure_until_sleep(&mut power_receiver).await;
-        }
-    }
-
-    async fn wait_for_sensor_bus_clients() {
-        let mut motion_ready = false;
-        let mut touch_ready = false;
-        while !motion_ready || !touch_ready {
-            match SENSOR_BUS_READY.receive().await {
-                SensorBusClient::Motion => motion_ready = true,
-                SensorBusClient::Touch => touch_ready = true,
-            }
         }
     }
 

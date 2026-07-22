@@ -6,38 +6,46 @@ use embedded_hal_async::i2c::I2c;
 use pineforge_state::FeatureEngineStatus;
 use pineforge_state::{AccelerometerKind, AppEvent, SystemPowerState};
 
-#[cfg(feature = "diagnostics")]
-use crate::services::events::{SENSOR_BUS_READY, SensorBusClient};
 use crate::{
     drivers::bma42x::{AccelerationPowerMode, Bma42x, FeatureEngineError},
-    services::events::{SystemPowerReceiver, UI_EVENTS, system_power_receiver},
+    services::events::{
+        MOTION_READY, SystemPowerReceiver, TOUCH_READY, UI_EVENTS, system_power_receiver,
+    },
 };
 
 const ACTIVE_UPDATE_INTERVAL: Duration = Duration::from_millis(100);
 const ACTIVE_STEP_DIVISOR: u8 = 10;
 const IDLE_UPDATE_INTERVAL: Duration = Duration::from_secs(1);
 
-/// Owns the motion sensor lifecycle independently from the executor task.
-pub struct AccelerometerRunner<I2C> {
-    accelerometer: Bma42x<I2C>,
+/// Recovers the board-owned shared bus after the `BMA4xx` soft reset.
+pub trait BusRecovery {
+    fn recover(&self);
 }
 
-impl<I2C> AccelerometerRunner<I2C>
+/// Owns the motion sensor lifecycle independently from the executor task.
+pub struct AccelerometerRunner<I2C, RECOVERY> {
+    accelerometer: Bma42x<I2C>,
+    bus_recovery: RECOVERY,
+}
+
+impl<I2C, RECOVERY> AccelerometerRunner<I2C, RECOVERY>
 where
     I2C: I2c,
+    RECOVERY: BusRecovery,
 {
     #[must_use]
-    pub const fn new(i2c: I2C) -> Self {
+    pub const fn new(i2c: I2C, bus_recovery: RECOVERY) -> Self {
         Self {
             accelerometer: Bma42x::new(i2c),
+            bus_recovery,
         }
     }
 
     pub async fn run(mut self) {
         let mut power_receiver = system_power_receiver();
+        TOUCH_READY.wait().await;
         let initialized = self.initialize().await;
-        #[cfg(feature = "diagnostics")]
-        SENSOR_BUS_READY.send(SensorBusClient::Motion).await;
+        MOTION_READY.signal(());
         let Some(()) = initialized else {
             return;
         };
@@ -110,6 +118,7 @@ where
         if self.accelerometer.reset().await.is_err() {
             warn!("Accelerometer reset failed");
         }
+        self.bus_recovery.recover();
         let result = self.accelerometer.probe().await.map_or_else(
             |_| {
                 warn!("Accelerometer probe failed");

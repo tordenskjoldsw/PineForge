@@ -1,25 +1,19 @@
 use embassy_sync::{
     blocking_mutex::raw::CriticalSectionRawMutex,
     channel::Channel,
+    signal::Signal,
     watch::{Receiver, Watch},
 };
 
 use pineforge_state::{AppEvent, PowerCommand, SystemPowerState};
 
-#[cfg(feature = "diagnostics")]
-#[derive(Clone, Copy)]
-pub enum SensorBusClient {
-    Motion,
-    Touch,
-}
-
 pub static UI_EVENTS: Channel<CriticalSectionRawMutex, AppEvent, 8> = Channel::new();
 
 pub static POWER_COMMANDS: Channel<CriticalSectionRawMutex, PowerCommand, 8> = Channel::new();
 
-/// Startup barrier events for clients sharing `PineTime`'s single sensor bus.
-#[cfg(feature = "diagnostics")]
-pub static SENSOR_BUS_READY: Channel<CriticalSectionRawMutex, SensorBusClient, 2> = Channel::new();
+/// Enforces `PineTime`'s proven touch -> motion bus bring-up.
+pub static TOUCH_READY: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+pub static MOTION_READY: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 
 /// Latest logical system state for display, motion, and future services.
 pub static SYSTEM_POWER: Watch<CriticalSectionRawMutex, SystemPowerState, 3> = Watch::new();

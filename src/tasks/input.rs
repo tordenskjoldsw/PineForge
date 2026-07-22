@@ -2,12 +2,10 @@ use defmt::{info, warn};
 use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
 use embassy_time::Delay;
 
-#[cfg(feature = "diagnostics")]
-use crate::services::events::{SENSOR_BUS_READY, SensorBusClient};
 use crate::{
     board::{buses::TouchI2c, peripherals::TouchResources},
     drivers::touch::{Cst816s, Gesture},
-    services::events::{POWER_COMMANDS, UI_EVENTS},
+    services::events::{POWER_COMMANDS, TOUCH_READY, UI_EVENTS},
 };
 use pineforge_state::{AppEvent, PowerCommand, SwipeDirection};
 
@@ -22,8 +20,7 @@ pub async fn run(resources: TouchResources, i2c: TouchI2c) {
     if touch.setup(&mut delay).await.is_err() {
         warn!("Touch controller setup failed");
     }
-    #[cfg(feature = "diagnostics")]
-    SENSOR_BUS_READY.send(SensorBusClient::Touch).await;
+    TOUCH_READY.signal(());
 
     loop {
         interrupt.wait_for_falling_edge().await;

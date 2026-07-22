@@ -781,6 +781,7 @@ dependencies = [
  "embedded-hal-async",
  "heapless 0.9.3",
  "mipidsi",
+ "nrf-pac",
  "panic-probe",
  "pineforge-state",
  "static_cell",

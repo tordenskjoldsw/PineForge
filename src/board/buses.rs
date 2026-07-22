@@ -1,15 +1,25 @@
 use core::cell::RefCell;
 
 use embassy_embedded_hal::adapter::{BlockingAsync, YieldingAsync};
-use embassy_nrf::{twim, twim::Twim};
+use embassy_nrf::{
+    gpio::{Flex, OutputDrive, Pull},
+    twim,
+    twim::Twim,
+};
 use embassy_sync::blocking_mutex::{Mutex, raw::NoopRawMutex};
 use embassy_time::Duration;
 use embedded_hal::i2c::{ErrorType, I2c, Operation};
+use nrf_pac::twim::vals::Enable;
 use static_cell::StaticCell;
 
-use crate::board::peripherals::{Irqs, SensorBusResources};
+use crate::{
+    board::peripherals::{Irqs, SensorBusResources},
+    services::motion::BusRecovery,
+};
 
-pub type SensorBus = Mutex<NoopRawMutex, RefCell<Twim<'static>>>;
+pub struct SensorBus {
+    inner: Mutex<NoopRawMutex, RefCell<Twim<'static>>>,
+}
 pub type TouchI2c = BlockingAsync<TimedI2cDevice>;
 pub type MotionI2c = YieldingAsync<BlockingAsync<TimedI2cDevice>>;
 #[cfg(feature = "diagnostics")]
@@ -20,6 +30,26 @@ const SENSOR_BUS_BUFFER_SIZE: usize = 32;
 static SENSOR_BUS_BUFFER: StaticCell<[u8; SENSOR_BUS_BUFFER_SIZE]> = StaticCell::new();
 const PINETIME_TWIM_FREQUENCY: twim::Frequency = twim::Frequency::from_bits(0x0620_0000);
 const TRANSACTION_TIMEOUT: Duration = Duration::from_millis(10);
+const BUS_CLEAR_PULSES: usize = 16;
+const FIVE_MICROSECONDS_AT_64_MHZ: u32 = 320;
+
+impl SensorBus {
+    const fn new(bus: Twim<'static>) -> Self {
+        Self {
+            inner: Mutex::new(RefCell::new(bus)),
+        }
+    }
+
+    fn recover_after_motion_reset(&self) {
+        self.inner.lock(|_| reset_twim1());
+    }
+}
+
+impl BusRecovery for &'static SensorBus {
+    fn recover(&self) {
+        self.recover_after_motion_reset();
+    }
+}
 
 /// Serialized device handle that applies `PineTime`'s mandatory transaction
 /// timeout before adapting the blocking TWIM API to async sensor drivers.
@@ -43,7 +73,7 @@ impl I2c for TimedI2cDevice {
         address: u8,
         operations: &mut [Operation<'_>],
     ) -> Result<(), Self::Error> {
-        self.bus.lock(|bus| {
+        self.bus.inner.lock(|bus| {
             bus.borrow_mut()
                 .blocking_transaction_timeout(address, operations, TRANSACTION_TIMEOUT)
         })
@@ -51,7 +81,9 @@ impl I2c for TimedI2cDevice {
 }
 
 /// Initializes the shared bus used by touch, motion, and heart-rate sensors.
-pub fn init_sensor_bus(resources: SensorBusResources) -> &'static SensorBus {
+pub fn init_sensor_bus(mut resources: SensorBusResources) -> &'static SensorBus {
+    clear_sensor_bus(resources.scl.reborrow());
+
     let mut config = twim::Config::default();
     // Exact 400 kHz violates the nRF52832 TWIM timing on PineTime. InfiniTime
     // uses this Nordic register value for approximately 390 kHz instead.
@@ -64,7 +96,44 @@ pub fn init_sensor_bus(resources: SensorBusResources) -> &'static SensorBus {
         config,
         SENSOR_BUS_BUFFER.init([0; SENSOR_BUS_BUFFER_SIZE]),
     );
-    SENSOR_BUS.init(Mutex::new(RefCell::new(bus)))
+    SENSOR_BUS.init(SensorBus::new(bus))
+}
+
+/// Releases a slave that retained SDA across MCUBoot/application hand-off.
+///
+/// `InfiniTime` performs the same 16 open-drain SCL pulses before initializing
+/// `PineTime`'s shared TWI controller.
+fn clear_sensor_bus(scl: embassy_nrf::Peri<'_, embassy_nrf::peripherals::P0_07>) {
+    let mut scl = Flex::new(scl);
+    scl.set_high();
+    scl.set_as_input_output(Pull::None, OutputDrive::Standard0Disconnect1);
+    for _ in 0..BUS_CLEAR_PULSES {
+        scl.set_low();
+        cortex_m::asm::delay(FIVE_MICROSECONDS_AT_64_MHZ);
+        scl.set_high();
+        cortex_m::asm::delay(FIVE_MICROSECONDS_AT_64_MHZ);
+    }
+}
+
+/// Restores TWIM1 after the BMA421 soft reset destabilizes the shared bus.
+///
+/// This mirrors `InfiniTime`'s mandatory `Sleep()` + `Init()` boundary between
+/// the BMA reset and all subsequent touch, motion, and HRS transactions.
+fn reset_twim1() {
+    let registers = nrf_pac::TWIM1;
+    registers
+        .enable()
+        .write(|value| value.set_enable(Enable::Disabled));
+    registers.events_lastrx().write_value(0);
+    registers.events_stopped().write_value(0);
+    registers.events_lasttx().write_value(0);
+    registers.events_error().write_value(0);
+    registers.events_rxstarted().write_value(0);
+    registers.events_suspended().write_value(0);
+    registers.events_txstarted().write_value(0);
+    registers
+        .enable()
+        .write(|value| value.set_enable(Enable::Enabled));
 }
 
 /// Creates the latency-sensitive touch device. Each transaction is blocking,

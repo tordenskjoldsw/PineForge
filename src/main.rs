@@ -52,7 +52,8 @@ async fn main(spawner: embassy_executor::Spawner) {
         scl: p.P0_07,
     });
     spawner.spawn(defmt::unwrap!(tasks::accelerometer::run(
-        board::buses::motion_device(sensor_bus)
+        board::buses::motion_device(sensor_bus),
+        sensor_bus,
     )));
     #[cfg(feature = "diagnostics")]
     spawner.spawn(defmt::unwrap!(tasks::heart_rate::run(
