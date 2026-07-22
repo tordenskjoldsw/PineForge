@@ -11,8 +11,8 @@ use heapless::String;
 use crate::ui::{render::draw_mono_text_visible, screen::Screen};
 #[cfg(feature = "diagnostics")]
 use pineforge_state::{
-    AccelerationSample, AccelerometerKind, FeatureEngineStatus, HeartRateSensorKind, ScreenId,
-    SwipeDirection,
+    AccelerationSample, AccelerometerKind, FeatureEngineStatus, HeartRateRawSample,
+    HeartRateSensorKind, ScreenId, SwipeDirection,
 };
 use pineforge_state::{AppEvent, BatteryStatus, ScreenAction};
 
@@ -66,7 +66,7 @@ pub struct TerminalWatchface {
     #[cfg(feature = "diagnostics")]
     heart_rate_sensor: Option<HeartRateSensorKind>,
     #[cfg(feature = "diagnostics")]
-    heart_rate_raw: Option<u16>,
+    heart_rate_raw: Option<HeartRateRawSample>,
     steps: Option<u32>,
     dirty: DirtyRegion,
 }
@@ -273,8 +273,8 @@ impl TerminalWatchface {
     #[cfg(feature = "diagnostics")]
     fn format_heart_rate(&self) -> String<12> {
         let mut value = String::new();
-        if let Some(raw) = self.heart_rate_raw {
-            let _ = write!(value, "{raw}");
+        if let Some(sample) = self.heart_rate_raw {
+            let _ = write!(value, "{} A{}", sample.hrs, sample.als);
             return value;
         }
         match self.heart_rate_sensor {

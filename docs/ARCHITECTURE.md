@@ -82,8 +82,10 @@ Heart-rate bring-up remains diagnostics-only. The HRS3300 register layer owns
 explicit configure, power-up, coherent register-block reads, and power-down
 operations; BPM processing stays outside the driver. An executor-independent
 runner owns the 100 ms acquisition cadence and sensor lifecycle. It samples at
-the cadence used by InfiniTime but publishes raw HRS values to the UI only once
-per second, keeping display traffic independent from signal acquisition. The
+the cadence used by InfiniTime and decodes coherent HRS and ambient-light values
+from the same eight-byte transaction. It publishes the paired raw sample to the
+UI only once per second, keeping display traffic independent from signal
+acquisition. The
 diagnostics runner waits on an explicit startup barrier until touch and motion
 have completed their shared-bus initialization, matching PineTime's proven
 sequential peripheral bring-up rather than racing three clients at boot. The

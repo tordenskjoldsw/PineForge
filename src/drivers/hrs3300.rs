@@ -22,6 +22,12 @@ pub enum Hrs3300Kind {
     Unknown(u8),
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Hrs3300Sample {
+    pub hrs: u16,
+    pub als: u16,
+}
+
 /// Minimal HRS3300 transport driver. Signal acquisition and BPM processing
 /// belong to the future heart-rate service rather than this register layer.
 pub struct Hrs3300<I2C> {
@@ -69,17 +75,21 @@ where
         self.disable().await
     }
 
-    /// Reads `InfiniTime`'s coherent data-register block and decodes only the
-    /// optical heart-signal channel in this hardware-validation step.
-    pub async fn read_hrs(&mut self) -> Result<u16, I2C::Error> {
+    /// Reads and decodes `InfiniTime`'s coherent heart-signal and ambient-light
+    /// sample block in one transaction.
+    pub async fn read_sample(&mut self) -> Result<Hrs3300Sample, I2C::Error> {
         let mut registers = [0; DATA_REGISTER_COUNT];
         self.i2c
             .write_read(ADDRESS, &[REG_DATA_START], &mut registers)
             .await?;
 
-        Ok((u16::from(registers[1]) << 8)
+        let hrs = (u16::from(registers[1]) << 8)
             | (u16::from(registers[2] & 0x0f) << 4)
-            | u16::from(registers[7] & 0x0f))
+            | u16::from(registers[7] & 0x0f);
+        let als = (u16::from(registers[5] & 0x3f) << 11)
+            | (u16::from(registers[0]) << 3)
+            | u16::from(registers[6] & 0x07);
+        Ok(Hrs3300Sample { hrs, als })
     }
 
     async fn disable(&mut self) -> Result<(), I2C::Error> {

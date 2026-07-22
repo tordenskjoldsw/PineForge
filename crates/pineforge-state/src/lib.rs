@@ -219,6 +219,13 @@ pub enum HeartRateSensorKind {
     Unavailable,
 }
 
+#[cfg(feature = "diagnostics")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HeartRateRawSample {
+    pub hrs: u16,
+    pub als: u16,
+}
+
 #[must_use]
 pub const fn accelerometer_kind(chip_id: u8) -> AccelerometerKind {
     match chip_id {
@@ -300,7 +307,7 @@ pub enum AppEvent {
     #[cfg(feature = "diagnostics")]
     HeartRateSensorDetected(HeartRateSensorKind),
     #[cfg(feature = "diagnostics")]
-    HeartRateRawSampleUpdated(u16),
+    HeartRateRawSampleUpdated(HeartRateRawSample),
     StepsUpdated(u32),
 }
 
