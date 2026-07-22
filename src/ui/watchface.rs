@@ -12,7 +12,7 @@ use crate::ui::{render::draw_mono_text_visible, screen::Screen};
 #[cfg(feature = "diagnostics")]
 use pineforge_state::{
     AccelerationSample, AccelerometerKind, FeatureEngineStatus, HeartRateRawSample,
-    HeartRateSensorKind, ScreenId, SwipeDirection,
+    HeartRateSensorKind, PpgAnalysis, ScreenId, SwipeDirection,
 };
 use pineforge_state::{AppEvent, BatteryStatus, ScreenAction};
 
@@ -67,6 +67,8 @@ pub struct TerminalWatchface {
     heart_rate_sensor: Option<HeartRateSensorKind>,
     #[cfg(feature = "diagnostics")]
     heart_rate_raw: Option<HeartRateRawSample>,
+    #[cfg(feature = "diagnostics")]
+    heart_rate_analysis: Option<PpgAnalysis>,
     steps: Option<u32>,
     dirty: DirtyRegion,
 }
@@ -89,6 +91,8 @@ impl Default for TerminalWatchface {
             heart_rate_sensor: None,
             #[cfg(feature = "diagnostics")]
             heart_rate_raw: None,
+            #[cfg(feature = "diagnostics")]
+            heart_rate_analysis: None,
             steps: None,
             dirty: DirtyRegion::None,
         }
@@ -273,6 +277,21 @@ impl TerminalWatchface {
     #[cfg(feature = "diagnostics")]
     fn format_heart_rate(&self) -> String<12> {
         let mut value = String::new();
+        match self.heart_rate_analysis {
+            Some(PpgAnalysis::HeartRate { bpm }) => {
+                let _ = write!(value, "{bpm} BPM");
+                return value;
+            }
+            Some(PpgAnalysis::AmbientLight) => {
+                let _ = value.push_str("AMBIENT");
+                return value;
+            }
+            Some(PpgAnalysis::NoSignal) => {
+                let _ = value.push_str("NO SIGNAL");
+                return value;
+            }
+            Some(PpgAnalysis::Collecting { .. }) | None => {}
+        }
         if let Some(sample) = self.heart_rate_raw {
             let _ = write!(value, "{} A{}", sample.hrs, sample.als);
             return value;
@@ -391,6 +410,11 @@ impl Screen for TerminalWatchface {
             #[cfg(feature = "diagnostics")]
             AppEvent::HeartRateRawSampleUpdated(raw) => {
                 self.heart_rate_raw = Some(raw);
+                self.dirty = DirtyRegion::HeartRate;
+            }
+            #[cfg(feature = "diagnostics")]
+            AppEvent::HeartRateAnalysisUpdated(analysis) => {
+                self.heart_rate_analysis = Some(analysis);
                 self.dirty = DirtyRegion::HeartRate;
             }
             AppEvent::StepsUpdated(steps) => {

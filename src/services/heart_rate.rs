@@ -2,7 +2,9 @@ use defmt::{info, warn};
 use embassy_futures::select::{Either, select};
 use embassy_time::{Duration, Ticker, Timer};
 use embedded_hal_async::i2c::I2c;
-use pineforge_state::{AppEvent, HeartRateRawSample, HeartRateSensorKind, SystemPowerState};
+use pineforge_state::{
+    AppEvent, HeartRateRawSample, HeartRateSensorKind, PpgAnalysis, PpgProcessor, SystemPowerState,
+};
 
 use crate::{
     drivers::hrs3300::{Hrs3300, Hrs3300Kind},
@@ -117,6 +119,7 @@ where
 
         let mut samples_until_ui_update = 1;
         let mut sample_ticker = Ticker::every(SAMPLE_INTERVAL);
+        let mut ppg = PpgProcessor::new();
         loop {
             match select(power_receiver.changed(), sample_ticker.next()).await {
                 Either::First(power) if power == SystemPowerState::Sleeping => {
@@ -126,6 +129,12 @@ where
                 Either::First(_) => {}
                 Either::Second(()) => {
                     if let Ok(sample) = self.sensor.read_sample().await {
+                        let analysis = ppg.push(sample.hrs, sample.als);
+                        if !matches!(analysis, PpgAnalysis::Collecting { .. }) {
+                            UI_EVENTS
+                                .send(AppEvent::HeartRateAnalysisUpdated(analysis))
+                                .await;
+                        }
                         samples_until_ui_update -= 1;
                         if samples_until_ui_update == 0 {
                             UI_EVENTS

@@ -8,10 +8,11 @@ publish = false
 
 [features]
 default = []
-diagnostics = []
+diagnostics = ["dep:microfft"]
 
 [dependencies]
 heapless = "0.9.3"
+microfft = { version = "0.6.0", default-features = false, features = ["size-64"], optional = true }
 
 [lints.clippy]
 all = { level = "warn", priority = -1 }

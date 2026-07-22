@@ -7,6 +7,11 @@
 
 use heapless::Vec;
 
+#[cfg(feature = "diagnostics")]
+mod ppg;
+#[cfg(feature = "diagnostics")]
+pub use ppg::{PpgAnalysis, PpgProcessor};
+
 pub const SCREEN_STACK_CAPACITY: usize = 4;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -308,6 +313,8 @@ pub enum AppEvent {
     HeartRateSensorDetected(HeartRateSensorKind),
     #[cfg(feature = "diagnostics")]
     HeartRateRawSampleUpdated(HeartRateRawSample),
+    #[cfg(feature = "diagnostics")]
+    HeartRateAnalysisUpdated(PpgAnalysis),
     StepsUpdated(u32),
 }
 

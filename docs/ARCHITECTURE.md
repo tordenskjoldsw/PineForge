@@ -93,6 +93,15 @@ runner disables the conversion engine and LED during system sleep and performs
 a fresh settling delay after wake. Future settings and background-measurement
 policy belong above this runner rather than in the register driver.
 
+The diagnostics PPG processor is hardware-independent and heapless. It uses a
+64-sample window at 10 Hz, linear detrending, a four-stage 0.5--4 Hz band-pass,
+a generated Hann window, an in-place real FFT, unique-peak and signal-to-noise
+validation, and three consistent overlapping windows before publishing a
+40--230 BPM result. Host tests exercise synthetic 60 and 120 BPM signals plus
+constant, competing-frequency, and ambient-light rejection. Raw samples remain
+visible while the first 6.4-second window is collected; validated analysis
+results then replace them in the same partial-redraw UI row.
+
 ## UI contract
 
 Screens implement the `Screen` trait. A screen receives hardware-independent `UiEvent` values, updates its private state, renders through an `embedded-graphics` draw target, and may return a high-level `ScreenAction`. It does not own or access touch, SPI, BLE, or sensor peripherals directly. Watchfaces will use the same boundary with application state supplied by services.
