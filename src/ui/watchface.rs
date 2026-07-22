@@ -14,7 +14,7 @@ use pineforge_state::{
     AccelerationSample, AccelerometerKind, FeatureEngineStatus, HeartRateSensorKind, ScreenId,
     SwipeDirection,
 };
-use pineforge_state::{AppEvent, BatteryStatus, ScreenAction, TEST_IMAGE_TIMEOUT_SECONDS};
+use pineforge_state::{AppEvent, BatteryStatus, ScreenAction};
 
 const ROW_HEIGHT: u32 = 25;
 const VALUE_X: i32 = 70;
@@ -26,7 +26,7 @@ const MOTION_ROW: Rectangle = Rectangle::new(Point::new(0, 100), Size::new(240, 
 const STEP_ROW: Rectangle = Rectangle::new(Point::new(0, 125), Size::new(240, ROW_HEIGHT));
 #[cfg(not(feature = "diagnostics"))]
 const STEP_ROW: Rectangle = Rectangle::new(Point::new(0, 100), Size::new(240, ROW_HEIGHT));
-const SAFETY_ROW: Rectangle = Rectangle::new(Point::new(0, 150), Size::new(240, ROW_HEIGHT));
+const RESERVED_ROW: Rectangle = Rectangle::new(Point::new(0, 150), Size::new(240, ROW_HEIGHT));
 const STATUS_ROW: Rectangle = Rectangle::new(Point::new(0, 175), Size::new(240, ROW_HEIGHT));
 const HEADER_AREA: Rectangle = Rectangle::new(Point::new(0, 0), Size::new(240, 25));
 const FOOTER_AREA: Rectangle = Rectangle::new(Point::new(0, 200), Size::new(240, 40));
@@ -101,13 +101,6 @@ impl TerminalWatchface {
         uptime
     }
 
-    fn format_safety(uptime_seconds: u64) -> String<16> {
-        let remaining = TEST_IMAGE_TIMEOUT_SECONDS.saturating_sub(uptime_seconds);
-        let mut safety = String::new();
-        let _ = write!(safety, "{:02}:{:02}", remaining / 60, remaining % 60);
-        safety
-    }
-
     fn draw_changed_value<D>(
         display: &mut D,
         old: &str,
@@ -176,14 +169,6 @@ impl TerminalWatchface {
     {
         let uptime = Self::format_uptime(self.uptime_seconds);
         Self::draw_row(display, UPTIME_ROW, "[UPTM]", &uptime, TERMINAL_GREEN)
-    }
-
-    fn draw_safety<D>(&self, display: &mut D) -> Result<(), D::Error>
-    where
-        D: DrawTarget<Color = Rgb565>,
-    {
-        let safety = Self::format_safety(self.uptime_seconds);
-        Self::draw_row(display, SAFETY_ROW, "[SAFE]", &safety, TERMINAL_ORANGE)
     }
 
     fn format_battery(&self) -> String<16> {
@@ -319,11 +304,7 @@ impl TerminalWatchface {
     {
         let old_uptime = Self::format_uptime(self.previous_uptime_seconds);
         let new_uptime = Self::format_uptime(self.uptime_seconds);
-        Self::draw_changed_value(display, &old_uptime, &new_uptime, 70, TERMINAL_GREEN)?;
-
-        let old_safety = Self::format_safety(self.previous_uptime_seconds);
-        let new_safety = Self::format_safety(self.uptime_seconds);
-        Self::draw_changed_value(display, &old_safety, &new_safety, 170, TERMINAL_ORANGE)
+        Self::draw_changed_value(display, &old_uptime, &new_uptime, 70, TERMINAL_GREEN)
     }
 
     fn update_status<D>(&self, display: &mut D) -> Result<(), D::Error>
@@ -443,7 +424,9 @@ impl Screen for TerminalWatchface {
         #[cfg(feature = "diagnostics")]
         self.draw_steps(display)?;
         keep_alive();
-        self.draw_safety(display)?;
+        RESERVED_ROW
+            .into_styled(PrimitiveStyle::with_fill(Rgb565::BLACK))
+            .draw(display)?;
         keep_alive();
         self.draw_status(display)?;
         keep_alive();

@@ -44,7 +44,6 @@ async fn main(spawner: embassy_executor::Spawner) {
     let watchdog = BootloaderWatchdog::take_over();
     watchdog.pet();
     spawner.spawn(defmt::unwrap!(tasks::watchdog::run(watchdog)));
-    spawner.spawn(defmt::unwrap!(boot::rollback::safety_timeout()));
     spawner.spawn(defmt::unwrap!(services::power::run()));
 
     let sensor_bus = board::buses::init_sensor_bus(SensorBusResources {

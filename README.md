@@ -11,7 +11,7 @@ PineForge is an independent community project. It is not affiliated with, suppor
 
 ## Safety model
 
-This firmware is installed as an unconfirmed test image and never confirms itself. The physical side button and the 10-minute safety timeout trigger a reset. MCUBoot then automatically rolls back to the previously installed InfiniTime version.
+This firmware is installed as an unconfirmed test image and never confirms itself. Pressing the physical side button triggers a reset, after which MCUBoot rolls back to the previously installed InfiniTime version. There is no automatic timeout, allowing long-running sensor and power tests.
 
 ## Features
 
@@ -20,7 +20,6 @@ This firmware is installed as an unconfirmed test image and never confirms itsel
 - CST816S touch controller over I²C
 - touch-coordinate display
 - physical side-button reset and rollback
-- 10-minute automatic safety reset
 - watchdog feeding for the WDT started by the bootloader
 - MCUBoot linker layout starting at `0x8020`
 - script for generating a Gadgetbridge-compatible DFU ZIP

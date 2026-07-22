@@ -9,9 +9,8 @@ milestone should leave the sealed PineTime in a testable and recoverable state.
 
 - MCUBoot-compatible application layout and Gadgetbridge DFU package
 - continuous integration for formatting, Clippy, host tests, release builds, and size budgets
-- unconfirmed test-image workflow with automatic rollback
+- unconfirmed test-image workflow with explicit rollback
 - physical side-button reset and rollback
-- 10-minute safety reset
 - bootloader watchdog handover
 - ST7789 display initialization
 - InfiniTime-compatible CST816S initialization and interrupt handling
@@ -106,7 +105,7 @@ milestone should leave the sealed PineTime in a testable and recoverable state.
 ## Project constraints
 
 - preserve the stock PineTime MCUBoot bootloader and recovery path
-- keep bring-up images unconfirmed and automatically recoverable
+- keep bring-up images unconfirmed and recoverable through an explicit reset
 - do not write outside explicitly assigned external-flash regions
 - use no heap and no full-screen RGB565 framebuffer
 - use bounded channels and fixed-capacity data structures

@@ -18,7 +18,7 @@ Embassy is the runtime. Each stateful peripheral is assigned to one long-running
   concrete Embassy task only binds PineTime peripherals and starts the runner
 - display task: owns the LCD and backlight, consumes UI events, and renders the active `Screen`
 - watchdog task: feeds the watchdog inherited from the bootloader
-- rollback tasks: monitor the physical side button and the test-image safety timeout
+- rollback task: monitors the physical side button for an explicit test-image reset
 
 Planned subsystem tasks include:
 
