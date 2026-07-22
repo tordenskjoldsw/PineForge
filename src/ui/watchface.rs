@@ -335,11 +335,21 @@ impl Screen for TerminalWatchface {
                 self.steps = Some(steps);
                 self.dirty = DirtyRegion::Steps;
             }
-            AppEvent::Swipe(SwipeDirection::Left) => {
+            AppEvent::Swipe(direction) => {
+                // A swipe completes on the current screen, but the physical
+                // release report can arrive after navigation and therefore be
+                // delivered to the destination screen. Do not retain that
+                // transient contact state while this watchface is inactive.
+                self.previous_touching = self.touching;
+                self.touching = false;
+                self.dirty = DirtyRegion::Status;
                 #[cfg(feature = "diagnostics")]
-                return ScreenAction::Push(ScreenId::TouchTest);
+                if direction == SwipeDirection::Left {
+                    return ScreenAction::Push(ScreenId::TouchTest);
+                }
+                #[cfg(not(feature = "diagnostics"))]
+                let _ = direction;
             }
-            AppEvent::Swipe(_) => {}
         }
         ScreenAction::None
     }
