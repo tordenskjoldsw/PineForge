@@ -43,6 +43,12 @@ uses `BlockingAsync` directly, while motion additionally uses `YieldingAsync`
 to preserve cooperative scheduling. Each driver still owns its local state,
 and no driver can access another device.
 
+The board layer programs TWIM with InfiniTime's nRF52832 workaround value of
+approximately 390 kHz instead of the faulty exact-400-kHz timing. Every shared
+transaction uses Embassy's bounded blocking API with a 10 ms timeout before it
+is adapted to async device drivers, preventing a frozen peripheral from
+starving the cooperative executor until the bootloader watchdog resets it.
+
 ## Power policy
 
 The pure `SystemPowerPolicy` lives in `pineforge-state`, independently from
