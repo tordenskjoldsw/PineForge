@@ -16,13 +16,14 @@ Embassy is the runtime. Each stateful peripheral is assigned to one long-running
 - input task: owns the touch controller and publishes `UiEvent` values
 - accelerometer runner: exclusively owns the BMA42x and its interrupt; the
   concrete Embassy task only binds PineTime peripherals and starts the runner
+- diagnostics heart-rate runner: exclusively owns the HRS3300, its 100 ms
+  acquisition cadence, and its power transitions
 - display task: owns the LCD and backlight, consumes UI events, and renders the active `Screen`
 - watchdog task: feeds the watchdog inherited from the bootloader
 - rollback task: monitors the physical side button for an explicit test-image reset
 
 Planned subsystem tasks include:
 
-- sensor task: accelerometer and heart-rate sampling
 - power task: battery, charging, sleep policy
 - BLE task: owns the radio/stack
 
@@ -78,11 +79,17 @@ percentage jump. The diagnostics UI retains raw millivolts for validation;
 future low-voltage protection must continue to use that raw measurement.
 
 Heart-rate bring-up remains diagnostics-only. The HRS3300 register layer owns
-explicit configure, power-up, heart-signal read, and power-down operations;
-BPM processing stays outside the driver. The first acquisition stage performs
-one bounded, coherent register-block read after a 100 ms settling delay,
-decodes only the HRS channel, and always attempts to disable the conversion
-engine and LED before publishing the result.
+explicit configure, power-up, coherent register-block reads, and power-down
+operations; BPM processing stays outside the driver. An executor-independent
+runner owns the 100 ms acquisition cadence and sensor lifecycle. It samples at
+the cadence used by InfiniTime but publishes raw HRS values to the UI only once
+per second, keeping display traffic independent from signal acquisition. The
+diagnostics runner waits on an explicit startup barrier until touch and motion
+have completed their shared-bus initialization, matching PineTime's proven
+sequential peripheral bring-up rather than racing three clients at boot. The
+runner disables the conversion engine and LED during system sleep and performs
+a fresh settling delay after wake. Future settings and background-measurement
+policy belong above this runner rather than in the register driver.
 
 ## UI contract
 

@@ -47,7 +47,7 @@ enum DirtyRegion {
     #[cfg(feature = "diagnostics")]
     Motion,
     #[cfg(feature = "diagnostics")]
-    HeartRateSensor,
+    HeartRate,
     Steps,
 }
 
@@ -271,10 +271,10 @@ impl TerminalWatchface {
     }
 
     #[cfg(feature = "diagnostics")]
-    fn format_heart_rate_sensor(&self) -> String<12> {
+    fn format_heart_rate(&self) -> String<12> {
         let mut value = String::new();
         if let Some(raw) = self.heart_rate_raw {
-            let _ = write!(value, "HRS {raw}");
+            let _ = write!(value, "{raw}");
             return value;
         }
         match self.heart_rate_sensor {
@@ -295,17 +295,29 @@ impl TerminalWatchface {
     }
 
     #[cfg(feature = "diagnostics")]
-    fn draw_diagnostics_footer<D>(&self, display: &mut D) -> Result<(), D::Error>
+    fn draw_heart_rate<D>(&self, display: &mut D) -> Result<(), D::Error>
+    where
+        D: DrawTarget<Color = Rgb565>,
+    {
+        Self::draw_row(
+            display,
+            RESERVED_ROW,
+            "[HRS ]",
+            &self.format_heart_rate(),
+            TERMINAL_RED,
+        )
+    }
+
+    #[cfg(feature = "diagnostics")]
+    fn draw_diagnostics_footer<D>(display: &mut D) -> Result<(), D::Error>
     where
         D: DrawTarget<Color = Rgb565>,
     {
         FOOTER_AREA
             .into_styled(PrimitiveStyle::with_fill(Rgb565::BLACK))
             .draw(display)?;
-        let mut footer: String<24> = String::new();
-        let _ = write!(footer, "{} | swipe >", self.format_heart_rate_sensor());
         draw_mono_text_visible(
-            &footer,
+            "swipe >",
             Point::new(0, 226),
             MonoTextStyle::new(&FONT_10X20, TERMINAL_GREEN),
             display,
@@ -374,12 +386,12 @@ impl Screen for TerminalWatchface {
             #[cfg(feature = "diagnostics")]
             AppEvent::HeartRateSensorDetected(kind) => {
                 self.heart_rate_sensor = Some(kind);
-                self.dirty = DirtyRegion::HeartRateSensor;
+                self.dirty = DirtyRegion::HeartRate;
             }
             #[cfg(feature = "diagnostics")]
             AppEvent::HeartRateRawSampleUpdated(raw) => {
                 self.heart_rate_raw = Some(raw);
-                self.dirty = DirtyRegion::HeartRateSensor;
+                self.dirty = DirtyRegion::HeartRate;
             }
             AppEvent::StepsUpdated(steps) => {
                 self.steps = Some(steps);
@@ -443,6 +455,9 @@ impl Screen for TerminalWatchface {
         #[cfg(feature = "diagnostics")]
         self.draw_steps(display)?;
         keep_alive();
+        #[cfg(feature = "diagnostics")]
+        self.draw_heart_rate(display)?;
+        #[cfg(not(feature = "diagnostics"))]
         RESERVED_ROW
             .into_styled(PrimitiveStyle::with_fill(Rgb565::BLACK))
             .draw(display)?;
@@ -454,7 +469,7 @@ impl Screen for TerminalWatchface {
             .into_styled(PrimitiveStyle::with_fill(Rgb565::BLACK))
             .draw(display)?;
         #[cfg(feature = "diagnostics")]
-        self.draw_diagnostics_footer(display)?;
+        Self::draw_diagnostics_footer(display)?;
         #[cfg(not(feature = "diagnostics"))]
         draw_mono_text_visible("user@watch:~ $", Point::new(0, 226), prompt, display)?;
         keep_alive();
@@ -476,7 +491,7 @@ impl Screen for TerminalWatchface {
             #[cfg(feature = "diagnostics")]
             DirtyRegion::Motion => self.draw_accelerometer(display)?,
             #[cfg(feature = "diagnostics")]
-            DirtyRegion::HeartRateSensor => self.draw_diagnostics_footer(display)?,
+            DirtyRegion::HeartRate => self.draw_heart_rate(display)?,
             DirtyRegion::Steps => self.draw_steps(display)?,
             DirtyRegion::None => {}
         }

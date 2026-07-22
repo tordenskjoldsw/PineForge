@@ -79,7 +79,7 @@ pub fn motion_device(bus: &'static SensorBus) -> MotionI2c {
     YieldingAsync::new(BlockingAsync::new(TimedI2cDevice::new(bus)))
 }
 
-/// Creates the heart-rate device used by the diagnostics probe. Heart-rate
+/// Creates the heart-rate device used by the diagnostics runner. Heart-rate
 /// sampling is not latency-sensitive, so every short transaction yields.
 #[cfg(feature = "diagnostics")]
 pub fn heart_rate_device(bus: &'static SensorBus) -> HeartRateI2c {

@@ -6,6 +6,8 @@ use embedded_hal_async::i2c::I2c;
 use pineforge_state::FeatureEngineStatus;
 use pineforge_state::{AccelerometerKind, AppEvent, SystemPowerState};
 
+#[cfg(feature = "diagnostics")]
+use crate::services::events::{SENSOR_BUS_READY, SensorBusClient};
 use crate::{
     drivers::bma42x::{AccelerationPowerMode, Bma42x, FeatureEngineError},
     services::events::{SystemPowerReceiver, UI_EVENTS, system_power_receiver},
@@ -33,7 +35,10 @@ where
 
     pub async fn run(mut self) {
         let mut power_receiver = system_power_receiver();
-        let Some(()) = self.initialize().await else {
+        let initialized = self.initialize().await;
+        #[cfg(feature = "diagnostics")]
+        SENSOR_BUS_READY.send(SensorBusClient::Motion).await;
+        let Some(()) = initialized else {
             return;
         };
 
