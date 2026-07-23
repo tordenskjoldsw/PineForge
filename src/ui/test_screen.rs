@@ -25,6 +25,8 @@ const TOUCH_MARKER_SIZE: Size = Size::new(13, 13);
 pub struct TestScreen {
     last_touch: Option<Point>,
     previous_touch: Option<Point>,
+    touching: bool,
+    previous_touching: bool,
     forward_metrics: Option<RenderMetrics>,
     backward_metrics: Option<RenderMetrics>,
 }
@@ -66,6 +68,26 @@ impl TestScreen {
         let _ = write!(tile_line, "TILES {tiles}");
         draw_mono_text_visible(&tile_line, Point::new(0, 206), style, display)?;
         Ok(())
+    }
+
+    /// Touch contact state, relocated here from the watchface status row.
+    fn draw_touch_state<D>(&self, display: &mut D) -> Result<(), D::Error>
+    where
+        D: DrawTarget<Color = Rgb565>,
+    {
+        Rectangle::new(Point::new(0, 214), Size::new(50, 26))
+            .into_styled(PrimitiveStyle::with_fill(Rgb565::BLACK))
+            .draw(display)?;
+        let style = MonoTextStyle::new(
+            &FONT_6X10,
+            if self.touching {
+                Rgb565::YELLOW
+            } else {
+                Rgb565::WHITE
+            },
+        );
+        let state = if self.touching { "AKTIV" } else { "BEREIT" };
+        draw_mono_text_visible(state, Point::new(2, 232), style, display)
     }
 
     fn draw_metric_line<D>(
@@ -122,8 +144,8 @@ impl Screen for TestScreen {
         let point = Point::new(x, y);
         self.previous_touch = self.last_touch;
         self.last_touch = Some(point);
-
-        let _ = pressed;
+        self.previous_touching = self.touching;
+        self.touching = pressed;
         ScreenAction::None
     }
 
@@ -174,6 +196,7 @@ impl Screen for TestScreen {
             ),
             display,
         )?;
+        self.draw_touch_state(display)?;
         keep_alive();
 
         Ok(())
@@ -197,6 +220,11 @@ impl Screen for TestScreen {
             Rectangle::new(Point::new(point.x - 6, point.y - 6), TOUCH_MARKER_SIZE)
                 .into_styled(PrimitiveStyle::with_fill(Rgb565::YELLOW))
                 .draw(display)?;
+            keep_alive();
+        }
+
+        if self.touching != self.previous_touching {
+            self.draw_touch_state(display)?;
             keep_alive();
         }
 

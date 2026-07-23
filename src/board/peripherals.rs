@@ -44,6 +44,34 @@ pub struct VibrationResources {
     pub motor: Peri<'static, peripherals::P0_16>,
 }
 
+/// Peripherals consumed by the MPSL/SoftDevice-Controller BLE stack.
+///
+/// The radio itself is claimed directly by the controller blob; RTC0, TIMER0,
+/// TEMP, and the listed PPI channels are reserved here so no other task can
+/// take them.
+#[cfg(feature = "ble")]
+pub struct BleResources {
+    pub rtc0: Peri<'static, peripherals::RTC0>,
+    pub timer0: Peri<'static, peripherals::TIMER0>,
+    pub temp: Peri<'static, peripherals::TEMP>,
+    pub rng: Peri<'static, peripherals::RNG>,
+    pub ppi_ch17: Peri<'static, peripherals::PPI_CH17>,
+    pub ppi_ch18: Peri<'static, peripherals::PPI_CH18>,
+    pub ppi_ch19: Peri<'static, peripherals::PPI_CH19>,
+    pub ppi_ch20: Peri<'static, peripherals::PPI_CH20>,
+    pub ppi_ch21: Peri<'static, peripherals::PPI_CH21>,
+    pub ppi_ch22: Peri<'static, peripherals::PPI_CH22>,
+    pub ppi_ch23: Peri<'static, peripherals::PPI_CH23>,
+    pub ppi_ch24: Peri<'static, peripherals::PPI_CH24>,
+    pub ppi_ch25: Peri<'static, peripherals::PPI_CH25>,
+    pub ppi_ch26: Peri<'static, peripherals::PPI_CH26>,
+    pub ppi_ch27: Peri<'static, peripherals::PPI_CH27>,
+    pub ppi_ch28: Peri<'static, peripherals::PPI_CH28>,
+    pub ppi_ch29: Peri<'static, peripherals::PPI_CH29>,
+    pub ppi_ch30: Peri<'static, peripherals::PPI_CH30>,
+    pub ppi_ch31: Peri<'static, peripherals::PPI_CH31>,
+}
+
 pub struct ButtonResources {
     pub input: Peri<'static, peripherals::P0_13>,
     pub enable: Peri<'static, peripherals::P0_15>,

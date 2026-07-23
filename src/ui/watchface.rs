@@ -14,7 +14,7 @@ use pineforge_state::{
     AccelerationSample, AccelerometerKind, FeatureEngineStatus, HeartRateRawSample,
     HeartRateSensorKind, PpgAnalysis,
 };
-use pineforge_state::{AppEvent, BatteryStatus, ScreenAction, ScreenId, SwipeDirection};
+use pineforge_state::{AppEvent, BatteryStatus, BleState, ScreenAction, ScreenId, SwipeDirection};
 
 const ROW_HEIGHT: u32 = 25;
 const VALUE_X: i32 = 70;
@@ -54,8 +54,8 @@ enum DirtyRegion {
 pub struct TerminalWatchface {
     previous_uptime_seconds: u64,
     uptime_seconds: u64,
-    previous_touching: bool,
-    touching: bool,
+    previous_ble: BleState,
+    ble: BleState,
     battery: Option<BatteryStatus>,
     #[cfg(feature = "diagnostics")]
     accelerometer: Option<AccelerometerKind>,
@@ -78,8 +78,8 @@ impl Default for TerminalWatchface {
         Self {
             previous_uptime_seconds: 0,
             uptime_seconds: 0,
-            previous_touching: false,
-            touching: false,
+            previous_ble: BleState::Off,
+            ble: BleState::Off,
             battery: None,
             #[cfg(feature = "diagnostics")]
             accelerometer: None,
@@ -249,16 +249,26 @@ impl TerminalWatchface {
         Self::draw_row(display, MOTION_ROW, label, &value, TERMINAL_ORANGE)
     }
 
+    /// Fixed-width so partial redraws blank the previous, longer value.
+    const fn format_ble(state: BleState) -> &'static str {
+        match state {
+            BleState::Off => "off        ",
+            BleState::Advertising => "advertising",
+            BleState::Connected => "connected  ",
+        }
+    }
+
     fn draw_status<D>(&self, display: &mut D) -> Result<(), D::Error>
     where
         D: DrawTarget<Color = Rgb565>,
     {
-        let status = if self.touching {
-            "Touch active"
-        } else {
-            "Touch ready"
-        };
-        Self::draw_row(display, STATUS_ROW, "[STAT]", status, TERMINAL_BLUE)
+        Self::draw_row(
+            display,
+            STATUS_ROW,
+            "[BLE ]",
+            Self::format_ble(self.ble),
+            TERMINAL_BLUE,
+        )
     }
 
     fn draw_steps<D>(&self, display: &mut D) -> Result<(), D::Error>
@@ -356,17 +366,13 @@ impl TerminalWatchface {
     where
         D: DrawTarget<Color = Rgb565>,
     {
-        let old = if self.previous_touching {
-            "Touch active"
-        } else {
-            "Touch ready "
-        };
-        let new = if self.touching {
-            "Touch active"
-        } else {
-            "Touch ready "
-        };
-        Self::draw_changed_value(display, old, new, 195, TERMINAL_BLUE)
+        Self::draw_changed_value(
+            display,
+            Self::format_ble(self.previous_ble),
+            Self::format_ble(self.ble),
+            195,
+            TERMINAL_BLUE,
+        )
     }
 }
 
@@ -378,11 +384,8 @@ impl Screen for TerminalWatchface {
                 self.uptime_seconds = uptime_seconds;
                 self.dirty = DirtyRegion::Clock;
             }
-            AppEvent::Touch { pressed, .. } => {
-                self.previous_touching = self.touching;
-                self.touching = pressed;
-                self.dirty = DirtyRegion::Status;
-            }
+            // Touch state is visualized on the diagnostics touch-test screen.
+            AppEvent::Touch { .. } => {}
             AppEvent::BatteryUpdated(status) => {
                 self.battery = Some(status);
                 self.dirty = DirtyRegion::Battery;
@@ -424,14 +427,13 @@ impl Screen for TerminalWatchface {
                 self.dirty = DirtyRegion::Steps;
             }
             AppEvent::DisplaySettingsUpdated(_) => {}
-            AppEvent::Swipe(direction) => {
-                // A swipe completes on the current screen, but the physical
-                // release report can arrive after navigation and therefore be
-                // delivered to the destination screen. Do not retain that
-                // transient contact state while this watchface is inactive.
-                self.previous_touching = self.touching;
-                self.touching = false;
+            AppEvent::BleUpdated(state) => {
+                self.previous_ble = self.ble;
+                self.ble = state;
                 self.dirty = DirtyRegion::Status;
+            }
+            AppEvent::Swipe(direction) => {
+                self.dirty = DirtyRegion::None;
                 if direction == SwipeDirection::Down {
                     return ScreenAction::Push(ScreenId::DisplaySettings);
                 }

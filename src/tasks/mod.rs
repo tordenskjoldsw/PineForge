@@ -1,5 +1,7 @@
 pub mod accelerometer;
 pub mod battery;
+#[cfg(feature = "ble")]
+pub mod ble;
 pub mod display;
 #[cfg(feature = "diagnostics")]
 pub mod heart_rate;

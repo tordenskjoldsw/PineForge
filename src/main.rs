@@ -31,6 +31,13 @@ async fn main(spawner: embassy_executor::Spawner) {
     let mut config = embassy_nrf::config::Config::default();
     config.hfclk_source = embassy_nrf::config::HfclkSource::ExternalXtal;
     config.lfclk_source = embassy_nrf::config::LfclkSource::ExternalXtal;
+    // MPSL reserves the highest interrupt priorities for the radio protocol
+    // stack; keep Embassy's GPIOTE and time driver out of its way.
+    #[cfg(feature = "ble")]
+    {
+        config.gpiote_interrupt_priority = embassy_nrf::interrupt::Priority::P2;
+        config.time_interrupt_priority = embassy_nrf::interrupt::Priority::P2;
+    }
     let p = embassy_nrf::init(config);
 
     // MCUBoot enters the image by branching to its reset handler rather than
@@ -103,6 +110,31 @@ async fn main(spawner: embassy_executor::Spawner) {
     spawner.spawn(defmt::unwrap!(tasks::vibration::run(VibrationResources {
         motor: p.P0_16,
     })));
+    #[cfg(feature = "ble")]
+    spawner.spawn(defmt::unwrap!(tasks::ble::run(
+        board::peripherals::BleResources {
+            rtc0: p.RTC0,
+            timer0: p.TIMER0,
+            temp: p.TEMP,
+            rng: p.RNG,
+            ppi_ch17: p.PPI_CH17,
+            ppi_ch18: p.PPI_CH18,
+            ppi_ch19: p.PPI_CH19,
+            ppi_ch20: p.PPI_CH20,
+            ppi_ch21: p.PPI_CH21,
+            ppi_ch22: p.PPI_CH22,
+            ppi_ch23: p.PPI_CH23,
+            ppi_ch24: p.PPI_CH24,
+            ppi_ch25: p.PPI_CH25,
+            ppi_ch26: p.PPI_CH26,
+            ppi_ch27: p.PPI_CH27,
+            ppi_ch28: p.PPI_CH28,
+            ppi_ch29: p.PPI_CH29,
+            ppi_ch30: p.PPI_CH30,
+            ppi_ch31: p.PPI_CH31,
+        },
+        spawner
+    )));
     spawner.spawn(defmt::unwrap!(tasks::input::run(
         TouchResources {
             reset: p.P0_10,

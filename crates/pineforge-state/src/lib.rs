@@ -152,6 +152,15 @@ impl SystemPowerPolicy {
     }
 }
 
+/// Connection state of the BLE stack, published for status display.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum BleState {
+    #[default]
+    Off,
+    Advertising,
+    Connected,
+}
+
 /// Haptic patterns playable by the vibration service.
 ///
 /// Callers describe intent; the timing lives here so future features such as
@@ -437,6 +446,7 @@ pub enum AppEvent {
     HeartRateStateUpdated(HeartRateState),
     StepsUpdated(u32),
     DisplaySettingsUpdated(DisplaySettings),
+    BleUpdated(BleState),
 }
 
 impl AppEvent {
