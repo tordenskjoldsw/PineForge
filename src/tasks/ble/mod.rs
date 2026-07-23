@@ -24,6 +24,7 @@ use crate::{
     },
 };
 
+mod dfu;
 mod gatt;
 use gatt::Server;
 

@@ -7,13 +7,17 @@
 use defmt::{info, warn};
 use embassy_futures::select::select;
 use embassy_time::Instant;
-use pineforge_state::{AppEvent, BleState, VibrationPattern, parse_cts};
+use pineforge_state::{
+    AppEvent, BOND_PAYLOAD_MAX, BleState, DfuEngine, VibrationPattern, parse_cts,
+};
 use trouble_host::prelude::*;
 
-use pineforge_state::BOND_PAYLOAD_MAX;
-
-use crate::services::events::{
-    BOND_STORE, BatteryStatusReceiver, StoredBond, UI_EVENTS, VIBRATION_COMMANDS, WALL_CLOCK,
+use crate::{
+    boot::confirm::is_validated,
+    services::events::{
+        BOND_STORE, BatteryStatusReceiver, StoredBond, UI_EVENTS, VIBRATION_COMMANDS, WALL_CLOCK,
+    },
+    tasks::ble::dfu,
 };
 
 #[gatt_server]
@@ -21,6 +25,23 @@ pub struct Server {
     pub device_information: DeviceInformationService,
     pub battery: BatteryService,
     pub current_time: CurrentTimeService,
+    pub dfu: DfuService,
+}
+
+/// Nordic legacy DFU service, as spoken by Gadgetbridge's InfiniTime
+/// firmware installer.
+#[gatt_service(uuid = "00001530-1212-efde-1523-785feabcd123")]
+pub struct DfuService {
+    #[characteristic(uuid = "00001531-1212-efde-1523-785feabcd123", write, notify, value = [0; 20])]
+    pub control_point: [u8; 20],
+    #[characteristic(
+        uuid = "00001532-1212-efde-1523-785feabcd123",
+        write_without_response,
+        value = [0; 20]
+    )]
+    pub packet: [u8; 20],
+    #[characteristic(uuid = "00001534-1212-efde-1523-785feabcd123", read, value = 8)]
+    pub revision: u16,
 }
 
 // Gadgetbridge identifies InfiniTime devices by these Device Information
@@ -100,6 +121,10 @@ pub async fn serve(
 
 async fn gatt_events(server: &Server<'_>, connection: &GattConnection<'_, '_, DefaultPacketPool>) {
     let cts_handle = server.current_time.current_time.handle;
+    let dfu_control_handle = server.dfu.control_point.handle;
+    let dfu_packet_handle = server.dfu.packet.handle;
+    // An unconfirmed image refuses DFU so it never overwrites the rollback.
+    let mut engine = DfuEngine::new(is_validated());
     loop {
         match connection.next().await {
             GattConnectionEvent::Disconnected { reason } => {
@@ -145,8 +170,12 @@ async fn gatt_events(server: &Server<'_>, connection: &GattConnection<'_, '_, De
                     .await;
             }
             GattConnectionEvent::Gatt { event } => {
+                // Captured DFU write (is_control_point, buffer, length), acted
+                // on after the write is accepted so notifications flow cleanly.
+                let mut dfu_write: Option<(bool, [u8; 20], usize)> = None;
                 if let GattEvent::Write(write) = &event {
-                    if write.handle() == cts_handle {
+                    let handle = write.handle();
+                    if handle == cts_handle {
                         let uptime_seconds = Instant::now().as_secs();
                         let reference = write.with_data(|offset, data| {
                             (offset == 0)
@@ -165,11 +194,29 @@ async fn gatt_events(server: &Server<'_>, connection: &GattConnection<'_, '_, De
                         } else {
                             warn!("Rejecting malformed current-time write");
                         }
+                    } else if handle == dfu_control_handle || handle == dfu_packet_handle {
+                        let mut buffer = [0_u8; 20];
+                        let len = write.with_data(|_, data| {
+                            let len = data.len().min(buffer.len());
+                            buffer[..len].copy_from_slice(&data[..len]);
+                            len
+                        });
+                        dfu_write = Some((handle == dfu_control_handle, buffer, len));
                     }
                 }
                 match event.accept() {
                     Ok(reply) => reply.send().await,
                     Err(error) => warn!("GATT reply error: {}", defmt::Debug2Format(&error)),
+                }
+                if let Some((is_control_point, buffer, len)) = dfu_write {
+                    dfu::handle_write(
+                        &mut engine,
+                        &server.dfu,
+                        connection,
+                        is_control_point,
+                        &buffer[..len],
+                    )
+                    .await;
                 }
             }
             _ => {}

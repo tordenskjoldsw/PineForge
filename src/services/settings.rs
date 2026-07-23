@@ -6,23 +6,28 @@
 //! All regions are documented in `docs/FLASH-MAP.md`.
 
 use defmt::{info, warn};
-use embassy_futures::select::{Either, select};
+use embassy_futures::select::{Either3, select3};
 use embassy_time::{Duration, Instant, with_deadline};
 use pineforge_state::{
-    BOND_RECORD_LEN, DisplaySettings, SETTINGS_RECORD_LEN, SettingsSlot, frame_bond, parse_bond,
-    select_slot,
+    BOND_RECORD_LEN, DFU_SLOT_SIZE, DisplaySettings, SETTINGS_RECORD_LEN, SettingsSlot, frame_bond,
+    parse_bond, select_slot,
 };
 
 use crate::{
     board::buses::FlashSpi,
     drivers::xt25f32::{EXPECTED_JEDEC_ID, Xt25f32},
-    services::events::{BOND_LOADED, BOND_STORE, DISPLAY_SETTINGS, SETTINGS_COMMANDS, StoredBond},
+    services::events::{
+        BOND_LOADED, BOND_STORE, DFU_FLASH_COMMANDS, DFU_FLASH_RESULT, DISPLAY_SETTINGS,
+        DfuFlashCommand, SETTINGS_COMMANDS, StoredBond,
+    },
 };
 
 /// Mirrors the reserved region in `docs/FLASH-MAP.md`.
 const BOND_ADDRESS: u32 = 0x003F_D000;
 const SETTINGS_SLOT_A_ADDRESS: u32 = 0x003F_E000;
 const SETTINGS_SLOT_B_ADDRESS: u32 = 0x003F_F000;
+/// `MCUBoot` secondary slot in external flash; DFU stages the image here.
+const DFU_SLOT_BASE: u32 = 0x0004_0000;
 
 /// Collapses bursts of preset cycling into a single flash write.
 const PERSIST_DEBOUNCE: Duration = Duration::from_secs(2);
@@ -46,7 +51,28 @@ fn read_bond(flash: &mut Xt25f32<FlashSpi>) -> Option<StoredBond> {
     parse_bond(&record)
 }
 
+/// Executes one DFU flash op, rebasing and range-checking the image-relative
+/// offset so a write can only ever land inside the secondary slot.
+async fn run_dfu_command(flash: &mut Xt25f32<FlashSpi>, command: DfuFlashCommand) -> bool {
+    match command {
+        DfuFlashCommand::Erase(offset) => {
+            if offset >= DFU_SLOT_SIZE {
+                return false;
+            }
+            flash.erase_sector(DFU_SLOT_BASE + offset).await.is_ok()
+        }
+        DfuFlashCommand::Program { offset, data } => {
+            let len = u32::try_from(data.len()).unwrap_or(u32::MAX);
+            if offset.saturating_add(len) > DFU_SLOT_SIZE {
+                return false;
+            }
+            flash.program(DFU_SLOT_BASE + offset, &data).await.is_ok()
+        }
+    }
+}
+
 #[embassy_executor::task]
+#[allow(clippy::too_many_lines)]
 pub async fn run(spi: FlashSpi) {
     let mut flash = Xt25f32::new(spi);
     let sender = DISPLAY_SETTINGS.sender();
@@ -99,8 +125,14 @@ pub async fn run(spi: FlashSpi) {
     BOND_LOADED.signal(bond);
 
     loop {
-        match select(SETTINGS_COMMANDS.receive(), BOND_STORE.receive()).await {
-            Either::First(first) => {
+        match select3(
+            SETTINGS_COMMANDS.receive(),
+            BOND_STORE.receive(),
+            DFU_FLASH_COMMANDS.receive(),
+        )
+        .await
+        {
+            Either3::First(first) => {
                 let mut pending = first;
                 sender.send(pending);
                 while let Ok(next) = with_deadline(
@@ -135,7 +167,7 @@ pub async fn run(spi: FlashSpi) {
                 }
                 current = pending;
             }
-            Either::Second(payload) => {
+            Either3::Second(payload) => {
                 if !writable {
                     continue;
                 }
@@ -152,6 +184,10 @@ pub async fn run(spi: FlashSpi) {
                 } else {
                     warn!("Bond write failed; pairing will not survive reboot");
                 }
+            }
+            Either3::Third(command) => {
+                let ok = writable && run_dfu_command(&mut flash, command).await;
+                DFU_FLASH_RESULT.send(ok).await;
             }
         }
     }

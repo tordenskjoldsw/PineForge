@@ -56,6 +56,29 @@ pub type StoredBond = heapless::Vec<u8, { pineforge_state::BOND_PAYLOAD_MAX }>;
 /// A bond the BLE task asks the storage service to persist.
 pub static BOND_STORE: Channel<CriticalSectionRawMutex, StoredBond, 1> = Channel::new();
 
+/// Maximum program payload, one flash page.
+pub const DFU_PROGRAM_MAX: usize = 256;
+
+/// A single DFU flash operation on the secondary slot, using image-relative
+/// offsets that the storage service rebases and range-checks.
+// The inline page cannot be boxed on a heapless target.
+#[allow(clippy::large_enum_variant)]
+pub enum DfuFlashCommand {
+    Erase(u32),
+    Program {
+        offset: u32,
+        data: heapless::Vec<u8, DFU_PROGRAM_MAX>,
+    },
+}
+
+/// DFU flash requests from the BLE task; capacity 1 enforces backpressure so
+/// the link is throttled to flash speed.
+pub static DFU_FLASH_COMMANDS: Channel<CriticalSectionRawMutex, DfuFlashCommand, 1> =
+    Channel::new();
+
+/// Result (`true` on success) for the most recent DFU flash command.
+pub static DFU_FLASH_RESULT: Channel<CriticalSectionRawMutex, bool, 1> = Channel::new();
+
 /// The bond loaded from flash at boot (`None` if absent or invalid), published
 /// once by the storage service for the BLE task to install before advertising.
 pub static BOND_LOADED: Signal<CriticalSectionRawMutex, Option<StoredBond>> = Signal::new();
