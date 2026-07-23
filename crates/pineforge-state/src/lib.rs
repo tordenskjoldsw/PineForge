@@ -12,6 +12,9 @@ mod ppg;
 #[cfg(feature = "diagnostics")]
 pub use ppg::{PpgAnalysis, PpgProcessor};
 
+mod bond;
+pub use bond::{BOND_PAYLOAD_MAX, BOND_RECORD_LEN, frame_bond, parse_bond};
+
 mod clock;
 pub use clock::{WallClockReference, WallTime, parse_cts};
 

@@ -16,14 +16,19 @@ own storage (assets, logs, a future filesystem).
 | --------------------- | --------- | ------------------------------------------------- | ---------------- |
 | `0x000000`–`0x03FFFF` | 256 KiB   | MCUBoot bootloader graphics assets                | never write      |
 | `0x040000`–`0x0B3FFF` | 464 KiB   | MCUBoot secondary slot / DFU staging              | never write      |
-| `0x0B4000`–`0x3FDFFF` | ~3.3 MiB  | InfiniTime littlefs (temporary, rollback era)     | reserved for future PineForge storage; no writes while rollback exists |
+| `0x0B4000`–`0x3FCFFF` | ~3.3 MiB  | InfiniTime littlefs (temporary, rollback era)     | reserved for future PineForge storage; no writes while rollback exists |
+| `0x3FD000`–`0x3FDFFF` | 4 KiB     | **PineForge BLE bond**                            | read/write       |
 | `0x3FE000`–`0x3FEFFF` | 4 KiB     | **PineForge settings slot A**                     | read/write       |
 | `0x3FF000`–`0x3FFFFF` | 4 KiB     | **PineForge settings slot B**                     | read/write       |
 
 The named constants mirroring this table live in `src/services/settings.rs`
-(`SETTINGS_SLOT_A_ADDRESS`, `SETTINGS_SLOT_B_ADDRESS`). The settings slots
-sit at the top of the chip so they can stay put when the littlefs region is
-later reclaimed.
+(`SETTINGS_SLOT_A_ADDRESS`, `SETTINGS_SLOT_B_ADDRESS`, `BOND_ADDRESS`). These
+records sit at the top of the chip so they can stay put when the littlefs
+region is later reclaimed.
+
+The BLE bond sector holds one CRC32-checked record with the serialized bond
+keys, so a paired phone reconnects across reboots without re-pairing. A
+corrupt or missing record simply falls back to re-pairing.
 
 ## Settings record
 

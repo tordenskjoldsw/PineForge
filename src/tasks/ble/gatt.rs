@@ -10,7 +10,11 @@ use embassy_time::Instant;
 use pineforge_state::{AppEvent, BleState, VibrationPattern, parse_cts};
 use trouble_host::prelude::*;
 
-use crate::services::events::{BatteryStatusReceiver, UI_EVENTS, VIBRATION_COMMANDS, WALL_CLOCK};
+use pineforge_state::BOND_PAYLOAD_MAX;
+
+use crate::services::events::{
+    BOND_STORE, BatteryStatusReceiver, StoredBond, UI_EVENTS, VIBRATION_COMMANDS, WALL_CLOCK,
+};
 
 #[gatt_server]
 pub struct Server {
@@ -111,12 +115,28 @@ async fn gatt_events(server: &Server<'_>, connection: &GattConnection<'_, '_, De
                     .await;
                 let _ = VIBRATION_COMMANDS.try_send(VibrationPattern::Long);
             }
-            GattConnectionEvent::PairingComplete { security_level, .. } => {
+            GattConnectionEvent::PairingComplete {
+                security_level,
+                bond,
+            } => {
                 info!("Pairing complete: {}", defmt::Debug2Format(&security_level));
                 UI_EVENTS
                     .send(AppEvent::BleUpdated(BleState::Connected))
                     .await;
                 let _ = VIBRATION_COMMANDS.try_send(VibrationPattern::Double);
+                // Persist the bond so the pairing survives a reboot. postcard
+                // ships a different heapless version, so serialize into a plain
+                // buffer and copy into our own vector type.
+                if let Some(bond) = bond {
+                    let mut buffer = [0_u8; BOND_PAYLOAD_MAX];
+                    if let Ok(used) = postcard::to_slice(&bond, &mut buffer) {
+                        if let Ok(payload) = StoredBond::from_slice(used) {
+                            let _ = BOND_STORE.try_send(payload);
+                        }
+                    } else {
+                        warn!("Bond too large to serialize");
+                    }
+                }
             }
             GattConnectionEvent::PairingFailed(error) => {
                 warn!("Pairing failed: {}", defmt::Debug2Format(&error));

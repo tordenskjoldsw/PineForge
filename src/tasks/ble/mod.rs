@@ -8,6 +8,7 @@
 use defmt::{info, warn};
 use embassy_executor::Spawner;
 use embassy_nrf::{bind_interrupts, mode::Async, peripherals, rng};
+use embassy_time::{Duration, with_timeout};
 use nrf_sdc::{
     self as sdc,
     mpsl::{self, MultiprotocolServiceLayer},
@@ -19,7 +20,7 @@ use trouble_host::prelude::*;
 use crate::{
     board::peripherals::BleResources,
     services::events::{
-        BatteryStatusReceiver, UI_EVENTS, VIBRATION_COMMANDS, battery_status_receiver,
+        BOND_LOADED, BatteryStatusReceiver, UI_EVENTS, VIBRATION_COMMANDS, battery_status_receiver,
     },
 };
 
@@ -143,6 +144,7 @@ pub async fn run(resources: BleResources, spawner: Spawner) {
         // bonding so Gadgetbridge completes pairing and syncs the time.
         .set_io_capabilities(IoCapabilities::DisplayOnly)
         .build();
+    restore_bond(&stack).await;
     let mut runner = stack.runner();
     let mut peripheral = stack.peripheral();
     let server = match Server::new_with_config(GapConfig::Peripheral(PeripheralConfig {
@@ -169,6 +171,28 @@ pub async fn run(resources: BleResources, spawner: Spawner) {
         }
     })
     .await;
+}
+
+/// Installs the bond persisted by the storage service so a paired phone
+/// reconnects without re-pairing. Waits briefly for the storage service to
+/// publish it, then proceeds regardless.
+async fn restore_bond(stack: &Stack<'_, sdc::SoftdeviceController<'_>, DefaultPacketPool>) {
+    let Ok(loaded) = with_timeout(Duration::from_secs(3), BOND_LOADED.wait()).await else {
+        warn!("Bond load timed out; continuing unbonded");
+        return;
+    };
+    let Some(payload) = loaded else {
+        info!("No stored BLE bond");
+        return;
+    };
+    let Ok(bond) = postcard::from_bytes::<BondInformation>(&payload) else {
+        warn!("Stored bond failed to deserialize");
+        return;
+    };
+    match stack.add_bond_information(bond) {
+        Ok(()) => info!("Restored BLE bond"),
+        Err(error) => warn!("Bond install failed: {}", defmt::Debug2Format(&error)),
+    }
 }
 
 fn build_sdc<'d, const N: usize>(

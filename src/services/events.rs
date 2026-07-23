@@ -50,6 +50,16 @@ pub fn display_settings_receiver() -> DisplaySettingsReceiver {
 /// Validated settings snapshots requested by UI screens.
 pub static SETTINGS_COMMANDS: Channel<CriticalSectionRawMutex, DisplaySettings, 2> = Channel::new();
 
+/// Serialized BLE bond keys, sized for one LESC bond record.
+pub type StoredBond = heapless::Vec<u8, { pineforge_state::BOND_PAYLOAD_MAX }>;
+
+/// A bond the BLE task asks the storage service to persist.
+pub static BOND_STORE: Channel<CriticalSectionRawMutex, StoredBond, 1> = Channel::new();
+
+/// The bond loaded from flash at boot (`None` if absent or invalid), published
+/// once by the storage service for the BLE task to install before advertising.
+pub static BOND_LOADED: Signal<CriticalSectionRawMutex, Option<StoredBond>> = Signal::new();
+
 /// Haptic requests for the vibration task. Senders use `try_send` so a busy
 /// motor drops feedback instead of ever stalling the UI.
 pub static VIBRATION_COMMANDS: Channel<CriticalSectionRawMutex, VibrationPattern, 4> =
