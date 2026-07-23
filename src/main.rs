@@ -20,7 +20,7 @@ mod ui;
 use board::peripherals::HeartRateResources;
 use board::peripherals::{
     BatteryResources, ButtonResources, DisplayFlashBusResources, DisplayResources,
-    SensorBusResources, TouchResources,
+    SensorBusResources, TouchResources, VibrationResources,
 };
 use boot::watchdog::BootloaderWatchdog;
 
@@ -100,6 +100,9 @@ async fn main(spawner: embassy_executor::Spawner) {
     spawner.spawn(defmt::unwrap!(services::settings::run(
         board::buses::flash_device(display_flash_bus, p.P0_05)
     )));
+    spawner.spawn(defmt::unwrap!(tasks::vibration::run(VibrationResources {
+        motor: p.P0_16,
+    })));
     spawner.spawn(defmt::unwrap!(tasks::input::run(
         TouchResources {
             reset: p.P0_10,

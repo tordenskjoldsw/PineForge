@@ -40,6 +40,10 @@ pub struct SensorBusResources {
     pub scl: Peri<'static, peripherals::P0_07>,
 }
 
+pub struct VibrationResources {
+    pub motor: Peri<'static, peripherals::P0_16>,
+}
+
 pub struct ButtonResources {
     pub input: Peri<'static, peripherals::P0_13>,
     pub enable: Peri<'static, peripherals::P0_15>,

@@ -152,6 +152,32 @@ impl SystemPowerPolicy {
     }
 }
 
+/// Haptic patterns playable by the vibration service.
+///
+/// Callers describe intent; the timing lives here so future features such as
+/// notifications and alarms reuse the same vocabulary.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VibrationPattern {
+    /// Single short tick confirming a button activation.
+    Tap,
+    /// Two pulses for stronger confirmations.
+    Double,
+    /// One long pulse for alerts.
+    Long,
+}
+
+impl VibrationPattern {
+    /// Returns `(on_millis, pause_millis, pulse_count)`.
+    #[must_use]
+    pub const fn pulses(self) -> (u64, u64, u8) {
+        match self {
+            Self::Tap => (25, 0, 1),
+            Self::Double => (50, 100, 2),
+            Self::Long => (150, 0, 1),
+        }
+    }
+}
+
 /// Latest battery measurement and stabilized capacity state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BatteryStatus {
@@ -866,6 +892,20 @@ mod tests {
             recognizer.update(120, 120, true, None),
             Some(SwipeDirection::Up)
         );
+    }
+
+    #[test]
+    fn vibration_patterns_are_bounded_and_playable() {
+        for pattern in [
+            VibrationPattern::Tap,
+            VibrationPattern::Double,
+            VibrationPattern::Long,
+        ] {
+            let (on_millis, pause_millis, count) = pattern.pulses();
+            assert!(on_millis > 0 && on_millis <= 500);
+            assert!(count >= 1);
+            assert!(count == 1 || pause_millis > 0);
+        }
     }
 
     #[test]

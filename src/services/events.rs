@@ -7,7 +7,9 @@ use embassy_sync::{
 
 #[cfg(feature = "diagnostics")]
 use pineforge_state::HeartRateCommand;
-use pineforge_state::{AppEvent, DisplaySettings, PowerCommand, SystemPowerState};
+use pineforge_state::{
+    AppEvent, DisplaySettings, PowerCommand, SystemPowerState, VibrationPattern,
+};
 
 pub static UI_EVENTS: Channel<CriticalSectionRawMutex, AppEvent, 8> = Channel::new();
 
@@ -46,3 +48,8 @@ pub fn display_settings_receiver() -> DisplaySettingsReceiver {
 
 /// Validated settings snapshots requested by UI screens.
 pub static SETTINGS_COMMANDS: Channel<CriticalSectionRawMutex, DisplaySettings, 2> = Channel::new();
+
+/// Haptic requests for the vibration task. Senders use `try_send` so a busy
+/// motor drops feedback instead of ever stalling the UI.
+pub static VIBRATION_COMMANDS: Channel<CriticalSectionRawMutex, VibrationPattern, 4> =
+    Channel::new();

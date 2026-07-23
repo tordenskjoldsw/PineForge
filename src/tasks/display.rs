@@ -17,7 +17,8 @@ use crate::{
     boot::watchdog::BootloaderWatchdog,
     drivers::backlight::Backlight,
     services::events::{
-        SETTINGS_COMMANDS, UI_EVENTS, display_settings_receiver, system_power_receiver,
+        SETTINGS_COMMANDS, UI_EVENTS, VIBRATION_COMMANDS, display_settings_receiver,
+        system_power_receiver,
     },
     ui::{
         screen::Screen,
@@ -28,7 +29,9 @@ use crate::{
 };
 #[cfg(feature = "diagnostics")]
 use pineforge_state::HeartRateCommand;
-use pineforge_state::{AppEffect, AppEvent, AppState, DisplaySettings, ScreenId, SystemPowerState};
+use pineforge_state::{
+    AppEffect, AppEvent, AppState, DisplaySettings, ScreenId, SystemPowerState, VibrationPattern,
+};
 
 static DISPLAY_BUFFER: StaticCell<[u8; 512]> = StaticCell::new();
 static SLIDE_BUFFER: StaticCell<SlideBuffer> = StaticCell::new();
@@ -215,6 +218,9 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
 
         match effect {
             AppEffect::ApplySettings(updated) => {
+                // Haptic confirmation for the activated button; a busy motor
+                // drops the tick rather than stalling rendering.
+                let _ = VIBRATION_COMMANDS.try_send(VibrationPattern::Tap);
                 SETTINGS_COMMANDS.send(updated).await;
                 let _ = display_settings.draw_dirty(&mut display, || watchdog.pet());
             }

@@ -4,4 +4,5 @@ pub mod display;
 #[cfg(feature = "diagnostics")]
 pub mod heart_rate;
 pub mod input;
+pub mod vibration;
 pub mod watchdog;
