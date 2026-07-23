@@ -18,6 +18,9 @@ pub use bond::{BOND_PAYLOAD_MAX, BOND_RECORD_LEN, frame_bond, parse_bond};
 mod clock;
 pub use clock::{WallClockReference, WallTime, parse_cts};
 
+mod dfu;
+pub use dfu::{DFU_SLOT_SIZE, DfuEngine, DfuStep, crc16_update};
+
 mod settings;
 pub use settings::{
     BRIGHTNESS_LEVELS, DIM_TIMEOUTS_MILLIS, DecodeError, DisplaySettings, OFF_TIMEOUTS_MILLIS,
