@@ -445,7 +445,12 @@ impl SwipeRecognizer {
         controller_gesture: Option<SwipeDirection>,
     ) -> Option<SwipeDirection> {
         if !pressed {
-            let gesture = controller_gesture.filter(|_| !self.emitted);
+            // Fast flicks can deliver only a press and a release report, so
+            // the release coordinates are also checked for a missed swipe.
+            let fallback = self
+                .start
+                .and_then(|start| Self::direction_from_delta(x - start.0, y - start.1));
+            let gesture = controller_gesture.or(fallback).filter(|_| !self.emitted);
             self.reset();
             return gesture;
         }
@@ -459,11 +464,15 @@ impl SwipeRecognizer {
             return Some(gesture);
         }
 
-        let delta_x = x - start.0;
-        let delta_y = y - start.1;
+        let direction = Self::direction_from_delta(x - start.0, y - start.1);
+        self.emitted = direction.is_some();
+        direction
+    }
+
+    const fn direction_from_delta(delta_x: i32, delta_y: i32) -> Option<SwipeDirection> {
         let horizontal = delta_x.abs();
         let vertical = delta_y.abs();
-        let direction = if horizontal >= SWIPE_MIN_DISTANCE
+        if horizontal >= SWIPE_MIN_DISTANCE
             && horizontal * SWIPE_AXIS_DOMINANCE_DENOMINATOR
                 >= vertical * SWIPE_AXIS_DOMINANCE_NUMERATOR
         {
@@ -483,9 +492,7 @@ impl SwipeRecognizer {
             })
         } else {
             None
-        };
-        self.emitted = direction.is_some();
-        direction
+        }
     }
 
     pub const fn reset(&mut self) {
@@ -809,6 +816,38 @@ mod tests {
         assert_eq!(
             recognizer.update(100, 100, true, Some(SwipeDirection::Left)),
             None
+        );
+    }
+
+    #[test]
+    fn swipe_recognizer_derives_fast_flicks_from_the_release_report() {
+        let mut recognizer = SwipeRecognizer::new();
+
+        assert_eq!(recognizer.update(200, 120, true, None), None);
+        assert_eq!(recognizer.update(190, 118, true, None), None);
+        assert_eq!(
+            recognizer.update(60, 120, false, None),
+            Some(SwipeDirection::Left)
+        );
+        assert_eq!(recognizer.update(100, 100, true, None), None);
+        assert_eq!(recognizer.update(100, 100, false, None), None);
+    }
+
+    #[test]
+    fn swipe_recognizer_reset_discards_stale_tracking() {
+        let mut recognizer = SwipeRecognizer::new();
+
+        assert_eq!(recognizer.update(100, 100, true, None), None);
+        assert_eq!(
+            recognizer.update(180, 100, true, None),
+            Some(SwipeDirection::Right)
+        );
+        // The release report was lost, e.g. due to invalid coordinates.
+        recognizer.reset();
+        assert_eq!(recognizer.update(120, 200, true, None), None);
+        assert_eq!(
+            recognizer.update(120, 120, true, None),
+            Some(SwipeDirection::Up)
         );
     }
 

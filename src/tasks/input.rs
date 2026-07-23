@@ -57,6 +57,9 @@ pub async fn run(resources: TouchResources, i2c: TouchI2c) {
                 UI_EVENTS.send(AppEvent::Swipe(direction)).await;
             }
         } else {
+            // A lost report may hide the release event; stale tracking state
+            // would otherwise suppress or misdirect the next swipe.
+            swipe_recognizer.reset();
             warn!("Touch report read failed");
         }
     }
