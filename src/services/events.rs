@@ -8,7 +8,8 @@ use embassy_sync::{
 #[cfg(feature = "diagnostics")]
 use pineforge_state::HeartRateCommand;
 use pineforge_state::{
-    AppEvent, DisplaySettings, PowerCommand, SystemPowerState, VibrationPattern,
+    AppEvent, BatteryStatus, DisplaySettings, PowerCommand, SystemPowerState, VibrationPattern,
+    WallClockReference,
 };
 
 pub static UI_EVENTS: Channel<CriticalSectionRawMutex, AppEvent, 8> = Channel::new();
@@ -53,3 +54,27 @@ pub static SETTINGS_COMMANDS: Channel<CriticalSectionRawMutex, DisplaySettings, 
 /// motor drops feedback instead of ever stalling the UI.
 pub static VIBRATION_COMMANDS: Channel<CriticalSectionRawMutex, VibrationPattern, 4> =
     Channel::new();
+
+/// Latest battery measurement for the BLE battery service.
+pub static BATTERY_STATUS: Watch<CriticalSectionRawMutex, BatteryStatus, 2> = Watch::new();
+
+pub type BatteryStatusReceiver = Receiver<'static, CriticalSectionRawMutex, BatteryStatus, 2>;
+
+/// Reserves one of the fixed BLE and future consumer subscriptions.
+pub fn battery_status_receiver() -> BatteryStatusReceiver {
+    BATTERY_STATUS
+        .receiver()
+        .expect("battery status receiver capacity is fixed by architecture")
+}
+
+/// Wall-clock anchor written by the BLE Current Time Service.
+pub static WALL_CLOCK: Watch<CriticalSectionRawMutex, WallClockReference, 2> = Watch::new();
+
+pub type WallClockReceiver = Receiver<'static, CriticalSectionRawMutex, WallClockReference, 2>;
+
+/// Reserves one of the fixed display and future consumer subscriptions.
+pub fn wall_clock_receiver() -> WallClockReceiver {
+    WALL_CLOCK
+        .receiver()
+        .expect("wall clock receiver capacity is fixed by architecture")
+}

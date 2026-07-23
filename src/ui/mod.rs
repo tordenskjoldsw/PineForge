@@ -2,6 +2,7 @@
 pub mod heart_rate;
 #[cfg(feature = "diagnostics")]
 pub mod metrics;
+pub mod pairing;
 pub mod render;
 pub mod screen;
 pub mod settings;

@@ -12,6 +12,9 @@ mod ppg;
 #[cfg(feature = "diagnostics")]
 pub use ppg::{PpgAnalysis, PpgProcessor};
 
+mod clock;
+pub use clock::{WallClockReference, WallTime, parse_cts};
+
 mod settings;
 pub use settings::{
     BRIGHTNESS_LEVELS, DIM_TIMEOUTS_MILLIS, DecodeError, DisplaySettings, OFF_TIMEOUTS_MILLIS,
@@ -158,6 +161,8 @@ pub enum BleState {
     #[default]
     Off,
     Advertising,
+    /// Central connected; a passkey is being shown for pairing.
+    Pairing(u32),
     Connected,
 }
 
@@ -428,6 +433,7 @@ pub enum AppEvent {
     Swipe(SwipeDirection),
     Tick {
         uptime_seconds: u64,
+        wall_time: Option<WallTime>,
     },
     BatteryUpdated(BatteryStatus),
     #[cfg(feature = "diagnostics")]

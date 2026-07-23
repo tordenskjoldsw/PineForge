@@ -46,7 +46,9 @@ nrf-mpsl = { git = "https://github.com/alexmoon/nrf-sdc.git", rev = "abe49d22ebf
 # peripheral+central selects Nordic's multirole blob; the peripheral-only
 # blob lacks HCI symbols that nrf-sdc's controller impl references.
 nrf-sdc = { git = "https://github.com/alexmoon/nrf-sdc.git", rev = "abe49d22ebfc85fae134eb082fbfddf752016a55", features = ["nrf52832", "peripheral", "central", "defmt"], optional = true }
-trouble-host = { version = "0.7.0", default-features = false, features = ["peripheral", "gatt", "derive", "default-packet-pool", "defmt"], optional = true }
+# trouble-host only defines its GAP attribute count for security+central, so
+# central is required even though this firmware acts purely as a peripheral.
+trouble-host = { version = "0.7.0", default-features = false, features = ["peripheral", "central", "gatt", "derive", "default-packet-pool", "security", "defmt"], optional = true }
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 pineforge-state = { path = "crates/pineforge-state" }
 static_cell = "2.1.1"

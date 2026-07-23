@@ -18,8 +18,13 @@ use trouble_host::prelude::*;
 
 use crate::{
     board::peripherals::BleResources,
-    services::events::{UI_EVENTS, VIBRATION_COMMANDS},
+    services::events::{
+        BatteryStatusReceiver, UI_EVENTS, VIBRATION_COMMANDS, battery_status_receiver,
+    },
 };
+
+mod gatt;
+use gatt::Server;
 
 bind_interrupts!(struct BleIrqs {
     RNG => rng::InterruptHandler<peripherals::RNG>;
@@ -134,13 +139,30 @@ pub async fn run(resources: BleResources, spawner: Spawner) {
     > = HostResources::new();
     let stack = trouble_host::new(controller, &mut host_resources)
         .set_random_address(address)
+        // Present a passkey for the central to confirm, matching InfiniTime's
+        // bonding so Gadgetbridge completes pairing and syncs the time.
+        .set_io_capabilities(IoCapabilities::DisplayOnly)
         .build();
     let mut runner = stack.runner();
     let mut peripheral = stack.peripheral();
+    let server = match Server::new_with_config(GapConfig::Peripheral(PeripheralConfig {
+        name: DEVICE_NAME,
+        appearance: &appearance::watch::SMARTWATCH,
+    })) {
+        Ok(server) => server,
+        Err(error) => {
+            warn!("GATT server init failed: {}; continuing without BLE", error);
+            return;
+        }
+    };
+    // The device-information service is served from the attribute table alone;
+    // binding it here marks it intentionally live for the borrow checker.
+    let _dis = &server.device_information;
+    let mut battery = battery_status_receiver();
 
     embassy_futures::join::join(ble_runner(&mut runner), async {
         loop {
-            if let Err(error) = advertise_and_serve(&mut peripheral).await {
+            if let Err(error) = advertise_and_serve(&mut peripheral, &server, &mut battery).await {
                 warn!("BLE advertise error: {}", defmt::Debug2Format(&error));
                 embassy_time::Timer::after_secs(1).await;
             }
@@ -174,6 +196,8 @@ async fn ble_runner<C: Controller, P: PacketPool>(runner: &mut Runner<'_, C, P>)
 
 async fn advertise_and_serve<C: Controller>(
     peripheral: &mut Peripheral<'_, C, DefaultPacketPool>,
+    server: &Server<'_>,
+    battery: &mut BatteryStatusReceiver,
 ) -> Result<(), BleHostError<C::Error>> {
     let mut advertiser_data = [0; 31];
     let len = AdStructure::encode_slice(
@@ -197,17 +221,13 @@ async fn advertise_and_serve<C: Controller>(
         .send(AppEvent::BleUpdated(BleState::Advertising))
         .await;
 
-    let connection = advertiser.accept().await?;
+    let connection = advertiser.accept().await?.with_attribute_server(server)?;
     info!("BLE central connected");
     UI_EVENTS
         .send(AppEvent::BleUpdated(BleState::Connected))
         .await;
     let _ = VIBRATION_COMMANDS.try_send(VibrationPattern::Tap);
 
-    loop {
-        if let ConnectionEvent::Disconnected { reason } = connection.next().await {
-            info!("BLE disconnected: {}", defmt::Debug2Format(&reason));
-            return Ok(());
-        }
-    }
+    gatt::serve(server, &connection, battery).await;
+    Ok(())
 }

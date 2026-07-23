@@ -8,7 +8,7 @@ use pineforge_state::{AppEvent, BatteryCapacityEstimator, BatteryStatus, battery
 
 use crate::{
     board::peripherals::{BatteryResources, Irqs},
-    services::events::UI_EVENTS,
+    services::events::{BATTERY_STATUS, UI_EVENTS},
 };
 
 #[cfg(feature = "diagnostics")]
@@ -98,5 +98,8 @@ async fn sample_millivolts(adc: &mut Saadc<'_, 1>) -> u16 {
 }
 
 async fn publish(status: BatteryStatus) {
+    // Documented duplication until the UI rewrite: the display consumes the
+    // event stream, the BLE battery service the watch snapshot.
+    BATTERY_STATUS.sender().send(status);
     UI_EVENTS.send(AppEvent::BatteryUpdated(status)).await;
 }

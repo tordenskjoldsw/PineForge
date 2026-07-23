@@ -52,9 +52,10 @@ enum DirtyRegion {
 }
 
 pub struct TerminalWatchface {
-    previous_uptime_seconds: u64,
-    uptime_seconds: u64,
-    previous_ble: BleState,
+    previous_clock_seconds: u64,
+    clock_seconds: u64,
+    previous_synchronized: bool,
+    synchronized: bool,
     ble: BleState,
     battery: Option<BatteryStatus>,
     #[cfg(feature = "diagnostics")]
@@ -76,9 +77,10 @@ pub struct TerminalWatchface {
 impl Default for TerminalWatchface {
     fn default() -> Self {
         Self {
-            previous_uptime_seconds: 0,
-            uptime_seconds: 0,
-            previous_ble: BleState::Off,
+            previous_clock_seconds: 0,
+            clock_seconds: 0,
+            previous_synchronized: false,
+            synchronized: false,
             ble: BleState::Off,
             battery: None,
             #[cfg(feature = "diagnostics")]
@@ -100,7 +102,7 @@ impl Default for TerminalWatchface {
 }
 
 impl TerminalWatchface {
-    fn format_uptime(seconds: u64) -> String<16> {
+    fn format_clock(seconds: u64) -> String<16> {
         let hours = seconds / 3_600;
         let minutes = (seconds / 60) % 60;
         let seconds = seconds % 60;
@@ -175,8 +177,13 @@ impl TerminalWatchface {
     where
         D: DrawTarget<Color = Rgb565>,
     {
-        let uptime = Self::format_uptime(self.uptime_seconds);
-        Self::draw_row(display, UPTIME_ROW, "[UPTM]", &uptime, TERMINAL_GREEN)
+        let label = if self.synchronized {
+            "[TIME]"
+        } else {
+            "[UPTM]"
+        };
+        let uptime = Self::format_clock(self.clock_seconds);
+        Self::draw_row(display, UPTIME_ROW, label, &uptime, TERMINAL_GREEN)
     }
 
     fn format_battery(&self) -> String<16> {
@@ -249,25 +256,42 @@ impl TerminalWatchface {
         Self::draw_row(display, MOTION_ROW, label, &value, TERMINAL_ORANGE)
     }
 
-    /// Fixed-width so partial redraws blank the previous, longer value.
-    const fn format_ble(state: BleState) -> &'static str {
+    /// Padded to a fixed width so partial redraws blank a longer prior value.
+    fn format_ble(state: BleState) -> String<16> {
+        let mut value = String::new();
         match state {
-            BleState::Off => "off        ",
-            BleState::Advertising => "advertising",
-            BleState::Connected => "connected  ",
+            BleState::Off => {
+                let _ = value.push_str("off        ");
+            }
+            BleState::Advertising => {
+                let _ = value.push_str("advertising");
+            }
+            BleState::Pairing(passkey) => {
+                let _ = write!(value, "PAIR {passkey:06}");
+            }
+            BleState::Connected => {
+                let _ = value.push_str("connected  ");
+            }
         }
+        value
     }
 
     fn draw_status<D>(&self, display: &mut D) -> Result<(), D::Error>
     where
         D: DrawTarget<Color = Rgb565>,
     {
+        // A passkey during pairing takes visual priority.
+        let color = if matches!(self.ble, BleState::Pairing(_)) {
+            TERMINAL_ORANGE
+        } else {
+            TERMINAL_BLUE
+        };
         Self::draw_row(
             display,
             STATUS_ROW,
             "[BLE ]",
-            Self::format_ble(self.ble),
-            TERMINAL_BLUE,
+            &Self::format_ble(self.ble),
+            color,
         )
     }
 
@@ -357,8 +381,12 @@ impl TerminalWatchface {
     where
         D: DrawTarget<Color = Rgb565>,
     {
-        let old_uptime = Self::format_uptime(self.previous_uptime_seconds);
-        let new_uptime = Self::format_uptime(self.uptime_seconds);
+        // The first synchronization replaces the row label as well.
+        if self.synchronized != self.previous_synchronized {
+            return self.draw_uptime(display);
+        }
+        let old_uptime = Self::format_clock(self.previous_clock_seconds);
+        let new_uptime = Self::format_clock(self.clock_seconds);
         Self::draw_changed_value(display, &old_uptime, &new_uptime, 70, TERMINAL_GREEN)
     }
 
@@ -366,22 +394,26 @@ impl TerminalWatchface {
     where
         D: DrawTarget<Color = Rgb565>,
     {
-        Self::draw_changed_value(
-            display,
-            Self::format_ble(self.previous_ble),
-            Self::format_ble(self.ble),
-            195,
-            TERMINAL_BLUE,
-        )
+        // The pairing passkey changes both text and color, so redraw the whole
+        // row rather than diffing the value.
+        self.draw_status(display)
     }
 }
 
 impl Screen for TerminalWatchface {
     fn handle_event(&mut self, event: AppEvent) -> ScreenAction {
         match event {
-            AppEvent::Tick { uptime_seconds } => {
-                self.previous_uptime_seconds = self.uptime_seconds;
-                self.uptime_seconds = uptime_seconds;
+            AppEvent::Tick {
+                uptime_seconds,
+                wall_time,
+            } => {
+                self.previous_clock_seconds = self.clock_seconds;
+                self.previous_synchronized = self.synchronized;
+                // Once synchronized over BLE, the clock row shows the time of
+                // day; before that it keeps counting uptime.
+                self.synchronized = wall_time.is_some();
+                self.clock_seconds =
+                    wall_time.map_or(uptime_seconds, pineforge_state::WallTime::total_seconds);
                 self.dirty = DirtyRegion::Clock;
             }
             // Touch state is visualized on the diagnostics touch-test screen.
@@ -428,7 +460,6 @@ impl Screen for TerminalWatchface {
             }
             AppEvent::DisplaySettingsUpdated(_) => {}
             AppEvent::BleUpdated(state) => {
-                self.previous_ble = self.ble;
                 self.ble = state;
                 self.dirty = DirtyRegion::Status;
             }
