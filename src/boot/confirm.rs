@@ -17,3 +17,32 @@ pub fn is_validated() -> bool {
     let value = unsafe { core::ptr::read_volatile(IMAGE_OK_ADDRESS as *const u32) };
     value == IMAGE_OK_VALUE
 }
+
+/// Confirms the running image by setting `image_ok`, so the bootloader keeps
+/// it instead of rolling back. Idempotent, and returns whether the image is
+/// confirmed afterwards.
+///
+/// After this, a side-button reset no longer returns to `InfiniTime`.
+#[allow(unsafe_code)]
+pub fn confirm() -> bool {
+    if is_validated() {
+        return true;
+    }
+
+    let nvmc = nrf_pac::NVMC;
+    nvmc.config()
+        .write(|config| config.set_wen(nrf_pac::nvmc::vals::Wen::Wen));
+    while !nvmc.ready().read().ready() {}
+    // The trailer word is erased (all ones), so writing 1 only clears bits and
+    // needs no page erase. SAFETY: a single word write to internal flash with
+    // the controller in write mode.
+    unsafe {
+        core::ptr::write_volatile(IMAGE_OK_ADDRESS as *mut u32, IMAGE_OK_VALUE);
+    }
+    while !nvmc.ready().read().ready() {}
+    nvmc.config()
+        .write(|config| config.set_wen(nrf_pac::nvmc::vals::Wen::Ren));
+    while !nvmc.ready().read().ready() {}
+
+    is_validated()
+}

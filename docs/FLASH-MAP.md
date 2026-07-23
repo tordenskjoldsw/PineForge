@@ -15,7 +15,7 @@ own storage (assets, logs, a future filesystem).
 | Range                 | Size      | Owner                                             | PineForge policy |
 | --------------------- | --------- | ------------------------------------------------- | ---------------- |
 | `0x000000`–`0x03FFFF` | 256 KiB   | MCUBoot bootloader graphics assets                | never write      |
-| `0x040000`–`0x0B3FFF` | 464 KiB   | MCUBoot secondary slot / DFU staging              | never write      |
+| `0x040000`–`0x0B3FFF` | 464 KiB   | MCUBoot secondary slot / DFU staging              | DFU service only  |
 | `0x0B4000`–`0x3FCFFF` | ~3.3 MiB  | InfiniTime littlefs (temporary, rollback era)     | reserved for future PineForge storage; no writes while rollback exists |
 | `0x3FD000`–`0x3FDFFF` | 4 KiB     | **PineForge BLE bond**                            | read/write       |
 | `0x3FE000`–`0x3FEFFF` | 4 KiB     | **PineForge settings slot A**                     | read/write       |
@@ -53,3 +53,20 @@ technically lie at the end of the span stock InfiniTime formats as littlefs:
 
 Both directions are recoverable; bootloader assets and the DFU staging area
 are never touched. This entire constraint disappears with the rollback era.
+
+## Internal flash
+
+The nRF52832 has 512 KiB of internal flash. MCUBoot and the primary image
+live here; PineForge only reads it, apart from the one confirmation word.
+
+| Range                 | Owner                                        |
+| --------------------- | -------------------------------------------- |
+| `0x00000`–`0x07FFF`   | MCUBoot bootloader (never write)             |
+| `0x08000`–`0x7BFFF`   | Primary image slot (32-byte imgtool header)  |
+| `0x7BFE8`             | `image_ok` confirmation word (see below)     |
+| `0x7C000`–`0x7FFFF`   | MCUBoot scratch / bootloader data            |
+
+Confirming a running image writes `1` to the `image_ok` word at `0x0007_BFE8`
+via NVMC (`src/boot/confirm.rs`), matching InfiniTime's `FirmwareValidator`.
+The word sits in the erased trailer, so the single-word write needs no page
+erase. Once set, the bootloader keeps the image instead of rolling back.

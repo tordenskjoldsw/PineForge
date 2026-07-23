@@ -12,9 +12,24 @@ This variant is intentionally an **unconfirmed MCUBoot test image**.
 6. The firmware performs only a system reset.
 7. Because the image was not confirmed, MCUBoot restores the previous InfiniTime image.
 
+## Confirming the image
+
+Once a build is trusted, it can be made permanent from **Settings > FW >
+CONFIRM** (swipe down on the watchface). Confirming writes `image_ok` to the
+primary-slot trailer via NVMC, after which:
+
+- a side-button reset no longer rolls back — PineForge is now the primary image;
+- the DFU service accepts updates, so the next firmware can be installed over
+  the air with Gadgetbridge (see `GETTING-STARTED.md`);
+- InfiniTime can always be reinstalled later by feeding an InfiniTime DFU ZIP
+  to PineForge's own DFU.
+
+Until an image is confirmed it stays a safe test image: the DFU service refuses
+`StartDFU`, so the InfiniTime rollback staged in the external-flash secondary
+slot is never overwritten.
+
 ## Important
 
-- This codebase deliberately provides no function that confirms the image.
 - There is no automatic rollback timeout; use the physical side button to reset.
 - An ordinary reset before confirmation also causes a rollback.
 - The bootloader is neither modified nor overwritten.

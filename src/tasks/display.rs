@@ -79,6 +79,7 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
     let mut next_tick = started_at + Duration::from_secs(1);
     let mut watchface = TerminalWatchface::default();
     let mut display_settings = DisplaySettingsScreen::default();
+    display_settings.set_firmware_confirmed(crate::boot::confirm::is_validated());
     #[cfg(feature = "diagnostics")]
     let mut touch_test = TestScreen::default();
     #[cfg(feature = "diagnostics")]
@@ -295,6 +296,15 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                 let _ = VIBRATION_COMMANDS.try_send(VibrationPattern::Tap);
                 SETTINGS_COMMANDS.send(updated).await;
                 let _ = display_settings.draw_dirty(&mut display, || watchdog.pet());
+            }
+            AppEffect::ConfirmFirmware => {
+                // Making the image permanent takes effect immediately; the
+                // side button no longer rolls back afterwards.
+                let confirmed = crate::boot::confirm::confirm();
+                info!("Firmware confirmation requested; confirmed={}", confirmed);
+                display_settings.set_firmware_confirmed(confirmed);
+                let _ = VIBRATION_COMMANDS.try_send(VibrationPattern::Double);
+                let _ = display_settings.draw_full(&mut display, || watchdog.pet());
             }
             AppEffect::RequestRollback => {
                 info!("Rollback requested; resetting unconfirmed image");

@@ -67,15 +67,17 @@ milestone should leave the sealed PineTime in a testable and recoverable state.
 - persistence for brightness, timeouts, and watchface selection
 - validation and migration of stored settings
 
-## Milestone 5 — BLE and time synchronization
+## Milestone 5 — BLE, time synchronization, and OTA
 
-- documented BLE stack choice based on licensing, maintenance, RAM, and flash use
-- advertising, connection, and reconnection lifecycle
-- GATT Current Time Service
-- GATT Battery Service
-- time synchronization from a companion device
-- initial Gadgetbridge compatibility testing
-- memory-map and DFU compatibility preserved
+### Complete
+
+- BLE stack choice (TrouBLE host + Nordic SoftDevice Controller via nrf-sdc)
+- advertising, connection, and passkey-bonded pairing with persistent bonds
+- GATT Current Time, Battery, and Device Information services
+- time synchronization from Gadgetbridge, shown on the watchface
+- Nordic legacy DFU service for over-the-air updates via Gadgetbridge
+- MCUBoot image confirmation, gating DFU until the image is confirmed
+- memory-map and DFU compatibility with the stock bootloader preserved
 
 ## Milestone 6 — daily-use MVP
 

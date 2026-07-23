@@ -13,19 +13,22 @@ use pineforge_state::{
 
 use crate::ui::{render::draw_mono_text_visible, screen::Screen};
 
-const ROW_HEIGHT: i32 = 50;
+const ROW_HEIGHT: i32 = 46;
 const ROW_WIDTH: i32 = 200;
 const ROW_X: i32 = 20;
-const BRIGHTNESS_ROW_Y: i32 = 60;
-const DIM_ROW_Y: i32 = 120;
-const OFF_ROW_Y: i32 = 180;
+const BRIGHTNESS_ROW_Y: i32 = 20;
+const DIM_ROW_Y: i32 = 70;
+const OFF_ROW_Y: i32 = 120;
+const FIRMWARE_ROW_Y: i32 = 170;
 
-/// Adjusts display settings through preset-cycling rows.
+/// Adjusts display settings and confirms the firmware image.
 pub struct DisplaySettingsScreen {
     settings: DisplaySettings,
+    firmware_confirmed: bool,
     brightness_row: Button,
     dim_row: Button,
     off_row: Button,
+    firmware_row: Button,
     dirty: bool,
 }
 
@@ -33,6 +36,7 @@ impl Default for DisplaySettingsScreen {
     fn default() -> Self {
         Self {
             settings: DisplaySettings::DEFAULT,
+            firmware_confirmed: false,
             brightness_row: Button::new(ButtonBounds::new(
                 ROW_X,
                 BRIGHTNESS_ROW_Y,
@@ -41,12 +45,24 @@ impl Default for DisplaySettingsScreen {
             )),
             dim_row: Button::new(ButtonBounds::new(ROW_X, DIM_ROW_Y, ROW_WIDTH, ROW_HEIGHT)),
             off_row: Button::new(ButtonBounds::new(ROW_X, OFF_ROW_Y, ROW_WIDTH, ROW_HEIGHT)),
+            firmware_row: Button::new(ButtonBounds::new(
+                ROW_X,
+                FIRMWARE_ROW_Y,
+                ROW_WIDTH,
+                ROW_HEIGHT,
+            )),
             dirty: false,
         }
     }
 }
 
 impl DisplaySettingsScreen {
+    /// Reflects the confirmed/unconfirmed state read at boot or after a
+    /// successful confirmation.
+    pub const fn set_firmware_confirmed(&mut self, confirmed: bool) {
+        self.firmware_confirmed = confirmed;
+    }
+
     fn draw_row<D>(display: &mut D, y: i32, label: &str, value: &str) -> Result<(), D::Error>
     where
         D: DrawTarget<Color = Rgb565>,
@@ -66,16 +82,26 @@ impl DisplaySettingsScreen {
             .draw(display)?;
         draw_mono_text_visible(
             label,
-            Point::new(ROW_X + 10, y + 20),
+            Point::new(ROW_X + 10, y + 18),
             MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE),
             display,
         )?;
         draw_mono_text_visible(
             value,
-            Point::new(ROW_X + 10, y + 42),
+            Point::new(ROW_X + 10, y + 38),
             MonoTextStyle::new(&FONT_10X20, Rgb565::CSS_ORANGE),
             display,
         )
+    }
+
+    fn firmware_value(&self) -> String<16> {
+        let mut value = String::new();
+        if self.firmware_confirmed {
+            let _ = write!(value, "OK {}", env!("CARGO_PKG_VERSION"));
+        } else {
+            let _ = value.push_str("CONFIRM");
+        }
+        value
     }
 
     fn draw_rows<D>(&self, display: &mut D) -> Result<(), D::Error>
@@ -96,7 +122,9 @@ impl DisplaySettingsScreen {
 
         value.clear();
         let _ = write!(value, "{} s", self.settings.off_after_millis() / 1_000);
-        Self::draw_row(display, OFF_ROW_Y, "OFF", &value)
+        Self::draw_row(display, OFF_ROW_Y, "OFF", &value)?;
+
+        Self::draw_row(display, FIRMWARE_ROW_Y, "FW", &self.firmware_value())
     }
 }
 
@@ -121,6 +149,10 @@ impl Screen for DisplaySettingsScreen {
             updated = Some(self.settings.cycle_dim_timeout());
         } else if self.off_row.handle_event(event) == ButtonOutcome::Activated {
             updated = Some(self.settings.cycle_off_timeout());
+        } else if self.firmware_row.handle_event(event) == ButtonOutcome::Activated
+            && !self.firmware_confirmed
+        {
+            return ScreenAction::ConfirmFirmware;
         }
 
         if let Some(settings) = updated {
@@ -136,12 +168,6 @@ impl Screen for DisplaySettingsScreen {
         D: DrawTarget<Color = Rgb565>,
     {
         display.clear(Rgb565::BLACK)?;
-        draw_mono_text_visible(
-            "DISPLAY",
-            Point::new(20, 30),
-            MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE),
-            display,
-        )?;
         keep_alive();
         self.draw_rows(display)?;
         keep_alive();

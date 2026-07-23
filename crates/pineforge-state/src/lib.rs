@@ -570,6 +570,7 @@ pub enum ScreenAction {
     Back,
     RequestRollback,
     ApplySettings(DisplaySettings),
+    ConfirmFirmware,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -578,6 +579,7 @@ pub enum AppEffect {
     Navigate(NavigationDirection),
     RequestRollback,
     ApplySettings(DisplaySettings),
+    ConfirmFirmware,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -720,6 +722,7 @@ impl AppState {
             ScreenAction::None => AppEffect::None,
             ScreenAction::RequestRollback => AppEffect::RequestRollback,
             ScreenAction::ApplySettings(settings) => AppEffect::ApplySettings(settings),
+            ScreenAction::ConfirmFirmware => AppEffect::ConfirmFirmware,
             ScreenAction::Back => {
                 if self.screens.len() > 1 {
                     self.screens.pop();
@@ -938,6 +941,16 @@ mod tests {
         assert_eq!(
             app.transition(ScreenAction::ApplySettings(settings)),
             AppEffect::ApplySettings(settings)
+        );
+        assert_eq!(app.active_screen(), ScreenId::Watchface);
+    }
+
+    #[test]
+    fn confirm_firmware_is_an_explicit_effect() {
+        let mut app = AppState::new(ScreenId::Watchface);
+        assert_eq!(
+            app.transition(ScreenAction::ConfirmFirmware),
+            AppEffect::ConfirmFirmware
         );
         assert_eq!(app.active_screen(), ScreenId::Watchface);
     }
