@@ -12,9 +12,9 @@ use crate::ui::{render::draw_mono_text_visible, screen::Screen};
 #[cfg(feature = "diagnostics")]
 use pineforge_state::{
     AccelerationSample, AccelerometerKind, FeatureEngineStatus, HeartRateRawSample,
-    HeartRateSensorKind, PpgAnalysis, ScreenId, SwipeDirection,
+    HeartRateSensorKind, PpgAnalysis,
 };
-use pineforge_state::{AppEvent, BatteryStatus, ScreenAction};
+use pineforge_state::{AppEvent, BatteryStatus, ScreenAction, ScreenId, SwipeDirection};
 
 const ROW_HEIGHT: u32 = 25;
 const VALUE_X: i32 = 70;
@@ -423,6 +423,7 @@ impl Screen for TerminalWatchface {
                 self.steps = Some(steps);
                 self.dirty = DirtyRegion::Steps;
             }
+            AppEvent::DisplaySettingsUpdated(_) => {}
             AppEvent::Swipe(direction) => {
                 // A swipe completes on the current screen, but the physical
                 // release report can arrive after navigation and therefore be
@@ -431,6 +432,9 @@ impl Screen for TerminalWatchface {
                 self.previous_touching = self.touching;
                 self.touching = false;
                 self.dirty = DirtyRegion::Status;
+                if direction == SwipeDirection::Down {
+                    return ScreenAction::Push(ScreenId::DisplaySettings);
+                }
                 #[cfg(feature = "diagnostics")]
                 if direction == SwipeDirection::Left {
                     return ScreenAction::Push(ScreenId::TouchTest);
@@ -439,8 +443,6 @@ impl Screen for TerminalWatchface {
                 if direction == SwipeDirection::Up {
                     return ScreenAction::Push(ScreenId::HeartRate);
                 }
-                #[cfg(not(feature = "diagnostics"))]
-                let _ = direction;
             }
         }
         ScreenAction::None

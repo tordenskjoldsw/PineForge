@@ -4,3 +4,4 @@ pub mod button;
 #[cfg(feature = "diagnostics")]
 pub mod hrs3300;
 pub mod touch;
+pub mod xt25f32;

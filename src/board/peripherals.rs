@@ -8,13 +8,16 @@ bind_interrupts!(pub struct Irqs {
     SAADC => saadc::InterruptHandler;
 });
 
-pub struct DisplayResources {
+/// The SPI bus shared by the LCD and the external flash chip.
+pub struct DisplayFlashBusResources {
     pub spi: Peri<'static, peripherals::TWISPI0>,
     pub sck: Peri<'static, peripherals::P0_02>,
     pub miso: Peri<'static, peripherals::P0_04>,
     pub mosi: Peri<'static, peripherals::P0_03>,
+}
+
+pub struct DisplayResources {
     pub dc: Peri<'static, peripherals::P0_18>,
-    pub cs: Peri<'static, peripherals::P0_25>,
     pub reset: Peri<'static, peripherals::P0_26>,
     pub backlight_low: Peri<'static, peripherals::P0_14>,
     pub backlight_mid: Peri<'static, peripherals::P0_22>,

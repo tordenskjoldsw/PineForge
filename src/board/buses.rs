@@ -1,8 +1,15 @@
 use core::cell::RefCell;
 
-use embassy_embedded_hal::adapter::{BlockingAsync, YieldingAsync};
+use embassy_embedded_hal::{
+    adapter::{BlockingAsync, YieldingAsync},
+    shared_bus::blocking::spi::SpiDevice,
+};
 use embassy_nrf::{
-    gpio::{Flex, OutputDrive, Pull},
+    Peri,
+    gpio::{Flex, Level, Output, OutputDrive, Pull},
+    peripherals::{P0_05, P0_25},
+    spim,
+    spim::Spim,
     twim,
     twim::Twim,
 };
@@ -13,19 +20,23 @@ use nrf_pac::twim::vals::Enable;
 use static_cell::StaticCell;
 
 use crate::{
-    board::peripherals::{Irqs, SensorBusResources},
+    board::peripherals::{DisplayFlashBusResources, Irqs, SensorBusResources},
     services::motion::BusRecovery,
 };
 
 pub struct SensorBus {
     inner: Mutex<NoopRawMutex, RefCell<Twim<'static>>>,
 }
+pub type SharedSpiBus = Mutex<NoopRawMutex, RefCell<Spim<'static>>>;
+pub type DisplaySpi = SpiDevice<'static, NoopRawMutex, Spim<'static>, Output<'static>>;
+pub type FlashSpi = SpiDevice<'static, NoopRawMutex, Spim<'static>, Output<'static>>;
 pub type TouchI2c = BlockingAsync<TimedI2cDevice>;
 pub type MotionI2c = YieldingAsync<BlockingAsync<TimedI2cDevice>>;
 #[cfg(feature = "diagnostics")]
 pub type HeartRateI2c = YieldingAsync<BlockingAsync<TimedI2cDevice>>;
 
 static SENSOR_BUS: StaticCell<SensorBus> = StaticCell::new();
+static DISPLAY_FLASH_BUS: StaticCell<SharedSpiBus> = StaticCell::new();
 const SENSOR_BUS_BUFFER_SIZE: usize = 32;
 static SENSOR_BUS_BUFFER: StaticCell<[u8; SENSOR_BUS_BUFFER_SIZE]> = StaticCell::new();
 const PINETIME_TWIM_FREQUENCY: twim::Frequency = twim::Frequency::from_bits(0x0620_0000);
@@ -134,6 +145,36 @@ fn reset_twim1() {
     registers
         .enable()
         .write(|value| value.set_enable(Enable::Enabled));
+}
+
+/// Initializes the SPI bus shared by the ST7789 LCD and the external flash.
+///
+/// Both devices tolerate mode 3, so a single configuration serves the bus.
+/// Every `SpiDevice` transaction is blocking and completes within one
+/// executor poll, which keeps the `NoopRawMutex` sharing sound.
+pub fn init_display_flash_bus(resources: DisplayFlashBusResources) -> &'static SharedSpiBus {
+    let mut config = spim::Config::default();
+    config.frequency = spim::Frequency::M8;
+    config.mode = spim::MODE_3;
+    let spi = Spim::new(
+        resources.spi,
+        Irqs,
+        resources.sck,
+        resources.miso,
+        resources.mosi,
+        config,
+    );
+    DISPLAY_FLASH_BUS.init(Mutex::new(RefCell::new(spi)))
+}
+
+/// Creates the LCD device with its dedicated chip select.
+pub fn display_device(bus: &'static SharedSpiBus, cs: Peri<'static, P0_25>) -> DisplaySpi {
+    SpiDevice::new(bus, Output::new(cs, Level::High, OutputDrive::Standard))
+}
+
+/// Creates the external-flash device with its dedicated chip select.
+pub fn flash_device(bus: &'static SharedSpiBus, cs: Peri<'static, P0_05>) -> FlashSpi {
+    SpiDevice::new(bus, Output::new(cs, Level::High, OutputDrive::Standard))
 }
 
 /// Creates the latency-sensitive touch device. Each transaction is blocking,

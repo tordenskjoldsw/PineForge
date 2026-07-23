@@ -16,6 +16,8 @@ pub const LCD_DC: u8 = 18;
 pub const LCD_CS: u8 = 25;
 pub const LCD_RESET: u8 = 26;
 
+pub const FLASH_CS: u8 = 5;
+
 pub const BACKLIGHT_LOW: u8 = 14;
 pub const BACKLIGHT_MID: u8 = 22;
 pub const BACKLIGHT_HIGH: u8 = 23;

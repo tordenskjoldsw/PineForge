@@ -4,6 +4,7 @@ pub mod heart_rate;
 pub mod metrics;
 pub mod render;
 pub mod screen;
+pub mod settings;
 #[cfg(feature = "diagnostics")]
 pub mod test_screen;
 pub mod transition;

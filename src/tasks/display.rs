@@ -1,13 +1,6 @@
-use core::cell::RefCell;
-
 use defmt::info;
-use embassy_embedded_hal::shared_bus::blocking::spi::SpiDevice;
-use embassy_futures::select::{Either, Either3, select, select3};
-use embassy_nrf::{
-    gpio::{Level, Output, OutputDrive},
-    spim,
-};
-use embassy_sync::blocking_mutex::NoopMutex;
+use embassy_futures::select::{Either3, Either4, select3, select4};
+use embassy_nrf::gpio::{Level, Output, OutputDrive};
 use embassy_time::{Delay, Duration, Instant, Timer};
 use mipidsi::interface::SpiInterface;
 use mipidsi::options::{ColorInversion, Orientation};
@@ -20,34 +13,33 @@ use crate::ui::heart_rate::HeartRateScreen;
 #[cfg(feature = "diagnostics")]
 use crate::ui::test_screen::TestScreen;
 use crate::{
-    board::{
-        peripherals::{DisplayResources, Irqs},
-        pins,
-    },
+    board::{buses::DisplaySpi, peripherals::DisplayResources, pins},
     boot::watchdog::BootloaderWatchdog,
     drivers::backlight::Backlight,
-    services::events::{UI_EVENTS, system_power_receiver},
+    services::events::{
+        SETTINGS_COMMANDS, UI_EVENTS, display_settings_receiver, system_power_receiver,
+    },
     ui::{
         screen::Screen,
+        settings::DisplaySettingsScreen,
         transition::{SlideBuffer, draw_slide_reveal},
         watchface::TerminalWatchface,
     },
 };
 #[cfg(feature = "diagnostics")]
 use pineforge_state::HeartRateCommand;
-use pineforge_state::{AppEffect, AppEvent, AppState, ScreenId, SystemPowerState};
+use pineforge_state::{AppEffect, AppEvent, AppState, DisplaySettings, ScreenId, SystemPowerState};
 
-static SPI_BUS: StaticCell<NoopMutex<RefCell<spim::Spim<'static>>>> = StaticCell::new();
 static DISPLAY_BUFFER: StaticCell<[u8; 512]> = StaticCell::new();
 static SLIDE_BUFFER: StaticCell<SlideBuffer> = StaticCell::new();
 
-const ACTIVE_BRIGHTNESS: u8 = 4;
 const DIMMED_BRIGHTNESS: u8 = 1;
 const WAKE_INPUT_GUARD: Duration = Duration::from_millis(500);
 
 enum DisplayEvent {
     Ui(AppEvent),
     Power(SystemPowerState),
+    Settings(DisplaySettings),
 }
 
 /// Owns the display and backlight and renders events received from the UI bus.
@@ -55,7 +47,7 @@ enum DisplayEvent {
 // explicit for this single-owner task.
 #[allow(clippy::too_many_lines)]
 #[embassy_executor::task]
-pub async fn run(resources: DisplayResources, watchdog: BootloaderWatchdog) {
+pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: BootloaderWatchdog) {
     let mut backlight = Backlight::new(
         Output::new(resources.backlight_low, Level::High, OutputDrive::Standard),
         Output::new(resources.backlight_mid, Level::High, OutputDrive::Standard),
@@ -63,26 +55,9 @@ pub async fn run(resources: DisplayResources, watchdog: BootloaderWatchdog) {
     );
     backlight.set_level(1);
 
-    let mut spi_config = spim::Config::default();
-    spi_config.frequency = spim::Frequency::M8;
-    spi_config.mode = spim::MODE_3;
-    let spi = spim::Spim::new(
-        resources.spi,
-        Irqs,
-        resources.sck,
-        resources.miso,
-        resources.mosi,
-        spi_config,
-    );
     let dc = Output::new(resources.dc, Level::Low, OutputDrive::Standard);
-    let cs = Output::new(resources.cs, Level::High, OutputDrive::Standard);
     let reset = Output::new(resources.reset, Level::Low, OutputDrive::Standard);
-    let spi_bus = SPI_BUS.init(NoopMutex::new(RefCell::new(spi)));
-    let interface = SpiInterface::new(
-        SpiDevice::new(spi_bus, cs),
-        dc,
-        DISPLAY_BUFFER.init([0; 512]),
-    );
+    let interface = SpiInterface::new(spi, dc, DISPLAY_BUFFER.init([0; 512]));
     let mut delay = Delay;
     let mut display = mipidsi::Builder::new(mipidsi::models::ST7789, interface)
         .display_size(pins::DISPLAY_WIDTH, pins::DISPLAY_HEIGHT)
@@ -92,11 +67,13 @@ pub async fn run(resources: DisplayResources, watchdog: BootloaderWatchdog) {
         .unwrap();
     display.set_orientation(Orientation::new()).unwrap();
     watchdog.pet();
-    backlight.set_level(ACTIVE_BRIGHTNESS);
+    let mut settings = DisplaySettings::DEFAULT;
+    backlight.set_level(settings.brightness());
 
     let started_at = Instant::now();
     let mut next_tick = started_at + Duration::from_secs(1);
     let mut watchface = TerminalWatchface::default();
+    let mut display_settings = DisplaySettingsScreen::default();
     #[cfg(feature = "diagnostics")]
     let mut touch_test = TestScreen::default();
     #[cfg(feature = "diagnostics")]
@@ -104,11 +81,12 @@ pub async fn run(resources: DisplayResources, watchdog: BootloaderWatchdog) {
     let slide_buffer = SLIDE_BUFFER.init(SlideBuffer::new());
     let mut app = AppState::new(ScreenId::Watchface);
     let mut power_receiver = system_power_receiver();
+    let mut settings_receiver = display_settings_receiver();
     let mut power = power_receiver.get().await;
     let mut ignore_input_until = started_at;
     let _ = watchface.draw_full(&mut display, || watchdog.pet());
     match power {
-        SystemPowerState::Interactive => backlight.set_level(ACTIVE_BRIGHTNESS),
+        SystemPowerState::Interactive => backlight.set_level(settings.brightness()),
         SystemPowerState::Idle => backlight.set_level(DIMMED_BRIGHTNESS),
         SystemPowerState::Sleeping => {
             backlight.set_level(0);
@@ -118,20 +96,28 @@ pub async fn run(resources: DisplayResources, watchdog: BootloaderWatchdog) {
 
     loop {
         let display_event = if power == SystemPowerState::Sleeping {
-            match select(UI_EVENTS.receive(), power_receiver.changed()).await {
-                Either::First(event) => DisplayEvent::Ui(event),
-                Either::Second(state) => DisplayEvent::Power(state),
-            }
-        } else {
             match select3(
                 UI_EVENTS.receive(),
-                Timer::at(next_tick),
                 power_receiver.changed(),
+                settings_receiver.changed(),
             )
             .await
             {
                 Either3::First(event) => DisplayEvent::Ui(event),
-                Either3::Second(()) => {
+                Either3::Second(state) => DisplayEvent::Power(state),
+                Either3::Third(snapshot) => DisplayEvent::Settings(snapshot),
+            }
+        } else {
+            match select4(
+                UI_EVENTS.receive(),
+                Timer::at(next_tick),
+                power_receiver.changed(),
+                settings_receiver.changed(),
+            )
+            .await
+            {
+                Either4::First(event) => DisplayEvent::Ui(event),
+                Either4::Second(()) => {
                     let now = Instant::now();
                     while next_tick <= now {
                         next_tick += Duration::from_secs(1);
@@ -140,13 +126,21 @@ pub async fn run(resources: DisplayResources, watchdog: BootloaderWatchdog) {
                         uptime_seconds: now.duration_since(started_at).as_secs(),
                     })
                 }
-                Either3::Third(state) => DisplayEvent::Power(state),
+                Either4::Third(state) => DisplayEvent::Power(state),
+                Either4::Fourth(snapshot) => DisplayEvent::Settings(snapshot),
             }
         };
         let now = Instant::now();
 
         let event = match display_event {
             DisplayEvent::Ui(event) => event,
+            DisplayEvent::Settings(snapshot) => {
+                settings = snapshot;
+                if power == SystemPowerState::Interactive {
+                    backlight.set_level(settings.brightness());
+                }
+                AppEvent::DisplaySettingsUpdated(snapshot)
+            }
             DisplayEvent::Power(next) => {
                 if next == power {
                     continue;
@@ -164,6 +158,11 @@ pub async fn run(resources: DisplayResources, watchdog: BootloaderWatchdog) {
                                 let _ = display.wake(&mut delay);
                                 let _ = watchface.draw_full(&mut display, || watchdog.pet());
                             }
+                            ScreenId::DisplaySettings => {
+                                let _ = display_settings.handle_event(uptime);
+                                let _ = display.wake(&mut delay);
+                                let _ = display_settings.draw_full(&mut display, || watchdog.pet());
+                            }
                             #[cfg(feature = "diagnostics")]
                             ScreenId::TouchTest => {
                                 let _ = touch_test.handle_event(uptime);
@@ -177,11 +176,11 @@ pub async fn run(resources: DisplayResources, watchdog: BootloaderWatchdog) {
                                 let _ = heart_rate.draw_full(&mut display, || watchdog.pet());
                             }
                         }
-                        backlight.set_level(ACTIVE_BRIGHTNESS);
+                        backlight.set_level(settings.brightness());
                         ignore_input_until = Instant::now() + WAKE_INPUT_GUARD;
                         next_tick = Instant::now() + Duration::from_secs(1);
                     }
-                    SystemPowerState::Interactive => backlight.set_level(ACTIVE_BRIGHTNESS),
+                    SystemPowerState::Interactive => backlight.set_level(settings.brightness()),
                     SystemPowerState::Idle => backlight.set_level(DIMMED_BRIGHTNESS),
                     SystemPowerState::Sleeping => {
                         #[cfg(feature = "diagnostics")]
@@ -206,6 +205,7 @@ pub async fn run(resources: DisplayResources, watchdog: BootloaderWatchdog) {
 
         let action = match app.active_screen() {
             ScreenId::Watchface => watchface.handle_event(event),
+            ScreenId::DisplaySettings => display_settings.handle_event(event),
             #[cfg(feature = "diagnostics")]
             ScreenId::TouchTest => touch_test.handle_event(event),
             #[cfg(feature = "diagnostics")]
@@ -214,6 +214,10 @@ pub async fn run(resources: DisplayResources, watchdog: BootloaderWatchdog) {
         let effect = app.transition(action);
 
         match effect {
+            AppEffect::ApplySettings(updated) => {
+                SETTINGS_COMMANDS.send(updated).await;
+                let _ = display_settings.draw_dirty(&mut display, || watchdog.pet());
+            }
             AppEffect::RequestRollback => {
                 info!("Rollback requested; resetting unconfirmed image");
                 Timer::after_millis(250).await;
@@ -248,6 +252,15 @@ pub async fn run(resources: DisplayResources, watchdog: BootloaderWatchdog) {
                         #[cfg(not(feature = "diagnostics"))]
                         let _ = result;
                     }
+                    ScreenId::DisplaySettings => {
+                        let _ = draw_slide_reveal(
+                            &display_settings,
+                            &mut display,
+                            slide_buffer,
+                            direction,
+                            || watchdog.pet(),
+                        );
+                    }
                     #[cfg(feature = "diagnostics")]
                     ScreenId::TouchTest => {
                         if let Ok(metrics) = draw_slide_reveal(
@@ -277,6 +290,9 @@ pub async fn run(resources: DisplayResources, watchdog: BootloaderWatchdog) {
             AppEffect::None => match app.active_screen() {
                 ScreenId::Watchface => {
                     let _ = watchface.draw_dirty(&mut display, || watchdog.pet());
+                }
+                ScreenId::DisplaySettings => {
+                    let _ = display_settings.draw_dirty(&mut display, || watchdog.pet());
                 }
                 #[cfg(feature = "diagnostics")]
                 ScreenId::TouchTest => {

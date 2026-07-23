@@ -7,7 +7,7 @@ use embassy_sync::{
 
 #[cfg(feature = "diagnostics")]
 use pineforge_state::HeartRateCommand;
-use pineforge_state::{AppEvent, PowerCommand, SystemPowerState};
+use pineforge_state::{AppEvent, DisplaySettings, PowerCommand, SystemPowerState};
 
 pub static UI_EVENTS: Channel<CriticalSectionRawMutex, AppEvent, 8> = Channel::new();
 
@@ -31,3 +31,18 @@ pub fn system_power_receiver() -> SystemPowerReceiver {
         .receiver()
         .expect("system power receiver capacity is fixed by architecture")
 }
+
+/// Latest validated display settings, published by the settings service.
+pub static DISPLAY_SETTINGS: Watch<CriticalSectionRawMutex, DisplaySettings, 2> = Watch::new();
+
+pub type DisplaySettingsReceiver = Receiver<'static, CriticalSectionRawMutex, DisplaySettings, 2>;
+
+/// Reserves one of the fixed display and power subscriptions.
+pub fn display_settings_receiver() -> DisplaySettingsReceiver {
+    DISPLAY_SETTINGS
+        .receiver()
+        .expect("display settings receiver capacity is fixed by architecture")
+}
+
+/// Validated settings snapshots requested by UI screens.
+pub static SETTINGS_COMMANDS: Channel<CriticalSectionRawMutex, DisplaySettings, 2> = Channel::new();

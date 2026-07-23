@@ -12,6 +12,12 @@ mod ppg;
 #[cfg(feature = "diagnostics")]
 pub use ppg::{PpgAnalysis, PpgProcessor};
 
+mod settings;
+pub use settings::{
+    BRIGHTNESS_LEVELS, DIM_TIMEOUTS_MILLIS, DecodeError, DisplaySettings, OFF_TIMEOUTS_MILLIS,
+    SETTINGS_RECORD_LEN, SettingsError, SettingsSlot, SlotDecision, crc32, select_slot,
+};
+
 pub const SCREEN_STACK_CAPACITY: usize = 4;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -93,6 +99,12 @@ impl SystemPowerPolicy {
     #[must_use]
     pub const fn state(&self) -> SystemPowerState {
         self.state
+    }
+
+    /// Replaces the timeout configuration; the caller re-evaluates via
+    /// [`Self::advance`] so a shortened timeout takes effect immediately.
+    pub const fn set_config(&mut self, config: PowerConfig) {
+        self.config = config;
     }
 
     /// Records user activity and returns a state change, if any.
@@ -364,6 +376,7 @@ pub fn battery_percent(millivolts: u16) -> u8 {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ScreenId {
     Watchface,
+    DisplaySettings,
     #[cfg(feature = "diagnostics")]
     TouchTest,
     #[cfg(feature = "diagnostics")]
@@ -397,6 +410,7 @@ pub enum AppEvent {
     #[cfg(feature = "diagnostics")]
     HeartRateStateUpdated(HeartRateState),
     StepsUpdated(u32),
+    DisplaySettingsUpdated(DisplaySettings),
 }
 
 impl AppEvent {
@@ -507,6 +521,7 @@ pub enum ScreenAction {
     Push(ScreenId),
     Back,
     RequestRollback,
+    ApplySettings(DisplaySettings),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -514,6 +529,7 @@ pub enum AppEffect {
     None,
     Navigate(NavigationDirection),
     RequestRollback,
+    ApplySettings(DisplaySettings),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -655,6 +671,7 @@ impl AppState {
         match action {
             ScreenAction::None => AppEffect::None,
             ScreenAction::RequestRollback => AppEffect::RequestRollback,
+            ScreenAction::ApplySettings(settings) => AppEffect::ApplySettings(settings),
             ScreenAction::Back => {
                 if self.screens.len() > 1 {
                     self.screens.pop();
@@ -849,6 +866,18 @@ mod tests {
             recognizer.update(120, 120, true, None),
             Some(SwipeDirection::Up)
         );
+    }
+
+    #[test]
+    fn apply_settings_is_an_explicit_effect() {
+        let mut app = AppState::new(ScreenId::Watchface);
+        let settings = DisplaySettings::DEFAULT.cycle_brightness();
+
+        assert_eq!(
+            app.transition(ScreenAction::ApplySettings(settings)),
+            AppEffect::ApplySettings(settings)
+        );
+        assert_eq!(app.active_screen(), ScreenId::Watchface);
     }
 
     #[test]

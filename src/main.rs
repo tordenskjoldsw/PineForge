@@ -19,7 +19,8 @@ mod ui;
 #[cfg(feature = "diagnostics")]
 use board::peripherals::HeartRateResources;
 use board::peripherals::{
-    BatteryResources, ButtonResources, DisplayResources, SensorBusResources, TouchResources,
+    BatteryResources, ButtonResources, DisplayFlashBusResources, DisplayResources,
+    SensorBusResources, TouchResources,
 };
 use boot::watchdog::BootloaderWatchdog;
 
@@ -79,20 +80,25 @@ async fn main(spawner: embassy_executor::Spawner) {
         button_enable
     )));
 
+    let display_flash_bus = board::buses::init_display_flash_bus(DisplayFlashBusResources {
+        spi: p.TWISPI0,
+        sck: p.P0_02,
+        miso: p.P0_04,
+        mosi: p.P0_03,
+    });
     spawner.spawn(defmt::unwrap!(tasks::display::run(
         DisplayResources {
-            spi: p.TWISPI0,
-            sck: p.P0_02,
-            miso: p.P0_04,
-            mosi: p.P0_03,
             dc: p.P0_18,
-            cs: p.P0_25,
             reset: p.P0_26,
             backlight_low: p.P0_14,
             backlight_mid: p.P0_22,
             backlight_high: p.P0_23,
         },
+        board::buses::display_device(display_flash_bus, p.P0_25),
         watchdog
+    )));
+    spawner.spawn(defmt::unwrap!(services::settings::run(
+        board::buses::flash_device(display_flash_bus, p.P0_05)
     )));
     spawner.spawn(defmt::unwrap!(tasks::input::run(
         TouchResources {
