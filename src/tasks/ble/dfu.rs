@@ -3,18 +3,45 @@
 
 use defmt::{info, warn};
 use embassy_time::Timer;
-use pineforge_state::{DfuEngine, DfuStep};
+use pineforge_state::{AppEvent, BleState, DfuEngine, DfuFailReason, DfuStep};
 use trouble_host::prelude::*;
 
 use crate::{
-    services::events::{DFU_FLASH_COMMANDS, DFU_FLASH_RESULT, DfuFlashCommand},
+    services::events::{DFU_FLASH_COMMANDS, DFU_FLASH_RESULT, DfuFlashCommand, UI_EVENTS},
     tasks::ble::gatt::DfuService,
 };
+
+pub struct FlashPipeline {
+    pending: usize,
+    first_error: Option<DfuFailReason>,
+}
+
+impl FlashPipeline {
+    pub const fn new() -> Self {
+        Self {
+            pending: 0,
+            first_error: None,
+        }
+    }
+
+    fn reap_ready(&mut self) {
+        while self.pending != 0 {
+            let Ok(result) = DFU_FLASH_RESULT.try_receive() else {
+                break;
+            };
+            if let Err(reason) = result {
+                self.first_error = self.first_error.or(Some(reason));
+            }
+            self.pending -= 1;
+        }
+    }
+}
 
 /// Feeds one characteristic write to the engine and executes the resulting
 /// steps in order.
 pub async fn handle_write(
     engine: &mut DfuEngine,
+    flash: &mut FlashPipeline,
     service: &DfuService,
     connection: &GattConnection<'_, '_, DefaultPacketPool>,
     is_control_point: bool,
@@ -28,35 +55,58 @@ pub async fn handle_write(
     for step in steps {
         match step {
             DfuStep::Notify(bytes) => {
+                // Receipts acknowledge durable bytes. Gadgetbridge pauses at
+                // these boundaries, so join pipelined flash work here.
+                if !finish_pending_flash(flash).await {
+                    return;
+                }
                 let _ = service
                     .control_point
                     .notify_raw(connection, &bytes, false)
                     .await;
             }
             DfuStep::Erase(offset) => {
+                flash.reap_ready();
                 DFU_FLASH_COMMANDS
                     .send(DfuFlashCommand::Erase(offset))
                     .await;
-                if !DFU_FLASH_RESULT.receive().await {
-                    warn!("DFU erase failed at offset {}", offset);
-                    return;
-                }
+                flash.pending += 1;
             }
             DfuStep::Program { offset, data } => {
+                flash.reap_ready();
                 DFU_FLASH_COMMANDS
                     .send(DfuFlashCommand::Program { offset, data })
                     .await;
-                if !DFU_FLASH_RESULT.receive().await {
-                    warn!("DFU program failed at offset {}", offset);
-                    return;
-                }
+                flash.pending += 1;
             }
             DfuStep::Reset => {
+                if !finish_pending_flash(flash).await {
+                    return;
+                }
                 info!("DFU activate: resetting to apply image");
                 // Let the final notification flush before the reset.
                 Timer::after_millis(200).await;
                 cortex_m::peripheral::SCB::sys_reset();
             }
         }
+    }
+}
+
+/// Joins every queued flash operation before a protocol acknowledgement.
+/// Results stay ordered because the storage service executes commands FIFO.
+pub async fn finish_pending_flash(flash: &mut FlashPipeline) -> bool {
+    flash.reap_ready();
+    while flash.pending != 0 {
+        if let Err(reason) = DFU_FLASH_RESULT.receive().await {
+            flash.first_error = flash.first_error.or(Some(reason));
+        }
+        flash.pending -= 1;
+    }
+    if let Some(reason) = flash.first_error.take() {
+        warn!("DFU pipelined flash operation failed");
+        let _ = UI_EVENTS.try_send(AppEvent::BleUpdated(BleState::DfuFailed(reason)));
+        false
+    } else {
+        true
     }
 }

@@ -20,6 +20,10 @@ use crate::{
     tasks::ble::dfu,
 };
 
+/// Maximum value bytes in an ATT write at the stack's negotiated 251-byte
+/// MTU (one opcode byte and a two-byte attribute handle precede the value).
+const DFU_PACKET_MAX: usize = DefaultPacketPool::MTU - 3;
+
 #[gatt_server]
 pub struct Server {
     pub device_information: DeviceInformationService,
@@ -34,12 +38,8 @@ pub struct Server {
 pub struct DfuService {
     #[characteristic(uuid = "00001531-1212-efde-1523-785feabcd123", write, notify, value = [0; 20])]
     pub control_point: [u8; 20],
-    #[characteristic(
-        uuid = "00001532-1212-efde-1523-785feabcd123",
-        write_without_response,
-        value = [0; 20]
-    )]
-    pub packet: [u8; 20],
+    #[characteristic(uuid = "00001532-1212-efde-1523-785feabcd123", write_without_response)]
+    pub packet: heapless::Vec<u8, DFU_PACKET_MAX>,
     #[characteristic(uuid = "00001534-1212-efde-1523-785feabcd123", read, value = 8)]
     pub revision: u16,
 }
@@ -125,10 +125,16 @@ async fn gatt_events(server: &Server<'_>, connection: &GattConnection<'_, '_, De
     let dfu_packet_handle = server.dfu.packet.handle;
     // An unconfirmed image refuses DFU so it never overwrites the rollback.
     let mut engine = DfuEngine::new(is_validated());
+    let mut dfu_flash = dfu::FlashPipeline::new();
+    // Last percent pushed to the update screen, so we only redraw on change.
+    let mut last_dfu_pct: Option<u8> = None;
     loop {
         match connection.next().await {
             GattConnectionEvent::Disconnected { reason } => {
                 info!("BLE disconnected: {}", defmt::Debug2Format(&reason));
+                // Do not leave results from this connection in the global
+                // channel for a later DFU session to mistake as its own.
+                let _ = dfu::finish_pending_flash(&mut dfu_flash).await;
                 return;
             }
             // Gadgetbridge bonds like it does with InfiniTime: show the passkey
@@ -172,7 +178,7 @@ async fn gatt_events(server: &Server<'_>, connection: &GattConnection<'_, '_, De
             GattConnectionEvent::Gatt { event } => {
                 // Captured DFU write (is_control_point, buffer, length), acted
                 // on after the write is accepted so notifications flow cleanly.
-                let mut dfu_write: Option<(bool, [u8; 20], usize)> = None;
+                let mut dfu_write: Option<(bool, [u8; DFU_PACKET_MAX], usize)> = None;
                 if let GattEvent::Write(write) = &event {
                     let handle = write.handle();
                     if handle == cts_handle {
@@ -195,7 +201,7 @@ async fn gatt_events(server: &Server<'_>, connection: &GattConnection<'_, '_, De
                             warn!("Rejecting malformed current-time write");
                         }
                     } else if handle == dfu_control_handle || handle == dfu_packet_handle {
-                        let mut buffer = [0_u8; 20];
+                        let mut buffer = [0_u8; DFU_PACKET_MAX];
                         let len = write.with_data(|_, data| {
                             let len = data.len().min(buffer.len());
                             buffer[..len].copy_from_slice(&data[..len]);
@@ -211,15 +217,30 @@ async fn gatt_events(server: &Server<'_>, connection: &GattConnection<'_, '_, De
                 if let Some((is_control_point, buffer, len)) = dfu_write {
                     dfu::handle_write(
                         &mut engine,
+                        &mut dfu_flash,
                         &server.dfu,
                         connection,
                         is_control_point,
                         &buffer[..len],
                     )
                     .await;
+                    report_dfu_progress(&engine, &mut last_dfu_pct);
                 }
             }
             _ => {}
+        }
+    }
+}
+
+/// Surfaces DFU transfer progress on the watch's update screen, but only
+/// when the whole percent changed so a full image triggers at most 101
+/// redraws, not one per packet.
+fn report_dfu_progress(engine: &DfuEngine, last_pct: &mut Option<u8>) {
+    let pct = engine.progress_percent();
+    if pct != *last_pct {
+        *last_pct = pct;
+        if let Some(pct) = pct {
+            let _ = UI_EVENTS.try_send(AppEvent::BleUpdated(BleState::DfuProgress(pct)));
         }
     }
 }

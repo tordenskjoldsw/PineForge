@@ -8,6 +8,12 @@
 //! The firmware CRC is accumulated over the received bytes as they arrive
 //! rather than read back from flash; the flash driver verifies each program,
 //! so a matching CRC means the correct image was both received and stored.
+//!
+//! Sectors are erased lazily, just ahead of the write offset, rather than
+//! erasing the whole slot up front: on this BLE stack a long unbroken run of
+//! flash operations inside the GATT event handler stalls the connection
+//! badly enough that the transfer never completes, so the erase cost stays
+//! spread across the data phase instead.
 
 use heapless::Vec;
 
@@ -106,6 +112,22 @@ impl DfuEngine {
     fn reset(&mut self) {
         let validated = self.validated;
         *self = Self::new(validated);
+    }
+
+    /// Transfer progress as a percentage while the image is being received,
+    /// for the on-watch update screen. `None` outside the transfer.
+    #[must_use]
+    pub fn progress_percent(&self) -> Option<u8> {
+        if self.application_size == 0 {
+            return None;
+        }
+        match self.state {
+            State::Data | State::Validate | State::Validated => {
+                let done = u64::from(self.bytes_received) * 100 / u64::from(self.application_size);
+                Some(u8::try_from(done).unwrap_or(100))
+            }
+            _ => None,
+        }
     }
 
     /// Handles a write to the control-point characteristic.
@@ -451,5 +473,32 @@ mod tests {
         }
         // 6 packets, notify every 2, last packet sends completion instead.
         assert_eq!(receipts, 2);
+    }
+
+    #[test]
+    fn negotiated_mtu_sized_packets_complete_the_transfer() {
+        const ATT_WRITE_VALUE_MAX: usize = 248;
+        let image: Vec<u8, 5000> = (0..5000).map(|i| (i * 13) as u8).collect();
+        let mut engine = DfuEngine::new(true);
+        engine.control_write(&[START_DFU, IMAGE_APPLICATION]);
+        let mut sizes = [0_u8; 12];
+        sizes[8..12].copy_from_slice(&(image.len() as u32).to_le_bytes());
+        engine.packet_write(&sizes);
+        engine.packet_write(&init_packet(crc16(&image)));
+        engine.control_write(&[INIT_PARAMETERS, 1]);
+        engine.control_write(&[RECEIVE_IMAGE]);
+
+        let mut completed = false;
+        for chunk in image.chunks(ATT_WRITE_VALUE_MAX) {
+            completed |= engine.packet_write(chunk).iter().any(
+                |step| matches!(step, DfuStep::Notify(bytes) if bytes.as_slice() == [RESPONSE, RECEIVE_IMAGE, STATUS_SUCCESS]),
+            );
+        }
+
+        assert!(completed);
+        assert_eq!(
+            engine.control_write(&[VALIDATE])[0],
+            notify(&[RESPONSE, VALIDATE, STATUS_SUCCESS])
+        );
     }
 }

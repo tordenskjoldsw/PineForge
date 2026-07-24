@@ -8,8 +8,8 @@ use embassy_sync::{
 #[cfg(feature = "diagnostics")]
 use pineforge_state::HeartRateCommand;
 use pineforge_state::{
-    AppEvent, BatteryStatus, DisplaySettings, PowerCommand, SystemPowerState, VibrationPattern,
-    WallClockReference,
+    AppEvent, BatteryStatus, DfuFailReason, DisplaySettings, PowerCommand, SystemPowerState,
+    VibrationPattern, WallClockReference,
 };
 
 pub static UI_EVENTS: Channel<CriticalSectionRawMutex, AppEvent, 8> = Channel::new();
@@ -71,13 +71,23 @@ pub enum DfuFlashCommand {
     },
 }
 
-/// DFU flash requests from the BLE task; capacity 1 enforces backpressure so
-/// the link is throttled to flash speed.
-pub static DFU_FLASH_COMMANDS: Channel<CriticalSectionRawMutex, DfuFlashCommand, 1> =
-    Channel::new();
+/// DFU flash requests from the BLE task. One complete packet-receipt window
+/// can be queued while storage erases/programs in parallel, so the GATT event
+/// consumer remains available for incoming write commands.
+pub const DFU_FLASH_QUEUE_SIZE: usize = 16;
+pub static DFU_FLASH_COMMANDS: Channel<
+    CriticalSectionRawMutex,
+    DfuFlashCommand,
+    DFU_FLASH_QUEUE_SIZE,
+> = Channel::new();
 
-/// Result (`true` on success) for the most recent DFU flash command.
-pub static DFU_FLASH_RESULT: Channel<CriticalSectionRawMutex, bool, 1> = Channel::new();
+/// Outcome of the most recent DFU flash command: `Ok` on success, or the
+/// concrete reason it failed so the watch can show it on-screen.
+pub static DFU_FLASH_RESULT: Channel<
+    CriticalSectionRawMutex,
+    Result<(), DfuFailReason>,
+    DFU_FLASH_QUEUE_SIZE,
+> = Channel::new();
 
 /// The bond loaded from flash at boot (`None` if absent or invalid), published
 /// once by the storage service for the BLE task to install before advertising.

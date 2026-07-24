@@ -9,13 +9,13 @@ use defmt::{info, warn};
 use embassy_futures::select::{Either3, select3};
 use embassy_time::{Duration, Instant, with_deadline};
 use pineforge_state::{
-    BOND_RECORD_LEN, DFU_SLOT_SIZE, DisplaySettings, SETTINGS_RECORD_LEN, SettingsSlot, frame_bond,
-    parse_bond, select_slot,
+    BOND_RECORD_LEN, DFU_SLOT_SIZE, DfuFailReason, DisplaySettings, SETTINGS_RECORD_LEN,
+    SettingsSlot, frame_bond, parse_bond, select_slot,
 };
 
 use crate::{
     board::buses::FlashSpi,
-    drivers::xt25f32::{EXPECTED_JEDEC_ID, Xt25f32},
+    drivers::xt25f32::{Error as FlashError, Xt25f32, is_supported_jedec_id},
     services::events::{
         BOND_LOADED, BOND_STORE, DFU_FLASH_COMMANDS, DFU_FLASH_RESULT, DISPLAY_SETTINGS,
         DfuFlashCommand, SETTINGS_COMMANDS, StoredBond,
@@ -51,22 +51,40 @@ fn read_bond(flash: &mut Xt25f32<FlashSpi>) -> Option<StoredBond> {
     parse_bond(&record)
 }
 
+/// Maps a low-level flash error to the on-screen DFU failure reason,
+/// defaulting to the operation the caller was performing.
+const fn fail_reason<E>(error: &FlashError<E>, default: DfuFailReason) -> DfuFailReason {
+    match error {
+        FlashError::VerifyFailed => DfuFailReason::VerifyFailed,
+        FlashError::Spi(_) | FlashError::BusyTimeout => default,
+    }
+}
+
 /// Executes one DFU flash op, rebasing and range-checking the image-relative
 /// offset so a write can only ever land inside the secondary slot.
-async fn run_dfu_command(flash: &mut Xt25f32<FlashSpi>, command: DfuFlashCommand) -> bool {
+async fn run_dfu_command(
+    flash: &mut Xt25f32<FlashSpi>,
+    command: DfuFlashCommand,
+) -> Result<(), DfuFailReason> {
     match command {
         DfuFlashCommand::Erase(offset) => {
             if offset >= DFU_SLOT_SIZE {
-                return false;
+                return Err(DfuFailReason::EraseFailed);
             }
-            flash.erase_sector(DFU_SLOT_BASE + offset).await.is_ok()
+            flash
+                .erase_sector(DFU_SLOT_BASE + offset)
+                .await
+                .map_err(|e| fail_reason(&e, DfuFailReason::EraseFailed))
         }
         DfuFlashCommand::Program { offset, data } => {
             let len = u32::try_from(data.len()).unwrap_or(u32::MAX);
             if offset.saturating_add(len) > DFU_SLOT_SIZE {
-                return false;
+                return Err(DfuFailReason::ProgramFailed);
             }
-            flash.program(DFU_SLOT_BASE + offset, &data).await.is_ok()
+            flash
+                .program(DFU_SLOT_BASE + offset, &data)
+                .await
+                .map_err(|e| fail_reason(&e, DfuFailReason::ProgramFailed))
         }
     }
 }
@@ -78,21 +96,27 @@ pub async fn run(spi: FlashSpi) {
     let sender = DISPLAY_SETTINGS.sender();
 
     // A missing or foreign chip degrades to RAM-only settings; the firmware
-    // must stay fully usable without persistence.
-    let mut writable = match flash.init().await {
-        Ok(id) if id == EXPECTED_JEDEC_ID => true,
+    // must stay fully usable without persistence. When it is not writable we
+    // remember why, so a later DFU attempt can surface the cause on-screen
+    // rather than the sealed watch's only symptom being lost settings.
+    let mut writable = true;
+    let mut flash_fault = DfuFailReason::FlashInitFailed;
+    match flash.init().await {
+        Ok(id) if is_supported_jedec_id(id) => {}
         Ok(id) => {
             warn!(
                 "Unexpected flash JEDEC id {=[u8]:#04x}; settings stay in RAM",
                 id
             );
-            false
+            writable = false;
+            flash_fault = DfuFailReason::FlashUnrecognized(id);
         }
         Err(_) => {
             warn!("Flash init failed; settings stay in RAM");
-            false
+            writable = false;
+            flash_fault = DfuFailReason::FlashInitFailed;
         }
-    };
+    }
 
     let decision = if writable {
         select_slot(
@@ -155,14 +179,19 @@ pub async fn run(spi: FlashSpi) {
                         Ok(()) => flash.program_verified(address, &record).await,
                         Err(error) => Err(error),
                     };
-                    if written.is_ok() {
-                        info!("Settings persisted with sequence {}", next_sequence);
-                        write_slot = write_slot.other();
-                        next_sequence = next_sequence.wrapping_add(1);
-                    } else {
-                        // Keep the snapshot live but stop wearing a failing chip.
-                        warn!("Settings write failed; continuing without persistence");
-                        writable = false;
+                    match written {
+                        Ok(()) => {
+                            info!("Settings persisted with sequence {}", next_sequence);
+                            write_slot = write_slot.other();
+                            next_sequence = next_sequence.wrapping_add(1);
+                        }
+                        Err(error) => {
+                            // Keep the snapshot live but stop wearing a failing
+                            // chip; remember why for a later DFU diagnosis.
+                            warn!("Settings write failed; continuing without persistence");
+                            writable = false;
+                            flash_fault = fail_reason(&error, DfuFailReason::ProgramFailed);
+                        }
                     }
                 }
                 current = pending;
@@ -186,8 +215,13 @@ pub async fn run(spi: FlashSpi) {
                 }
             }
             Either3::Third(command) => {
-                let ok = writable && run_dfu_command(&mut flash, command).await;
-                DFU_FLASH_RESULT.send(ok).await;
+                let result = if writable {
+                    run_dfu_command(&mut flash, command).await
+                } else {
+                    // Never writable, so no op ran; report why it can't.
+                    Err(flash_fault)
+                };
+                DFU_FLASH_RESULT.send(result).await;
             }
         }
     }
