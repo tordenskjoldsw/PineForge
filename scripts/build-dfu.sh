@@ -2,8 +2,8 @@
 set -euo pipefail
 
 VERSION="${1:-0.1.0}"
-# Release/production is the safe default. Diagnostic screens, render metrics,
-# and optional animations must be requested explicitly for a hardware test.
+# Release/production, including normal UI animations, is the safe default.
+# Diagnostic screens and render metrics must be requested explicitly.
 FEATURES="${PINEFORGE_FEATURES-}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST="$ROOT/dist"

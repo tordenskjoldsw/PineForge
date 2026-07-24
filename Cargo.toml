@@ -12,11 +12,11 @@ members = ["crates/pineforge-state"]
 resolver = "3"
 
 [features]
-default = ["ble"]
+default = ["ble", "ui-animations"]
 ble = ["dep:bt-hci", "dep:nrf-mpsl", "dep:nrf-sdc", "dep:trouble-host", "dep:postcard", "dep:serde"]
 diagnostics = ["pineforge-state/diagnostics"]
-# Optional because the 7.5 KiB transition scratch is a substantial fraction
-# of nRF52832 RAM. Production uses immediate full-screen navigation by default.
+# Kept as a feature so memory experiments can disable the 7.5 KiB transition
+# scratch, but normal production firmware includes the intended animations.
 ui-animations = []
 
 [[bin]]
