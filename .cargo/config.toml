@@ -19,7 +19,8 @@ DEFMT_LOG = "info"
 # writes, which also stalls the outgoing packet-receipt notification, so the
 # phone waits forever for a receipt and the transfer deadlocks near the end.
 # Size the queues and shared pool to comfortably cover a receipt window plus
-# headroom for the outgoing notification. See docs/FLASH-MAP.md RAM budget.
+# headroom for the outgoing notification. A 24-packet pool failed an OTA
+# hardware test; 32 is the smallest currently validated shared-pool baseline.
 TROUBLE_HOST_CONNECTION_EVENT_QUEUE_SIZE = "16"
 TROUBLE_HOST_L2CAP_RX_QUEUE_SIZE = "16"
 TROUBLE_HOST_DEFAULT_PACKET_POOL_SIZE = "32"
