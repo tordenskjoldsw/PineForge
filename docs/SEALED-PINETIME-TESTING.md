@@ -32,6 +32,9 @@ slot is never overwritten.
 
 - There is no automatic rollback timeout; use the physical side button to reset.
 - An ordinary reset before confirmation also causes a rollback.
+- For bootloader recovery, hold the side button during boot until the boot logo
+  turns red. The minimal InfiniTime recovery image then exposes Bluetooth DFU
+  so a known-good firmware ZIP can be installed.
 - The bootloader is neither modified nor overwritten.
 - The build uses a 32-byte MCUBoot header and the 475,136-byte PineTime slot.
 - Test in an emulator first and use only small, traceable changes on the watch.

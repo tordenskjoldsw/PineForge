@@ -2,15 +2,23 @@
 
 ## Status
 
-This repository contains experimental source code. Only flash a DFU ZIP that has been built successfully and inspected locally.
+This repository contains experimental proof-of-concept firmware, not a
+production release. A complete PineForge-to-InfiniTime OTA replacement path
+has succeeded on real hardware, but coverage is limited to the tested setup.
+Only flash a DFU ZIP that has been built successfully and inspected, and keep
+an official InfiniTime recovery package available.
 
 ## Safety principle
 
-- The Rust image is never confirmed.
+- A newly installed PineForge image starts as an unconfirmed MCUBoot test image.
+- While it is unconfirmed, resetting rolls back to the previous InfiniTime
+  image and PineForge refuses OTA updates to protect that rollback image.
+- After PineForge has been tested, it must be explicitly confirmed through
+  **Settings > FW > CONFIRM** before its OTA service will accept an update.
+- Confirmation makes PineForge the permanent primary image: resetting no
+  longer rolls back to InfiniTime.
 - The running firmware feeds the watchdog started by the bootloader.
 - Pressing the side button triggers a system reset after a short debounce delay.
-- A 10-minute safety timeout also triggers a system reset.
-- On the next boot, MCUBoot should roll back to the previous InfiniTime firmware.
 
 ## 1. Preparation
 
@@ -18,7 +26,9 @@ This repository contains experimental source code. Only flash a DFU ZIP that has
 2. Save the latest official InfiniTime DFU ZIP on the Android device.
 3. Verify that Gadgetbridge is connected to InfiniTime.
 4. Record the current InfiniTime and bootloader versions.
-5. Do not confirm the Rust image.
+5. Do not confirm PineForge until its display, touch input, side-button reset,
+   and general stability have been tested. Confirmation is intentionally
+   required later if you want to use PineForge's OTA service.
 
 ## 2. Build environment on Arch Linux
 
@@ -85,30 +95,56 @@ The ZIP must contain at least the manifest and application payload of the Nordic
 6. Keep the watch and phone close together and do not disable Bluetooth during the transfer.
 7. Inspect the Rust test interface after the reboot.
 
-## 8. Return to InfiniTime
+## 8. Confirm PineForge and use OTA
 
-Normal path:
+Only continue after testing the unconfirmed image and deciding to give up its
+automatic rollback:
+
+1. Open **Settings > FW > CONFIRM** in PineForge.
+2. Confirm the warning on the watch.
+3. PineForge writes MCUBoot's `image_ok` marker and enables its DFU service.
+4. Open a PineForge or official InfiniTime DFU ZIP with Gadgetbridge.
+5. Keep the watch and phone close until the transfer reaches 100%, validates,
+   and reboots.
+
+Confirmation cannot be undone by an ordinary reset. After confirmation, the
+side button only reboots PineForge.
+
+## 9. Return to InfiniTime
+
+Before confirming PineForge:
 
 1. Press the physical side button.
-2. The firmware performs a system reset.
-3. Because the image was not confirmed, MCUBoot should roll back to the previous InfiniTime version.
+2. MCUBoot should roll back to the previous InfiniTime image after the reset.
 
-Fallback:
+After confirming PineForge:
 
-1. If no button input is received, wait for the 10-minute safety timeout.
-2. If the executor stalls, the inherited hardware watchdog should reset the device after approximately seven seconds.
-3. After a successful rollback, InfiniTime should start again.
+1. Install the saved official InfiniTime DFU ZIP through PineForge's OTA
+   service as described above.
+2. Wait for 100%, validation, and reboot.
+3. InfiniTime should start as the newly staged image.
 
-## 9. If InfiniTime does not start
+## 10. If InfiniTime does not start
 
 - Do not repeatedly install additional experimental ZIP files.
-- Try the bootloader rollback again.
+- If PineForge is still unconfirmed, try the side-button rollback again.
+- If PineForge was confirmed and still boots, retry the known-good official
+  InfiniTime package through its OTA service.
+- To enter the bootloader's minimal InfiniTime recovery image, hold the
+  physical side button during boot until the boot logo turns red. Connect to
+  the recovery image over Bluetooth and install a known-good DFU ZIP.
 - If neither the watchdog nor another reset path works, fully discharging a sealed PineTime may be the only way to force a power cycle.
-- Afterwards, install the previously saved official InfiniTime DFU through Gadgetbridge if the recovery firmware is available.
+- Afterwards, install the previously saved official InfiniTime DFU through
+  Gadgetbridge if a working DFU firmware is available.
 
-## Not yet validated as safe
+## Still experimental or not broadly validated
 
-- CST816S driver integration with Embassy TWIM
-- interrupt bindings of the Embassy version in use
+- compatibility across PineTime hardware and external-flash revisions
 - watchdog takeover with every bootloader version
-- complete OTA and rollback behavior on a sealed PineTime
+- OTA behavior across Android devices and Gadgetbridge versions
+- recovery behavior for interrupted or corrupt transfers
+- long-term stability and power consumption
+
+The complete confirmed-PineForge-to-InfiniTime OTA path has been validated once on a
+sealed PineTime: the transfer reached 100%, validated, rebooted, and returned
+to InfiniTime. Treat that as proof of concept, not a general safety guarantee.

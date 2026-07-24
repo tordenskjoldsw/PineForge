@@ -1,7 +1,11 @@
 > [!CAUTION]
-> Experimental firmware under active hardware testing. Do not flash it until `cargo build --release` succeeds locally and the DFU package has been inspected. See `GETTING-STARTED.md`.
+> **PineForge is experimental proof-of-concept firmware, not a production
+> release.** Flashing may leave a sealed PineTime unusable or require recovery.
+> Keep an official InfiniTime DFU package available, read
+> [`GETTING-STARTED.md`](GETTING-STARTED.md), and use released binaries at your
+> own risk.
 
-# PineForge — Touch and Rollback Test Firmware
+# PineForge — Experimental Rust Firmware for PineTime
 
 A modern Rust and Embassy foundation for a **sealed PineTime** with the existing InfiniTime MCUBoot bootloader.
 
@@ -9,20 +13,48 @@ PineForge is an independent ground-up reimplementation informed by earlier PineT
 
 PineForge is an independent community project. It is not affiliated with, supported by, or maintained by PINE64.
 
-## Safety model
+## Project status
 
-This firmware is installed as an unconfirmed test image and never confirms itself. Pressing the physical side button triggers a reset, after which MCUBoot rolls back to the previously installed InfiniTime version. There is no automatic timeout, allowing long-running sensor and power tests.
+PineForge is an early hardware-tested proof of concept. The `v0.1.0` milestone
+demonstrates a Rust/Embassy firmware that can boot through the InfiniTime
+MCUBoot bootloader, use the PineTime hardware, and perform a
+Gadgetbridge-compatible OTA update. A complete PineForge-to-InfiniTime OTA
+transfer reached 100%, validated, rebooted, and returned to InfiniTime on real
+hardware.
+
+That successful test does **not** establish general safety across PineTime
+hardware revisions, bootloader versions, phones, or future images. Expect
+missing features, bugs, slow OTA transfers, resets, and possible recovery work.
+
+## Safety and recovery model
+
+- New PineForge images initially run as unconfirmed MCUBoot test images.
+- The user can confirm a tested image on the watch; OTA is disabled until the
+  running image is confirmed, preserving the rollback image.
+- Before confirmation, a reset allows MCUBoot to roll back to the previously
+  installed image.
+- The physical side button provides an explicit reset/rollback path while the
+  image remains unconfirmed.
+- Holding the side button during boot until the boot logo turns red starts the
+  minimal InfiniTime recovery image. Its Bluetooth DFU service can install a
+  known-good firmware ZIP even when the normal application cannot boot.
+- Keep a known-good official InfiniTime DFU ZIP on the paired phone before
+  testing PineForge.
 
 ## Features
 
 - Embassy on the nRF52832
 - ST7789 display
 - CST816S touch controller over I²C
-- touch-coordinate display
-- physical side-button reset and rollback
+- BMA421 motion and HRS3300 heart-rate hardware integration
+- persistent display settings and BLE bonding
+- Gadgetbridge-compatible pairing and time synchronization
+- Nordic Legacy DFU service with on-watch progress and failure reporting
+- MCUBoot image confirmation, OTA activation, reset, and rollback paths
+- physical side-button reset
 - watchdog feeding for the WDT started by the bootloader
 - MCUBoot linker layout starting at `0x8020`
-- script for generating a Gadgetbridge-compatible DFU ZIP
+- reproducible script for generating a Gadgetbridge-compatible DFU ZIP
 
 ## Touch pin assignment
 
@@ -55,7 +87,9 @@ dist/pineforge-mcuboot-app-dfu-0.1.0.zip
 
 This ZIP can be installed through the Gadgetbridge firmware installer.
 
-See also [`docs/SEALED-PINETIME-TESTING.md`](docs/SEALED-PINETIME-TESTING.md).
+Before flashing, follow
+[`GETTING-STARTED.md`](GETTING-STARTED.md) and
+[`docs/SEALED-PINETIME-TESTING.md`](docs/SEALED-PINETIME-TESTING.md).
 
 ## References and acknowledgements
 
