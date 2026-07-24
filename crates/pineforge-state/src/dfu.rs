@@ -61,7 +61,11 @@ pub enum DfuStep {
     Reset,
 }
 
-type Steps = Vec<DfuStep, 6>;
+// One packet can at most cross one page boundary. The largest sequence is a
+// sector erase, the completed page, a final partial page, and its completion
+// notification. Keeping this exact bound matters because every inline
+// `DfuStep` can carry a 256-byte page inside the BLE task's static future.
+type Steps = Vec<DfuStep, 4>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum State {
@@ -500,5 +504,41 @@ mod tests {
             engine.control_write(&[VALIDATE])[0],
             notify(&[RESPONSE, VALIDATE, STATUS_SUCCESS])
         );
+    }
+
+    #[test]
+    fn final_packet_fits_the_exact_maximum_step_bound() {
+        // Reach a fresh sector with 16 bytes already buffered. The final
+        // 248-byte packet first completes and flushes that page, then flushes
+        // its remaining eight bytes and emits the completion notification:
+        // erase + program + program + notify.
+        const PREFIX_LEN: usize = SECTOR_SIZE as usize + 16;
+        const FINAL_LEN: usize = 248;
+        const IMAGE_LEN: usize = PREFIX_LEN + FINAL_LEN;
+        let image: Vec<u8, IMAGE_LEN> = (0..IMAGE_LEN).map(|i| (i * 17) as u8).collect();
+
+        let mut engine = DfuEngine::new(true);
+        engine.control_write(&[START_DFU, IMAGE_APPLICATION]);
+        let mut sizes = [0_u8; 12];
+        sizes[8..12].copy_from_slice(&(IMAGE_LEN as u32).to_le_bytes());
+        engine.packet_write(&sizes);
+        engine.packet_write(&init_packet(crc16(&image)));
+        engine.control_write(&[INIT_PARAMETERS, 1]);
+        engine.control_write(&[RECEIVE_IMAGE]);
+
+        for chunk in image[..PREFIX_LEN].chunks(248) {
+            let _ = engine.packet_write(chunk);
+        }
+        let steps = engine.packet_write(&image[PREFIX_LEN..]);
+
+        assert_eq!(steps.len(), 4);
+        assert!(matches!(steps[0], DfuStep::Erase(SECTOR_SIZE)));
+        assert!(
+            matches!(&steps[1], DfuStep::Program { offset, data } if *offset == SECTOR_SIZE && data.len() == PAGE_SIZE)
+        );
+        assert!(
+            matches!(&steps[2], DfuStep::Program { offset, data } if *offset == SECTOR_SIZE + PAGE_SIZE as u32 && data.len() == 8)
+        );
+        assert_eq!(steps[3], notify(&[RESPONSE, RECEIVE_IMAGE, STATUS_SUCCESS]));
     }
 }
