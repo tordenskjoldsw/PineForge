@@ -71,10 +71,11 @@ pub enum DfuFlashCommand {
     },
 }
 
-/// DFU flash requests from the BLE task. One complete packet-receipt window
-/// can be queued while storage erases/programs in parallel, so the GATT event
-/// consumer remains available for incoming write commands.
-pub const DFU_FLASH_QUEUE_SIZE: usize = 16;
+/// DFU flash requests from the BLE task. Eight page-sized operations provide
+/// enough overlap for storage to erase/program in parallel while keeping the
+/// inline queue within the nRF52832's tight static RAM budget. The BLE host's
+/// separate event queue absorbs the remainder of a packet-receipt window.
+pub const DFU_FLASH_QUEUE_SIZE: usize = 8;
 pub static DFU_FLASH_COMMANDS: Channel<
     CriticalSectionRawMutex,
     DfuFlashCommand,
