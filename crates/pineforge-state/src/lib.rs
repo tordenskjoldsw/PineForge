@@ -170,6 +170,30 @@ pub enum BleState {
     /// Central connected; a passkey is being shown for pairing.
     Pairing(u32),
     Connected,
+    /// Firmware update in progress; payload is the transfer percent (0-100).
+    DfuProgress(u8),
+    /// A flash operation during the firmware update failed; the reason is the
+    /// watch's only diagnostic surface on a sealed device.
+    DfuFailed(DfuFailReason),
+}
+
+/// Why a DFU flash operation could not complete.
+///
+/// The sealed watch has no debug port, so this is surfaced on-screen: it turns
+/// the generic "flash write failed" into a concrete, actionable cause.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DfuFailReason {
+    /// The external flash answered with an unexpected JEDEC id, so it was never
+    /// marked writable. The bytes are the id that was actually read.
+    FlashUnrecognized([u8; 3]),
+    /// The external flash did not respond to initialization at all.
+    FlashInitFailed,
+    /// A sector erase reported an error mid-transfer.
+    EraseFailed,
+    /// A page program reported an error mid-transfer.
+    ProgramFailed,
+    /// A verified write read back different bytes than were programmed.
+    VerifyFailed,
 }
 
 /// Haptic patterns playable by the vibration service.

@@ -1,3 +1,4 @@
+pub mod dfu;
 #[cfg(feature = "diagnostics")]
 pub mod heart_rate;
 #[cfg(feature = "diagnostics")]

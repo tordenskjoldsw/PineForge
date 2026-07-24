@@ -272,6 +272,12 @@ impl TerminalWatchface {
             BleState::Connected => {
                 let _ = value.push_str("connected  ");
             }
+            BleState::DfuProgress(percent) => {
+                let _ = write!(value, "DFU {percent}%");
+            }
+            BleState::DfuFailed(_) => {
+                let _ = value.push_str("DFU failed ");
+            }
         }
         value
     }

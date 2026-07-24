@@ -21,6 +21,7 @@ use crate::{
         display_settings_receiver, system_power_receiver, wall_clock_receiver,
     },
     ui::{
+        dfu::{draw_dfu_failed, draw_dfu_progress},
         pairing::draw_pairing,
         screen::Screen,
         settings::DisplaySettingsScreen,
@@ -31,8 +32,8 @@ use crate::{
 #[cfg(feature = "diagnostics")]
 use pineforge_state::HeartRateCommand;
 use pineforge_state::{
-    AppEffect, AppEvent, AppState, BleState, DisplaySettings, PowerCommand, ScreenId,
-    SystemPowerState, VibrationPattern,
+    AppEffect, AppEvent, AppState, BleState, DfuFailReason, DisplaySettings, PowerCommand,
+    ScreenId, SystemPowerState, VibrationPattern,
 };
 
 static DISPLAY_BUFFER: StaticCell<[u8; 512]> = StaticCell::new();
@@ -93,6 +94,10 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
     // A system-modal passkey shown full-screen during BLE pairing, overriding
     // the active screen while set.
     let mut pairing_passkey: Option<u32> = None;
+    // A system-modal firmware-update progress or failure screen, overriding
+    // the active screen while set so sensor/tick events can't redraw over it.
+    let mut dfu_percent: Option<u8> = None;
+    let mut dfu_fail_reason: Option<DfuFailReason> = None;
     let mut power = power_receiver.get().await;
     let mut ignore_input_until = started_at;
     let _ = watchface.draw_full(&mut display, || watchdog.pet());
@@ -179,6 +184,23 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                             next_tick = Instant::now() + Duration::from_secs(1);
                             continue;
                         }
+                        // Likewise a firmware update outlives sleep/wake.
+                        if let Some(reason) = dfu_fail_reason {
+                            let _ = display.wake(&mut delay);
+                            let _ = draw_dfu_failed(&mut display, reason, || watchdog.pet());
+                            backlight.set_level(settings.brightness());
+                            ignore_input_until = Instant::now() + WAKE_INPUT_GUARD;
+                            next_tick = Instant::now() + Duration::from_secs(1);
+                            continue;
+                        }
+                        if let Some(percent) = dfu_percent {
+                            let _ = display.wake(&mut delay);
+                            let _ = draw_dfu_progress(&mut display, percent, || watchdog.pet());
+                            backlight.set_level(settings.brightness());
+                            ignore_input_until = Instant::now() + WAKE_INPUT_GUARD;
+                            next_tick = Instant::now() + Duration::from_secs(1);
+                            continue;
+                        }
                         if let Some(reference) = wall_clock.try_changed() {
                             wall_clock_reference = Some(reference);
                         }
@@ -244,6 +266,74 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
             pairing_passkey = Some(passkey);
             continue;
         }
+        // A firmware update is a system modal too: show the progress screen
+        // full-screen and keep the display awake for the whole transfer.
+        if let AppEvent::BleUpdated(BleState::DfuProgress(percent)) = event {
+            let _ = display.wake(&mut delay);
+            backlight.set_level(settings.brightness());
+            POWER_COMMANDS.send(PowerCommand::UserActivity).await;
+            let _ = draw_dfu_progress(&mut display, percent, || watchdog.pet());
+            dfu_percent = Some(percent);
+            continue;
+        }
+        // A failed flash op has no wire-protocol error to report; show the
+        // concrete reason on-screen. Unlike an in-progress transfer this is
+        // terminal, so it can be dismissed by the user (below).
+        if let AppEvent::BleUpdated(BleState::DfuFailed(reason)) = event {
+            let _ = display.wake(&mut delay);
+            backlight.set_level(settings.brightness());
+            let _ = draw_dfu_failed(&mut display, reason, || watchdog.pet());
+            dfu_fail_reason = Some(reason);
+            continue;
+        }
+        if dfu_percent.is_some() || dfu_fail_reason.is_some() {
+            // An in-progress transfer ignores input so a stray touch can't
+            // kill the progress bar; only a terminal BLE state clears it. The
+            // failure screen is terminal, so a swipe or tap dismisses it too -
+            // otherwise the sealed watch would be stuck until a reboot. Every
+            // other event (sensor ticks included) is suppressed so nothing
+            // redraws over the modal.
+            let dismiss = matches!(event, AppEvent::BleUpdated(_))
+                || (dfu_fail_reason.is_some() && event.is_user_activity());
+            if dismiss {
+                dfu_percent = None;
+                dfu_fail_reason = None;
+                // A dismissing swipe only closes the modal; it must not also
+                // navigate, so its event is not forwarded to the screen. A BLE
+                // state change is forwarded so the status line reflects it.
+                let forward = matches!(event, AppEvent::BleUpdated(_));
+                match app.active_screen() {
+                    ScreenId::Watchface => {
+                        if forward {
+                            let _ = watchface.handle_event(event);
+                        }
+                        let _ = watchface.draw_full(&mut display, || watchdog.pet());
+                    }
+                    ScreenId::DisplaySettings => {
+                        if forward {
+                            let _ = display_settings.handle_event(event);
+                        }
+                        let _ = display_settings.draw_full(&mut display, || watchdog.pet());
+                    }
+                    #[cfg(feature = "diagnostics")]
+                    ScreenId::TouchTest => {
+                        if forward {
+                            let _ = touch_test.handle_event(event);
+                        }
+                        let _ = touch_test.draw_full(&mut display, || watchdog.pet());
+                    }
+                    #[cfg(feature = "diagnostics")]
+                    ScreenId::HeartRate => {
+                        if forward {
+                            let _ = heart_rate.handle_event(event);
+                        }
+                        let _ = heart_rate.draw_full(&mut display, || watchdog.pet());
+                    }
+                }
+            }
+            continue;
+        }
+
         if pairing_passkey.is_some() {
             // Only a terminal BLE state clears the prompt; everything else is
             // suppressed so the code stays readable.
