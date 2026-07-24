@@ -10,3 +10,16 @@ rustflags = [
 
 [env]
 DEFMT_LOG = "info"
+# BLE DFU throughput. During a firmware transfer the phone streams a window of
+# write-without-response packets (bounded by the Nordic DFU packet-receipt
+# interval) while the GATT task is briefly busy staging a page to external
+# flash - a sector erase blocks it for tens of milliseconds. trouble-host's
+# defaults (connection event queue 2, packet pool 16) are far too small to
+# hold one such window: the host runner blocks trying to enqueue incoming
+# writes, which also stalls the outgoing packet-receipt notification, so the
+# phone waits forever for a receipt and the transfer deadlocks near the end.
+# Size the queues and shared pool to comfortably cover a receipt window plus
+# headroom for the outgoing notification. See docs/FLASH-MAP.md RAM budget.
+TROUBLE_HOST_CONNECTION_EVENT_QUEUE_SIZE = "16"
+TROUBLE_HOST_L2CAP_RX_QUEUE_SIZE = "16"
+TROUBLE_HOST_DEFAULT_PACKET_POOL_SIZE = "32"
