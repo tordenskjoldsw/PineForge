@@ -12,6 +12,8 @@ use crate::services::events::HEART_RATE_COMMANDS;
 use crate::ui::heart_rate::HeartRateScreen;
 #[cfg(feature = "diagnostics")]
 use crate::ui::test_screen::TestScreen;
+#[cfg(feature = "ui-animations")]
+use crate::ui::{scratch::UiScratch, transition::draw_slide_reveal};
 use crate::{
     board::{buses::DisplaySpi, peripherals::DisplayResources, pins},
     boot::watchdog::BootloaderWatchdog,
@@ -23,10 +25,8 @@ use crate::{
     ui::{
         dfu::{draw_dfu_failed, draw_dfu_progress},
         pairing::draw_pairing,
-        scratch::UiScratch,
         screen::Screen,
         settings::DisplaySettingsScreen,
-        transition::draw_slide_reveal,
         watchface::TerminalWatchface,
     },
 };
@@ -38,6 +38,7 @@ use pineforge_state::{
 };
 
 static DISPLAY_BUFFER: StaticCell<[u8; 512]> = StaticCell::new();
+#[cfg(feature = "ui-animations")]
 static UI_SCRATCH: StaticCell<UiScratch> = StaticCell::new();
 
 const DIMMED_BRIGHTNESS: u8 = 1;
@@ -86,6 +87,7 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
     let mut touch_test = TestScreen::default();
     #[cfg(feature = "diagnostics")]
     let mut heart_rate = HeartRateScreen::default();
+    #[cfg(feature = "ui-animations")]
     let ui_scratch = UI_SCRATCH.init(UiScratch::new());
     let mut app = AppState::new(ScreenId::Watchface);
     let mut power_receiver = system_power_receiver();
@@ -403,6 +405,8 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                 cortex_m::peripheral::SCB::sys_reset();
             }
             AppEffect::Navigate(direction) => {
+                #[cfg(not(feature = "ui-animations"))]
+                let _ = direction;
                 #[cfg(feature = "diagnostics")]
                 if app.active_screen() == ScreenId::HeartRate {
                     heart_rate.begin_measurement();
@@ -415,6 +419,7 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                         HeartRateCommand::Stop
                     })
                     .await;
+                #[cfg(feature = "ui-animations")]
                 match app.active_screen() {
                     ScreenId::Watchface => {
                         let result = draw_slide_reveal(
@@ -463,6 +468,23 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                             direction,
                             || watchdog.pet(),
                         );
+                    }
+                }
+                #[cfg(not(feature = "ui-animations"))]
+                match app.active_screen() {
+                    ScreenId::Watchface => {
+                        let _ = watchface.draw_full(&mut display, || watchdog.pet());
+                    }
+                    ScreenId::DisplaySettings => {
+                        let _ = display_settings.draw_full(&mut display, || watchdog.pet());
+                    }
+                    #[cfg(feature = "diagnostics")]
+                    ScreenId::TouchTest => {
+                        let _ = touch_test.draw_full(&mut display, || watchdog.pet());
+                    }
+                    #[cfg(feature = "diagnostics")]
+                    ScreenId::HeartRate => {
+                        let _ = heart_rate.draw_full(&mut display, || watchdog.pet());
                     }
                 }
             }

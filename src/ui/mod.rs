@@ -5,10 +5,12 @@ pub mod heart_rate;
 pub mod metrics;
 pub mod pairing;
 pub mod render;
+#[cfg(feature = "ui-animations")]
 pub mod scratch;
 pub mod screen;
 pub mod settings;
 #[cfg(feature = "diagnostics")]
 pub mod test_screen;
+#[cfg(feature = "ui-animations")]
 pub mod transition;
 pub mod watchface;

@@ -15,6 +15,9 @@ resolver = "3"
 default = ["ble"]
 ble = ["dep:bt-hci", "dep:nrf-mpsl", "dep:nrf-sdc", "dep:trouble-host", "dep:postcard", "dep:serde"]
 diagnostics = ["pineforge-state/diagnostics"]
+# Optional because the 7.5 KiB transition scratch is a substantial fraction
+# of nRF52832 RAM. Production uses immediate full-screen navigation by default.
+ui-animations = []
 
 [[bin]]
 name = "pineforge"

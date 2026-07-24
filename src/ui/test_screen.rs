@@ -14,7 +14,9 @@ use crate::ui::{
     render::{draw_mono_text_visible, draw_visible},
     screen::Screen,
 };
-use pineforge_state::{AppEvent, NavigationDirection, ScreenAction, SwipeDirection};
+#[cfg(feature = "ui-animations")]
+use pineforge_state::NavigationDirection;
+use pineforge_state::{AppEvent, ScreenAction, SwipeDirection};
 
 const TOUCH_AREA: Rectangle = Rectangle::new(Point::new(0, 64), Size::new(240, 76));
 const METRICS_AREA: Rectangle = Rectangle::new(Point::new(0, 140), Size::new(240, 74));
@@ -32,6 +34,7 @@ pub struct TestScreen {
 }
 
 impl TestScreen {
+    #[cfg(feature = "ui-animations")]
     pub const fn record_transition(
         &mut self,
         direction: NavigationDirection,
