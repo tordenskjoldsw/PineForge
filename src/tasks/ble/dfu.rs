@@ -102,11 +102,9 @@ pub async fn finish_pending_flash(flash: &mut FlashPipeline) -> bool {
         }
         flash.pending -= 1;
     }
-    if let Some(reason) = flash.first_error.take() {
+    flash.first_error.take().is_none_or(|reason| {
         warn!("DFU pipelined flash operation failed");
         let _ = UI_EVENTS.try_send(AppEvent::BleUpdated(BleState::DfuFailed(reason)));
         false
-    } else {
-        true
-    }
+    })
 }
