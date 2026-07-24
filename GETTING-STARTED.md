@@ -66,8 +66,16 @@ Do not flash if any command fails.
 
 ## 5. Create the DFU ZIP
 
+The default and recommended artifact is the production image:
+
 ```bash
 ./scripts/build-dfu.sh 0.1.0
+```
+
+Only enable diagnostic screens for a deliberately labeled hardware test:
+
+```bash
+PINEFORGE_FEATURES=diagnostics ./scripts/build-dfu.sh 0.1.0
 ```
 
 Expected file:

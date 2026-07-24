@@ -2,14 +2,16 @@
 set -euo pipefail
 
 VERSION="${1:-0.1.0}"
-FEATURES="${PINEFORGE_FEATURES-diagnostics}"
+# Release/production is the safe default. Diagnostic screens, render metrics,
+# and optional animations must be requested explicitly for a hardware test.
+FEATURES="${PINEFORGE_FEATURES-}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST="$ROOT/dist"
 MCUBOOT="$ROOT/tools/mcuboot-src/scripts/imgtool.py"
 PACKAGE="$DIST/pineforge-mcuboot-app-dfu-$VERSION.zip"
 
-[[ "$VERSION" =~ ^[0-9A-Za-z][0-9A-Za-z.+-]*$ ]] || {
-  echo "invalid version for DFU package name: $VERSION" >&2
+[[ "$VERSION" =~ ^[0-9]+(\.[0-9]+){0,2}(\+[0-9]+)?$ ]] || {
+  echo "invalid MCUBoot version (expected maj[.min[.rev]][+build]): $VERSION" >&2
   exit 1
 }
 
