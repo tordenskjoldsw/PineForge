@@ -23,9 +23,10 @@ use crate::{
     ui::{
         dfu::{draw_dfu_failed, draw_dfu_progress},
         pairing::draw_pairing,
+        scratch::UiScratch,
         screen::Screen,
         settings::DisplaySettingsScreen,
-        transition::{SlideBuffer, draw_slide_reveal},
+        transition::draw_slide_reveal,
         watchface::TerminalWatchface,
     },
 };
@@ -37,7 +38,7 @@ use pineforge_state::{
 };
 
 static DISPLAY_BUFFER: StaticCell<[u8; 512]> = StaticCell::new();
-static SLIDE_BUFFER: StaticCell<SlideBuffer> = StaticCell::new();
+static UI_SCRATCH: StaticCell<UiScratch> = StaticCell::new();
 
 const DIMMED_BRIGHTNESS: u8 = 1;
 const WAKE_INPUT_GUARD: Duration = Duration::from_millis(500);
@@ -85,7 +86,7 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
     let mut touch_test = TestScreen::default();
     #[cfg(feature = "diagnostics")]
     let mut heart_rate = HeartRateScreen::default();
-    let slide_buffer = SLIDE_BUFFER.init(SlideBuffer::new());
+    let ui_scratch = UI_SCRATCH.init(UiScratch::new());
     let mut app = AppState::new(ScreenId::Watchface);
     let mut power_receiver = system_power_receiver();
     let mut settings_receiver = display_settings_receiver();
@@ -419,7 +420,7 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                         let result = draw_slide_reveal(
                             &watchface,
                             &mut display,
-                            slide_buffer,
+                            ui_scratch,
                             direction,
                             || watchdog.pet(),
                         );
@@ -434,7 +435,7 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                         let _ = draw_slide_reveal(
                             &display_settings,
                             &mut display,
-                            slide_buffer,
+                            ui_scratch,
                             direction,
                             || watchdog.pet(),
                         );
@@ -444,7 +445,7 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                         if let Ok(metrics) = draw_slide_reveal(
                             &touch_test,
                             &mut display,
-                            slide_buffer,
+                            ui_scratch,
                             direction,
                             || watchdog.pet(),
                         ) {
@@ -458,7 +459,7 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                         let _ = draw_slide_reveal(
                             &heart_rate,
                             &mut display,
-                            slide_buffer,
+                            ui_scratch,
                             direction,
                             || watchdog.pet(),
                         );

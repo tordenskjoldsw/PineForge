@@ -1,113 +1,27 @@
-use core::convert::Infallible;
-
 #[cfg(feature = "diagnostics")]
 use embassy_time::Instant;
 use embedded_graphics::{
-    Pixel,
     draw_target::DrawTarget,
-    geometry::{Dimensions, Point, Size},
-    pixelcolor::{Rgb565, RgbColor},
+    geometry::{Point, Size},
+    pixelcolor::Rgb565,
     primitives::Rectangle,
 };
 use pineforge_state::NavigationDirection;
 
 #[cfg(feature = "diagnostics")]
 use super::metrics::RenderMetrics;
+use super::scratch::{STRIPE_WIDTH, STRIPE_WIDTH_USIZE, UiScratch};
 use super::screen::Screen;
-
-const STRIPE_WIDTH: u32 = 16;
-const STRIPE_WIDTH_USIZE: usize = 16;
-const MAX_SCREEN_HEIGHT: u32 = 240;
-const STRIPE_PIXELS: usize = STRIPE_WIDTH_USIZE * 240;
-
-/// Fixed-capacity render buffer for one vertical transition stripe.
-///
-/// At 16 x 240 RGB565 pixels this uses 7.5 KiB, remains statically allocated,
-/// and lets each stripe reach the display in one contiguous transfer. Fifteen
-/// stripes balance transition throughput against the nRF52832 RAM budget.
-pub struct SlideBuffer {
-    pixels: [Rgb565; STRIPE_PIXELS],
-    area: Rectangle,
-}
-
-impl SlideBuffer {
-    #[must_use]
-    pub const fn new() -> Self {
-        Self {
-            pixels: [Rgb565::BLACK; STRIPE_PIXELS],
-            area: Rectangle::new(Point::zero(), Size::zero()),
-        }
-    }
-
-    fn prepare(&mut self, area: Rectangle) {
-        debug_assert!(area.size.width <= STRIPE_WIDTH);
-        debug_assert!(area.size.height <= MAX_SCREEN_HEIGHT);
-        self.area = area;
-    }
-
-    fn pixel_index(&self, point: Point) -> Option<usize> {
-        if !self.area.contains(point) {
-            return None;
-        }
-
-        let x = usize::try_from(point.x - self.area.top_left.x).ok()?;
-        let y = usize::try_from(point.y - self.area.top_left.y).ok()?;
-        Some(y * STRIPE_WIDTH_USIZE + x)
-    }
-}
-
-impl Default for SlideBuffer {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Dimensions for SlideBuffer {
-    fn bounding_box(&self) -> Rectangle {
-        self.area
-    }
-}
-
-impl DrawTarget for SlideBuffer {
-    type Color = Rgb565;
-    type Error = Infallible;
-
-    fn draw_iter<I>(&mut self, pixels: I) -> Result<(), Self::Error>
-    where
-        I: IntoIterator<Item = Pixel<Self::Color>>,
-    {
-        for Pixel(point, color) in pixels {
-            if let Some(index) = self.pixel_index(point) {
-                self.pixels[index] = color;
-            }
-        }
-        Ok(())
-    }
-
-    fn fill_solid(&mut self, area: &Rectangle, color: Self::Color) -> Result<(), Self::Error> {
-        let intersection = area.intersection(&self.area);
-        let x_start = usize::try_from(intersection.top_left.x - self.area.top_left.x).unwrap_or(0);
-        let y_start = usize::try_from(intersection.top_left.y - self.area.top_left.y).unwrap_or(0);
-        let width = usize::try_from(intersection.size.width).unwrap_or(0);
-        let height = usize::try_from(intersection.size.height).unwrap_or(0);
-
-        for y in y_start..y_start + height {
-            let start = y * STRIPE_WIDTH_USIZE + x_start;
-            self.pixels[start..start + width].fill(color);
-        }
-        Ok(())
-    }
-}
 
 /// Reveals a screen in directional strips without a full-screen framebuffer.
 ///
-/// `Screen::draw_full` guarantees opaque output. Each stripe is composed in
-/// `SlideBuffer` and then sent with one contiguous display transaction, making
-/// transition speed independent of the number of components in a screen.
+/// `Screen::draw_full` guarantees opaque output. Each stripe is composed in the
+/// display task's shared [`UiScratch`] and then sent with one contiguous
+/// transaction, making transition speed independent of component count.
 pub fn draw_slide_reveal<S, D>(
     screen: &S,
     display: &mut D,
-    buffer: &mut SlideBuffer,
+    scratch: &mut UiScratch,
     direction: NavigationDirection,
     mut keep_alive: impl FnMut(),
 ) -> Result<TransitionOutput, D::Error>
@@ -138,10 +52,10 @@ where
             ),
             Size::new(width, screen_area.size.height),
         );
-        buffer.prepare(area);
+        scratch.prepare_stripe(area);
         #[cfg(feature = "diagnostics")]
         let compose_started = Instant::now();
-        match screen.draw_full(buffer, &mut keep_alive) {
+        match screen.draw_full(scratch, &mut keep_alive) {
             Ok(()) => {}
             Err(error) => match error {},
         }
@@ -152,7 +66,7 @@ where
 
         let width = usize::try_from(width).unwrap_or(0);
         let height = usize::try_from(area.size.height).unwrap_or(0);
-        let pixels = &buffer.pixels;
+        let pixels = &scratch.pixels;
         let colors =
             (0..height).flat_map(|y| (0..width).map(move |x| pixels[y * STRIPE_WIDTH_USIZE + x]));
         #[cfg(feature = "diagnostics")]
