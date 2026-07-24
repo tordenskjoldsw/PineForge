@@ -129,6 +129,13 @@ headroom in the 475,104-byte MCUBoot application region and reserve RAM for
 runtime stack growth. Size changes remain visible in CI output even when they
 stay below the hard limits.
 
+For `v0.2.0`, the design target is stricter than the CI failure threshold:
+production should use no more than 44 KiB static RAM, leaving at least 20 KiB
+of the physical RAM region for runtime stack growth. The display-transition
+scratch buffer is capped at 8 KiB. BLE and DFU capacity reductions require a
+complete OTA hardware test because their previous undersizing caused an
+end-of-transfer deadlock.
+
 ## Error policy
 
 Drivers return typed errors. Top-level product policy decides whether to retry, degrade, or reset. During bring-up, log recoverable failures using `defmt` and continue where safe.

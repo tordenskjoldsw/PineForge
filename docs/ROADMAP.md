@@ -3,6 +3,14 @@
 This roadmap is ordered by technical dependencies rather than target dates. Each
 milestone should leave the sealed PineTime in a testable and recoverable state.
 
+## Current release direction
+
+- `v0.1.0`: released experimental OTA proof of concept
+- `v0.2.0`: platform foundation, navigation shell, and measured memory headroom
+
+The concrete scope and acceptance criteria for the active milestone live in
+[`V0.2-PLATFORM-FOUNDATION.md`](V0.2-PLATFORM-FOUNDATION.md).
+
 ## Milestone 0 — reproducible bring-up baseline
 
 ### Complete
