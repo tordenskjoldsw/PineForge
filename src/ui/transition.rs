@@ -15,15 +15,16 @@ use pineforge_state::NavigationDirection;
 use super::metrics::RenderMetrics;
 use super::screen::Screen;
 
-const STRIPE_WIDTH: u32 = 24;
-const STRIPE_WIDTH_USIZE: usize = 24;
+const STRIPE_WIDTH: u32 = 16;
+const STRIPE_WIDTH_USIZE: usize = 16;
 const MAX_SCREEN_HEIGHT: u32 = 240;
 const STRIPE_PIXELS: usize = STRIPE_WIDTH_USIZE * 240;
 
 /// Fixed-capacity render buffer for one vertical transition stripe.
 ///
-/// At 24 x 240 RGB565 pixels this uses 11.25 KiB, remains statically allocated,
-/// and lets each stripe reach the display in one contiguous transfer.
+/// At 16 x 240 RGB565 pixels this uses 7.5 KiB, remains statically allocated,
+/// and lets each stripe reach the display in one contiguous transfer. Fifteen
+/// stripes balance transition throughput against the nRF52832 RAM budget.
 pub struct SlideBuffer {
     pixels: [Rgb565; STRIPE_PIXELS],
     area: Rectangle,
