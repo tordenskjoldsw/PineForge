@@ -22,6 +22,9 @@ use pineforge_state::{HeartRateState, NotificationCategory};
 
 const ROW_HEIGHT: u32 = 25;
 const VALUE_X: i32 = 70;
+/// Advance of `FONT_10X20`, used to place partial value redraws by character.
+const GLYPH_WIDTH: i32 = 10;
+const SCREEN_AREA: Rectangle = Rectangle::new(Point::new(0, 0), Size::new(240, 240));
 const DATE_ROW: Rectangle = Rectangle::new(Point::new(0, 25), Size::new(240, ROW_HEIGHT));
 const TIME_ROW: Rectangle = Rectangle::new(Point::new(0, 50), Size::new(240, ROW_HEIGHT));
 const BATTERY_ROW: Rectangle = Rectangle::new(Point::new(0, 75), Size::new(240, ROW_HEIGHT));
@@ -33,8 +36,6 @@ const STEP_ROW: Rectangle = Rectangle::new(Point::new(0, 125), Size::new(240, RO
 const STEP_ROW: Rectangle = Rectangle::new(Point::new(0, 100), Size::new(240, ROW_HEIGHT));
 const RESERVED_ROW: Rectangle = Rectangle::new(Point::new(0, 150), Size::new(240, ROW_HEIGHT));
 const STATUS_ROW: Rectangle = Rectangle::new(Point::new(0, 175), Size::new(240, ROW_HEIGHT));
-const HEADER_AREA: Rectangle = Rectangle::new(Point::new(0, 0), Size::new(240, 25));
-const FOOTER_AREA: Rectangle = Rectangle::new(Point::new(0, 200), Size::new(240, 40));
 
 const LIGHT_GRAY: Rgb565 = Rgb565::new(20, 40, 20);
 const TERMINAL_GREEN: Rgb565 = Rgb565::new(4, 51, 10);
@@ -172,7 +173,7 @@ impl TerminalWatchface {
             .text_color(color)
             .background_color(Rgb565::BLACK)
             .build();
-        let x = VALUE_X + i32::try_from(first_changed).unwrap_or(0) * 10;
+        let x = VALUE_X + i32::try_from(first_changed).unwrap_or(0) * GLYPH_WIDTH;
         draw_mono_text_visible(
             &new[first_changed..],
             Point::new(x, baseline),
@@ -182,6 +183,13 @@ impl TerminalWatchface {
         Ok(())
     }
 
+    /// Draws a row in place, without blanking it first.
+    ///
+    /// Every glyph paints its own background, so redrawing a row with unchanged
+    /// text leaves the panel visually untouched; clearing the row first would
+    /// flash it black for the duration of the SPI transfer. Only the span a
+    /// longer previous value may have left behind is cleared, and that span is
+    /// already black whenever the value did not shrink.
     fn draw_row<D>(
         display: &mut D,
         area: Rectangle,
@@ -192,22 +200,40 @@ impl TerminalWatchface {
     where
         D: DrawTarget<Color = Rgb565>,
     {
-        area.into_styled(PrimitiveStyle::with_fill(Rgb565::BLACK))
-            .draw(display)?;
         let baseline = area.top_left.y + 20;
-        draw_mono_text_visible(
-            label,
-            Point::new(0, baseline),
-            MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE),
-            display,
-        )?;
-        draw_mono_text_visible(
-            value,
-            Point::new(VALUE_X, baseline),
-            MonoTextStyle::new(&FONT_10X20, value_color),
-            display,
-        )?;
-        Ok(())
+        let label_style = MonoTextStyleBuilder::new()
+            .font(&FONT_10X20)
+            .text_color(Rgb565::WHITE)
+            .background_color(Rgb565::BLACK)
+            .build();
+        let value_style = MonoTextStyleBuilder::new()
+            .font(&FONT_10X20)
+            .text_color(value_color)
+            .background_color(Rgb565::BLACK)
+            .build();
+        draw_mono_text_visible(label, Point::new(0, baseline), label_style, display)?;
+        draw_mono_text_visible(value, Point::new(VALUE_X, baseline), value_style, display)?;
+
+        let value_end = VALUE_X + i32::try_from(value.len()).unwrap_or(0) * GLYPH_WIDTH;
+        let right_edge = area.top_left.x + i32::try_from(area.size.width).unwrap_or(0);
+        let tail = u32::try_from(right_edge - value_end).unwrap_or(0);
+        Rectangle::new(
+            Point::new(value_end, area.top_left.y),
+            Size::new(tail, area.size.height),
+        )
+        .into_styled(PrimitiveStyle::with_fill(Rgb565::BLACK))
+        .draw(display)
+    }
+
+    /// Marks a region dirty only when the value actually moved. Sensor events
+    /// arrive on a timer whether or not anything changed, and an unchanged row
+    /// costs a redraw for nothing.
+    fn on_change<T: PartialEq>(field: &mut T, next: T, region: DirtyRegion) -> DirtyRegion {
+        if *field == next {
+            return DirtyRegion::None;
+        }
+        *field = next;
+        region
     }
 
     /// The date of the last synchronization, or a fixed stand-in before the
@@ -487,9 +513,6 @@ impl TerminalWatchface {
     where
         D: DrawTarget<Color = Rgb565>,
     {
-        FOOTER_AREA
-            .into_styled(PrimitiveStyle::with_fill(Rgb565::BLACK))
-            .draw(display)?;
         draw_mono_text_visible(
             "swipe >",
             Point::new(0, 226),
@@ -548,38 +571,43 @@ impl Screen for TerminalWatchface {
             // Touch state is visualized on the diagnostics touch-test screen.
             AppEvent::Touch { .. } => {}
             AppEvent::BatteryUpdated(status) => {
-                self.battery = Some(status);
-                self.dirty = DirtyRegion::Battery;
+                self.dirty = Self::on_change(&mut self.battery, Some(status), DirtyRegion::Battery);
             }
             #[cfg(feature = "diagnostics")]
             AppEvent::AccelerometerDetected(kind) => {
-                self.accelerometer = Some(kind);
-                self.dirty = DirtyRegion::Motion;
+                self.dirty =
+                    Self::on_change(&mut self.accelerometer, Some(kind), DirtyRegion::Motion);
             }
             #[cfg(feature = "diagnostics")]
             AppEvent::AccelerationUpdated(sample) => {
-                self.acceleration = Some(sample);
-                self.dirty = DirtyRegion::Motion;
+                self.dirty =
+                    Self::on_change(&mut self.acceleration, Some(sample), DirtyRegion::Motion);
             }
             #[cfg(feature = "diagnostics")]
             AppEvent::FeatureEngineUpdated(status) => {
-                self.feature_engine = Some(status);
-                self.dirty = DirtyRegion::Motion;
+                self.dirty =
+                    Self::on_change(&mut self.feature_engine, Some(status), DirtyRegion::Motion);
             }
             #[cfg(feature = "diagnostics")]
             AppEvent::HeartRateSensorDetected(kind) => {
-                self.heart_rate_sensor = Some(kind);
-                self.dirty = DirtyRegion::HeartRate;
+                self.dirty = Self::on_change(
+                    &mut self.heart_rate_sensor,
+                    Some(kind),
+                    DirtyRegion::HeartRate,
+                );
             }
             #[cfg(feature = "diagnostics")]
             AppEvent::HeartRateRawSampleUpdated(raw) => {
-                self.heart_rate_raw = Some(raw);
-                self.dirty = DirtyRegion::HeartRate;
+                self.dirty =
+                    Self::on_change(&mut self.heart_rate_raw, Some(raw), DirtyRegion::HeartRate);
             }
             #[cfg(feature = "diagnostics")]
             AppEvent::HeartRateAnalysisUpdated(analysis) => {
-                self.heart_rate_analysis = Some(analysis);
-                self.dirty = DirtyRegion::HeartRate;
+                self.dirty = Self::on_change(
+                    &mut self.heart_rate_analysis,
+                    Some(analysis),
+                    DirtyRegion::HeartRate,
+                );
             }
             #[cfg(feature = "diagnostics")]
             AppEvent::HeartRateStateUpdated(_) => {}
@@ -587,12 +615,11 @@ impl Screen for TerminalWatchface {
             AppEvent::HeartRateSensorDetected(_) | AppEvent::HeartRateAnalysisUpdated(_) => {}
             #[cfg(not(feature = "diagnostics"))]
             AppEvent::HeartRateStateUpdated(state) => {
-                self.heart_rate_state = state;
-                self.dirty = DirtyRegion::HeartRate;
+                self.dirty =
+                    Self::on_change(&mut self.heart_rate_state, state, DirtyRegion::HeartRate);
             }
             AppEvent::StepsUpdated(steps) => {
-                self.steps = Some(steps);
-                self.dirty = DirtyRegion::Steps;
+                self.dirty = Self::on_change(&mut self.steps, Some(steps), DirtyRegion::Steps);
             }
             #[cfg(not(feature = "diagnostics"))]
             AppEvent::NotificationReceived(category) => {
@@ -604,8 +631,7 @@ impl Screen for TerminalWatchface {
             AppEvent::NotificationReceived(_) => {}
             AppEvent::DisplaySettingsUpdated(_) => {}
             AppEvent::BleUpdated(state) => {
-                self.ble = state;
-                self.dirty = DirtyRegion::Status;
+                self.dirty = Self::on_change(&mut self.ble, state, DirtyRegion::Status);
             }
             AppEvent::StorageUpdated(_) => {}
             AppEvent::Swipe(direction) => {
@@ -627,7 +653,10 @@ impl Screen for TerminalWatchface {
         D: DrawTarget<Color = Rgb565>,
     {
         let prompt = MonoTextStyle::new(&FONT_10X20, LIGHT_GRAY);
-        HEADER_AREA
+        // The rows draw in place, so the one blanking pass belongs here: a full
+        // redraw follows a modal or a screen change and repaints everything
+        // anyway.
+        SCREEN_AREA
             .into_styled(PrimitiveStyle::with_fill(Rgb565::BLACK))
             .draw(display)?;
         draw_mono_text_visible("user@watch:~ $ now", Point::new(0, 20), prompt, display)?;
@@ -657,9 +686,6 @@ impl Screen for TerminalWatchface {
         self.draw_status(display)?;
         keep_alive();
 
-        FOOTER_AREA
-            .into_styled(PrimitiveStyle::with_fill(Rgb565::BLACK))
-            .draw(display)?;
         #[cfg(feature = "diagnostics")]
         Self::draw_diagnostics_footer(display)?;
         #[cfg(not(feature = "diagnostics"))]
