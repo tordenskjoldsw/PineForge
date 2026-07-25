@@ -16,7 +16,7 @@ use crate::ui::{
 };
 #[cfg(feature = "ui-animations")]
 use pineforge_state::NavigationDirection;
-use pineforge_state::{AppEvent, ScreenAction, SwipeDirection};
+use pineforge_state::{AppEvent, ScreenAction};
 
 const TOUCH_AREA: Rectangle = Rectangle::new(Point::new(0, 64), Size::new(240, 76));
 const METRICS_AREA: Rectangle = Rectangle::new(Point::new(0, 140), Size::new(240, 74));
@@ -138,9 +138,6 @@ impl TestScreen {
 
 impl Screen for TestScreen {
     fn handle_event(&mut self, event: AppEvent) -> ScreenAction {
-        if event == AppEvent::Swipe(SwipeDirection::Right) {
-            return ScreenAction::Back;
-        }
         let AppEvent::Touch { x, y, pressed } = event else {
             return ScreenAction::None;
         };

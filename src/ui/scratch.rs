@@ -15,10 +15,10 @@ use embedded_graphics::{
     primitives::Rectangle,
 };
 
-pub const STRIPE_WIDTH: u32 = 16;
-pub const STRIPE_WIDTH_USIZE: usize = 16;
-const MAX_SCREEN_HEIGHT: u32 = 240;
-const SCRATCH_PIXELS: usize = STRIPE_WIDTH_USIZE * 240;
+/// Thickness of a transition stripe, across whichever axis it spans.
+pub const STRIPE_THICKNESS: u32 = 16;
+const MAX_SCREEN_EDGE: usize = 240;
+const SCRATCH_PIXELS: usize = STRIPE_THICKNESS as usize * MAX_SCREEN_EDGE;
 
 /// The display task's reusable 7.5 KiB rendering workspace.
 ///
@@ -26,9 +26,13 @@ const SCRATCH_PIXELS: usize = STRIPE_WIDTH_USIZE * 240;
 /// the storage in this operation-neutral type makes its exclusivity explicit:
 /// later transient UI operations extend this owner rather than reserve another
 /// large static buffer.
+///
+/// A stripe is stored row-major at its own width, so the same allocation serves
+/// an upright stripe of a horizontal slide and a flat one of a vertical slide.
 pub struct UiScratch {
     pub(crate) pixels: [Rgb565; SCRATCH_PIXELS],
     area: Rectangle,
+    stride: usize,
 }
 
 impl UiScratch {
@@ -37,13 +41,21 @@ impl UiScratch {
         Self {
             pixels: [Rgb565::BLACK; SCRATCH_PIXELS],
             area: Rectangle::new(Point::zero(), Size::zero()),
+            stride: 0,
         }
     }
 
     pub(crate) fn prepare_stripe(&mut self, area: Rectangle) {
-        debug_assert!(area.size.width <= STRIPE_WIDTH);
-        debug_assert!(area.size.height <= MAX_SCREEN_HEIGHT);
+        let width = area.size.width as usize;
+        let height = area.size.height as usize;
+        debug_assert!(width.saturating_mul(height) <= SCRATCH_PIXELS);
         self.area = area;
+        self.stride = width;
+    }
+
+    /// Row stride of the prepared stripe, needed to read it back out.
+    pub(crate) const fn stride(&self) -> usize {
+        self.stride
     }
 
     fn pixel_index(&self, point: Point) -> Option<usize> {
@@ -53,7 +65,7 @@ impl UiScratch {
 
         let x = usize::try_from(point.x - self.area.top_left.x).ok()?;
         let y = usize::try_from(point.y - self.area.top_left.y).ok()?;
-        Some(y * STRIPE_WIDTH_USIZE + x)
+        Some(y * self.stride + x)
     }
 }
 
@@ -93,7 +105,7 @@ impl DrawTarget for UiScratch {
         let height = usize::try_from(intersection.size.height).unwrap_or(0);
 
         for y in y_start..y_start + height {
-            let start = y * STRIPE_WIDTH_USIZE + x_start;
+            let start = y * self.stride + x_start;
             self.pixels[start..start + width].fill(color);
         }
         Ok(())

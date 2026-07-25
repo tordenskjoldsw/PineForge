@@ -14,9 +14,7 @@ use pineforge_state::{
     AccelerationSample, AccelerometerKind, FeatureEngineStatus, HeartRateRawSample,
     HeartRateSensorKind, PpgAnalysis,
 };
-use pineforge_state::{
-    AppEvent, BatteryStatus, BleState, CalendarDate, ScreenAction, ScreenId, SwipeDirection,
-};
+use pineforge_state::{AppEvent, BatteryStatus, BleState, CalendarDate, ScreenAction};
 #[cfg(not(feature = "diagnostics"))]
 use pineforge_state::{HeartRateState, NotificationCategory};
 
@@ -634,15 +632,10 @@ impl Screen for TerminalWatchface {
                 self.dirty = Self::on_change(&mut self.ble, state, DirtyRegion::Status);
             }
             AppEvent::StorageUpdated(_) => {}
-            AppEvent::Swipe(direction) => {
+            // Where a swipe leads is the navigation contract's business, not
+            // this screen's; it only stops a pending partial redraw.
+            AppEvent::Swipe(_) => {
                 self.dirty = DirtyRegion::None;
-                if direction == SwipeDirection::Down {
-                    return ScreenAction::Push(ScreenId::DisplaySettings);
-                }
-                #[cfg(feature = "diagnostics")]
-                if direction == SwipeDirection::Left {
-                    return ScreenAction::Push(ScreenId::TouchTest);
-                }
             }
         }
         ScreenAction::None

@@ -8,7 +8,7 @@ use embedded_graphics::{
 };
 use heapless::String;
 use pineforge_state::{
-    AppEvent, Button, ButtonBounds, ButtonOutcome, DisplaySettings, ScreenAction, SwipeDirection,
+    AppEvent, Button, ButtonBounds, ButtonOutcome, DisplaySettings, ScreenAction,
 };
 
 use crate::ui::{render::draw_mono_text_visible, screen::Screen};
@@ -165,9 +165,6 @@ impl DisplaySettingsScreen {
 impl Screen for DisplaySettingsScreen {
     fn handle_event(&mut self, event: AppEvent) -> ScreenAction {
         self.dirty = false;
-        if event == AppEvent::Swipe(SwipeDirection::Right) {
-            return ScreenAction::Back;
-        }
         if let AppEvent::DisplaySettingsUpdated(settings) = event {
             if settings != self.settings {
                 self.settings = settings;
@@ -210,7 +207,7 @@ impl Screen for DisplaySettingsScreen {
         self.draw_rows(display)?;
         keep_alive();
         draw_mono_text_visible(
-            "< swipe right",
+            "^ swipe up",
             Point::new(20, 232),
             MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE),
             display,

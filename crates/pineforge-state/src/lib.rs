@@ -521,6 +521,19 @@ pub enum SwipeDirection {
     Down,
 }
 
+impl SwipeDirection {
+    /// The gesture that undoes this one.
+    #[must_use]
+    pub const fn opposite(self) -> Self {
+        match self {
+            Self::Left => Self::Right,
+            Self::Right => Self::Left,
+            Self::Up => Self::Down,
+            Self::Down => Self::Up,
+        }
+    }
+}
+
 const SWIPE_MIN_DISTANCE: i32 = 40;
 const SWIPE_AXIS_DOMINANCE_NUMERATOR: i32 = 3;
 const SWIPE_AXIS_DOMINANCE_DENOMINATOR: i32 = 2;
@@ -621,7 +634,7 @@ pub enum ScreenAction {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AppEffect {
     None,
-    Navigate(NavigationDirection),
+    Navigate(Navigation),
     RequestRollback,
     ApplySettings(DisplaySettings),
     ConfirmFirmware,
@@ -631,6 +644,41 @@ pub enum AppEffect {
 pub enum NavigationDirection {
     Forward,
     Backward,
+}
+
+/// A navigation the display has to render.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Navigation {
+    /// Whether the screen stack grew or shrank.
+    pub direction: NavigationDirection,
+    /// The way the content travels, so the animation follows the finger: a
+    /// screen opened by swiping down slides down, and leaves upwards again.
+    ///
+    /// A navigation with no gesture behind it - a tap on a launcher tile, an
+    /// explicit back - falls back to the conventional horizontal push, so the
+    /// renderer never has to invent an axis.
+    pub motion: SwipeDirection,
+}
+
+impl Navigation {
+    /// The axis a gestureless navigation moves along.
+    const DEFAULT_FORWARD_MOTION: SwipeDirection = SwipeDirection::Left;
+
+    #[must_use]
+    pub const fn forward(motion: SwipeDirection) -> Self {
+        Self {
+            direction: NavigationDirection::Forward,
+            motion,
+        }
+    }
+
+    #[must_use]
+    pub const fn backward(motion: SwipeDirection) -> Self {
+        Self {
+            direction: NavigationDirection::Backward,
+            motion,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -735,12 +783,35 @@ impl Button {
     }
 }
 
+/// A screen on the stack, with the gesture that opened it.
+///
+/// The root has no entry gesture: nothing opened it, and nothing pops it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ScreenEntry {
+    screen: ScreenId,
+    entered_by: Option<SwipeDirection>,
+}
+
+/// Where a swipe leads from a given screen.
+///
+/// This table is the whole forward navigation contract. Screens deliberately
+/// know nothing about it, so a gesture can be re-routed here without touching
+/// any rendering code.
+const fn route(from: ScreenId, swipe: SwipeDirection) -> Option<ScreenId> {
+    match (from, swipe) {
+        (ScreenId::Watchface, SwipeDirection::Down) => Some(ScreenId::DisplaySettings),
+        #[cfg(feature = "diagnostics")]
+        (ScreenId::Watchface, SwipeDirection::Left) => Some(ScreenId::TouchTest),
+        _ => None,
+    }
+}
+
 /// Owns application-wide navigation state.
 ///
 /// Peripheral state remains owned by its Embassy task; this controller only
 /// contains deterministic product state.
 pub struct AppState {
-    screens: Vec<ScreenId, SCREEN_STACK_CAPACITY>,
+    screens: Vec<ScreenEntry, SCREEN_STACK_CAPACITY>,
 }
 
 impl AppState {
@@ -748,17 +819,45 @@ impl AppState {
     pub fn new(root: ScreenId) -> Self {
         let mut screens = Vec::new();
         screens
-            .push(root)
+            .push(ScreenEntry {
+                screen: root,
+                entered_by: None,
+            })
             .expect("the empty screen stack always has room for its root");
         Self { screens }
     }
 
     #[must_use]
     pub fn active_screen(&self) -> ScreenId {
+        self.active_entry().screen
+    }
+
+    fn active_entry(&self) -> ScreenEntry {
         *self
             .screens
             .last()
             .expect("AppState always retains a root screen")
+    }
+
+    /// Resolves a swipe against the navigation contract.
+    ///
+    /// A screen is left by the opposite of the gesture that opened it: pull
+    /// the settings down, push them back up. That rule holds for every screen
+    /// without any of them knowing how it was reached, so the back gesture can
+    /// never drift out of step with the forward one.
+    ///
+    /// Returns [`AppEffect::None`] when the swipe navigates nowhere; the
+    /// gesture then belongs to the active screen.
+    pub fn navigate(&mut self, swipe: SwipeDirection) -> AppEffect {
+        if let Some(entered_by) = self.active_entry().entered_by
+            && swipe == entered_by.opposite()
+        {
+            return self.pop();
+        }
+        if let Some(target) = route(self.active_screen(), swipe) {
+            return self.push(target, Some(swipe));
+        }
+        AppEffect::None
     }
 
     /// Applies a high-level action returned by the active screen.
@@ -768,25 +867,40 @@ impl AppState {
             ScreenAction::RequestRollback => AppEffect::RequestRollback,
             ScreenAction::ApplySettings(settings) => AppEffect::ApplySettings(settings),
             ScreenAction::ConfirmFirmware => AppEffect::ConfirmFirmware,
-            ScreenAction::Back => {
-                if self.screens.len() > 1 {
-                    self.screens.pop();
-                    AppEffect::Navigate(NavigationDirection::Backward)
-                } else {
-                    AppEffect::None
-                }
-            }
-            ScreenAction::Push(screen) => {
-                if self.active_screen() == screen {
-                    return AppEffect::None;
-                }
+            ScreenAction::Back => self.pop(),
+            ScreenAction::Push(screen) => self.push(screen, None),
+        }
+    }
 
-                if self.screens.push(screen).is_ok() {
-                    AppEffect::Navigate(NavigationDirection::Forward)
-                } else {
-                    AppEffect::None
-                }
-            }
+    /// The root is never popped, so the stack always has an active screen.
+    ///
+    /// A screen leaves the way it arrived, reversed, whether it is dismissed by
+    /// a gesture or by an explicit back.
+    fn pop(&mut self) -> AppEffect {
+        if self.screens.len() <= 1 {
+            return AppEffect::None;
+        }
+
+        let motion = self
+            .screens
+            .pop()
+            .and_then(|entry| entry.entered_by)
+            .unwrap_or(Navigation::DEFAULT_FORWARD_MOTION)
+            .opposite();
+        AppEffect::Navigate(Navigation::backward(motion))
+    }
+
+    fn push(&mut self, screen: ScreenId, entered_by: Option<SwipeDirection>) -> AppEffect {
+        if self.active_screen() == screen {
+            return AppEffect::None;
+        }
+
+        let entry = ScreenEntry { screen, entered_by };
+        if self.screens.push(entry).is_ok() {
+            let motion = entered_by.unwrap_or(Navigation::DEFAULT_FORWARD_MOTION);
+            AppEffect::Navigate(Navigation::forward(motion))
+        } else {
+            AppEffect::None
         }
     }
 }
@@ -1008,6 +1122,101 @@ mod tests {
         assert_eq!(app.active_screen(), ScreenId::Watchface);
     }
 
+    #[test]
+    fn a_screen_is_left_by_the_opposite_of_the_gesture_that_opened_it() {
+        let mut app = AppState::new(ScreenId::Watchface);
+
+        assert_eq!(
+            app.navigate(SwipeDirection::Down),
+            AppEffect::Navigate(Navigation::forward(SwipeDirection::Down))
+        );
+        assert_eq!(app.active_screen(), ScreenId::DisplaySettings);
+        // The gesture that opened it does not open it again, and no unrelated
+        // direction leaves it.
+        assert_eq!(app.navigate(SwipeDirection::Down), AppEffect::None);
+        assert_eq!(app.navigate(SwipeDirection::Left), AppEffect::None);
+        assert_eq!(app.navigate(SwipeDirection::Right), AppEffect::None);
+        assert_eq!(app.active_screen(), ScreenId::DisplaySettings);
+
+        assert_eq!(
+            app.navigate(SwipeDirection::Up),
+            AppEffect::Navigate(Navigation::backward(SwipeDirection::Up))
+        );
+        assert_eq!(app.active_screen(), ScreenId::Watchface);
+    }
+
+    #[test]
+    fn the_root_ignores_gestures_that_route_nowhere() {
+        let mut app = AppState::new(ScreenId::Watchface);
+
+        for swipe in [SwipeDirection::Up, SwipeDirection::Right] {
+            assert_eq!(app.navigate(swipe), AppEffect::None);
+            assert_eq!(app.active_screen(), ScreenId::Watchface);
+        }
+    }
+
+    #[cfg(feature = "diagnostics")]
+    #[test]
+    fn every_route_is_reversible_by_its_opposite() {
+        for (swipe, target) in [
+            (SwipeDirection::Down, ScreenId::DisplaySettings),
+            (SwipeDirection::Left, ScreenId::TouchTest),
+        ] {
+            let mut app = AppState::new(ScreenId::Watchface);
+            assert_eq!(
+                app.navigate(swipe),
+                AppEffect::Navigate(Navigation::forward(swipe))
+            );
+            assert_eq!(app.active_screen(), target);
+            // The animation follows the finger in both directions.
+            assert_eq!(
+                app.navigate(swipe.opposite()),
+                AppEffect::Navigate(Navigation::backward(swipe.opposite()))
+            );
+            assert_eq!(app.active_screen(), ScreenId::Watchface);
+        }
+    }
+
+    #[test]
+    fn a_screen_pushed_without_a_gesture_is_left_by_an_explicit_back() {
+        let mut app = AppState::new(ScreenId::Watchface);
+
+        assert_eq!(
+            app.transition(ScreenAction::Push(ScreenId::DisplaySettings)),
+            AppEffect::Navigate(Navigation::forward(Navigation::DEFAULT_FORWARD_MOTION))
+        );
+        // Nothing opened it by gesture, so no gesture closes it.
+        for swipe in [
+            SwipeDirection::Up,
+            SwipeDirection::Down,
+            SwipeDirection::Left,
+            SwipeDirection::Right,
+        ] {
+            assert_eq!(app.navigate(swipe), AppEffect::None);
+        }
+        assert_eq!(app.active_screen(), ScreenId::DisplaySettings);
+        assert_eq!(
+            app.transition(ScreenAction::Back),
+            AppEffect::Navigate(Navigation::backward(
+                Navigation::DEFAULT_FORWARD_MOTION.opposite(),
+            ))
+        );
+        assert_eq!(app.active_screen(), ScreenId::Watchface);
+    }
+
+    #[test]
+    fn opposites_are_symmetric() {
+        for swipe in [
+            SwipeDirection::Up,
+            SwipeDirection::Down,
+            SwipeDirection::Left,
+            SwipeDirection::Right,
+        ] {
+            assert_ne!(swipe.opposite(), swipe);
+            assert_eq!(swipe.opposite().opposite(), swipe);
+        }
+    }
+
     #[cfg(feature = "diagnostics")]
     #[test]
     fn push_and_back_change_the_active_screen() {
@@ -1015,12 +1224,14 @@ mod tests {
 
         assert_eq!(
             app.transition(ScreenAction::Push(ScreenId::TouchTest)),
-            AppEffect::Navigate(NavigationDirection::Forward)
+            AppEffect::Navigate(Navigation::forward(Navigation::DEFAULT_FORWARD_MOTION))
         );
         assert_eq!(app.active_screen(), ScreenId::TouchTest);
         assert_eq!(
             app.transition(ScreenAction::Back),
-            AppEffect::Navigate(NavigationDirection::Backward)
+            AppEffect::Navigate(Navigation::backward(
+                Navigation::DEFAULT_FORWARD_MOTION.opposite(),
+            ))
         );
         assert_eq!(app.active_screen(), ScreenId::Watchface);
     }
@@ -1046,7 +1257,7 @@ mod tests {
         ] {
             assert_eq!(
                 app.transition(ScreenAction::Push(screen)),
-                AppEffect::Navigate(NavigationDirection::Forward)
+                AppEffect::Navigate(Navigation::forward(Navigation::DEFAULT_FORWARD_MOTION))
             );
         }
 

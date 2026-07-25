@@ -335,8 +335,16 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
             continue;
         }
 
-        let action = screens.handle(app.active_screen(), event);
-        let effect = app.transition(action);
+        // Navigation resolves against the contract first. A swipe that leads
+        // nowhere still belongs to the screen, which may use it for its own
+        // content.
+        let effect = match event {
+            AppEvent::Swipe(direction) => match app.navigate(direction) {
+                AppEffect::None => app.transition(screens.handle(app.active_screen(), event)),
+                navigated => navigated,
+            },
+            _ => app.transition(screens.handle(app.active_screen(), event)),
+        };
 
         match effect {
             AppEffect::ApplySettings(updated) => {
@@ -360,9 +368,9 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                 Timer::after_millis(250).await;
                 cortex_m::peripheral::SCB::sys_reset();
             }
-            AppEffect::Navigate(direction) => {
+            AppEffect::Navigate(navigation) => {
                 #[cfg(not(feature = "ui-animations"))]
-                let _ = direction;
+                let _ = navigation;
                 #[cfg(feature = "ui-animations")]
                 match app.active_screen() {
                     ScreenId::Watchface => {
@@ -370,12 +378,14 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                             &screens.watchface,
                             &mut display,
                             ui_scratch,
-                            direction,
+                            navigation,
                             || watchdog.pet(),
                         );
                         #[cfg(feature = "diagnostics")]
                         if let Ok(metrics) = result {
-                            screens.touch_test.record_transition(direction, metrics);
+                            screens
+                                .touch_test
+                                .record_transition(navigation.direction, metrics);
                         }
                         #[cfg(not(feature = "diagnostics"))]
                         let _ = result;
@@ -385,7 +395,7 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                             &screens.settings,
                             &mut display,
                             ui_scratch,
-                            direction,
+                            navigation,
                             || watchdog.pet(),
                         );
                     }
@@ -395,10 +405,12 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                             &screens.touch_test,
                             &mut display,
                             ui_scratch,
-                            direction,
+                            navigation,
                             || watchdog.pet(),
                         ) {
-                            screens.touch_test.record_transition(direction, metrics);
+                            screens
+                                .touch_test
+                                .record_transition(navigation.direction, metrics);
                             let _ = screens.touch_test.draw_metrics(&mut display);
                             watchdog.pet();
                         }
