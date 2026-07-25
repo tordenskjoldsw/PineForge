@@ -35,6 +35,17 @@ impl FlashPipeline {
             self.pending -= 1;
         }
     }
+
+    /// Reports the first recorded flash failure to the update screen. Returns
+    /// `false` when one occurred so the caller aborts the transfer; the image
+    /// then never validates and the secondary slot is never activated.
+    fn report_ok(&mut self) -> bool {
+        self.first_error.take().is_none_or(|reason| {
+            warn!("DFU pipelined flash operation failed");
+            let _ = UI_EVENTS.try_send(AppEvent::BleUpdated(BleState::DfuFailed(reason)));
+            false
+        })
+    }
 }
 
 /// Feeds one characteristic write to the engine and executes the resulting
@@ -55,9 +66,25 @@ pub async fn handle_write(
     for step in steps {
         match step {
             DfuStep::Notify(bytes) => {
-                // Receipts acknowledge durable bytes. Gadgetbridge pauses at
-                // these boundaries, so join pipelined flash work here.
+                // A protocol ack the host acts on: drain the pipeline first so
+                // it never advances past flash that is still in flight or has
+                // failed.
                 if !finish_pending_flash(flash).await {
+                    return;
+                }
+                let _ = service
+                    .control_point
+                    .notify_raw(connection, &bytes, false)
+                    .await;
+            }
+            DfuStep::Receipt(bytes) => {
+                // Pure flow control: releasing this lets Gadgetbridge send the
+                // next batch, so keep the radio moving instead of stalling on
+                // in-flight flash. Only surface an already-known failure; a
+                // later one is caught at the next ack. This overlap of receive
+                // and flash is the pipeline's whole purpose.
+                flash.reap_ready();
+                if !flash.report_ok() {
                     return;
                 }
                 let _ = service
@@ -102,9 +129,5 @@ pub async fn finish_pending_flash(flash: &mut FlashPipeline) -> bool {
         }
         flash.pending -= 1;
     }
-    flash.first_error.take().is_none_or(|reason| {
-        warn!("DFU pipelined flash operation failed");
-        let _ = UI_EVENTS.try_send(AppEvent::BleUpdated(BleState::DfuFailed(reason)));
-        false
-    })
+    flash.report_ok()
 }

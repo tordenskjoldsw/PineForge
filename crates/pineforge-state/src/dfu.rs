@@ -52,7 +52,14 @@ const STATUS_CRC_ERROR: u8 = 0x05;
 #[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DfuStep {
+    /// A protocol acknowledgement the host acts on (start/init/receive/validate
+    /// success or failure). The BLE task makes queued flash durable before
+    /// sending it, so the host never advances past an ack the flash is behind.
     Notify(Vec<u8, 5>),
+    /// A packet-receipt notification: pure flow control that releases the next
+    /// batch. The BLE task sends it without draining in-flight flash, so the
+    /// radio keeps receiving while the pipeline catches up.
+    Receipt(Vec<u8, 5>),
     Erase(u32),
     Program {
         offset: u32,
@@ -62,9 +69,12 @@ pub enum DfuStep {
 }
 
 // One packet can at most cross one page boundary. The largest sequence is a
-// sector erase, the completed page, a final partial page, and its completion
-// notification. Keeping this exact bound matters because every inline
-// `DfuStep` can carry a 256-byte page inside the BLE task's static future.
+// single erase-ahead, the completed page, a final partial page, and its
+// completion notification. The one exception with the same bound is the very
+// first page: it primes the frontier with two erases (its own sector and the
+// one ahead) plus the page and a possible receipt. Keeping this exact bound
+// matters because every inline `DfuStep` can carry a 256-byte page inside the
+// BLE task's static future.
 type Steps = Vec<DfuStep, 4>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -249,7 +259,7 @@ impl DfuEngine {
             let mut notification = Vec::new();
             let _ = notification.push(PACKET_RECEIPT_NOTIFICATION);
             let _ = notification.extend_from_slice(&self.bytes_received.to_le_bytes());
-            let _ = steps.push(DfuStep::Notify(notification));
+            let _ = steps.push(DfuStep::Receipt(notification));
         }
     }
 
@@ -282,13 +292,27 @@ impl DfuEngine {
         });
     }
 
+    /// Keeps the erase frontier one sector *ahead* of the write offset, capped
+    /// at the slot end. The sector being programmed is therefore already blank,
+    /// and the sector after it is erased in the background while the current one
+    /// fills — so the ~tens-of-milliseconds sector erase overlaps reception
+    /// instead of stalling in the FIFO in front of the program that needs it.
     fn ensure_erased(&mut self, offset: u32, steps: &mut Steps) {
-        if offset < self.last_erased_end {
-            return;
+        let current = (offset / SECTOR_SIZE) * SECTOR_SIZE;
+        // Cover `offset`'s own sector and the one after it, capped at the slot
+        // end so no erase base ever lands at or beyond it. Starting at
+        // `max(frontier, current)` skips any gap left by a far jump — the
+        // trailer magic leaps to the slot end, and the sectors it skips are
+        // never programmed, so they must not be erased. That bounds this to at
+        // most two erases per call (only the first page and a far jump reach
+        // two; every steady-state crossing emits one).
+        let target_end = (current + 2 * SECTOR_SIZE).min(DFU_SLOT_SIZE);
+        let mut base = self.last_erased_end.max(current);
+        while base < target_end {
+            let _ = steps.push(DfuStep::Erase(base));
+            base += SECTOR_SIZE;
         }
-        let sector = (offset / SECTOR_SIZE) * SECTOR_SIZE;
-        let _ = steps.push(DfuStep::Erase(sector));
-        self.last_erased_end = sector + SECTOR_SIZE;
+        self.last_erased_end = self.last_erased_end.max(base);
     }
 }
 
@@ -408,14 +432,16 @@ mod tests {
                         assert_eq!(&bytes[..], &[RESPONSE, RECEIVE_IMAGE, STATUS_SUCCESS]);
                         completed = true;
                     }
-                    DfuStep::Notify(_) | DfuStep::Reset => {}
+                    DfuStep::Notify(_) | DfuStep::Receipt(_) | DfuStep::Reset => {}
                 }
             }
         }
 
         assert!(completed);
         assert_eq!(&programmed[..], &image[..]);
-        assert_eq!(&erased[..], &[0]); // 300 bytes fit in the first sector
+        // 300 bytes fit in the first sector; the erase frontier still runs one
+        // sector ahead, so sector 1 is pre-erased even though it is unused.
+        assert_eq!(&erased[..], &[0, SECTOR_SIZE]);
 
         assert_eq!(
             engine.control_write(&[VALIDATE])[0],
@@ -428,6 +454,37 @@ mod tests {
         assert!(activate.iter().any(
             |step| matches!(step, DfuStep::Program { offset, .. } if *offset == MAGIC_OFFSET)
         ));
+    }
+
+    #[test]
+    fn activation_erases_only_the_trailer_sector_not_the_gap() {
+        // A small image leaves the frontier far below the trailer. Staging the
+        // magic must erase just the trailer's own sector, never the unwritten
+        // sectors in between, and never a base at or beyond the slot end.
+        let image = [7_u8, 7, 7, 7];
+        let mut engine = DfuEngine::new(true);
+        engine.control_write(&[START_DFU, IMAGE_APPLICATION]);
+        let mut sizes = [0_u8; 12];
+        sizes[8..12].copy_from_slice(&(image.len() as u32).to_le_bytes());
+        engine.packet_write(&sizes);
+        engine.packet_write(&init_packet(crc16(&image)));
+        engine.control_write(&[INIT_PARAMETERS, 1]);
+        engine.control_write(&[RECEIVE_IMAGE]);
+        engine.packet_write(&image);
+        engine.control_write(&[VALIDATE]);
+
+        let activate = engine.control_write(&[ACTIVATE_RESET]);
+        let erases: Vec<u32, 4> = activate
+            .iter()
+            .filter_map(|step| match step {
+                DfuStep::Erase(base) => Some(*base),
+                _ => None,
+            })
+            .collect();
+        let last_sector = (MAGIC_OFFSET / SECTOR_SIZE) * SECTOR_SIZE;
+        assert_eq!(&erases[..], &[last_sector]);
+        assert!(erases.iter().all(|&base| base < DFU_SLOT_SIZE));
+        assert!(matches!(activate.last(), Some(DfuStep::Reset)));
     }
 
     #[test]
@@ -468,10 +525,9 @@ mod tests {
         let mut receipts = 0;
         for chunk in image.chunks(20) {
             for step in engine.packet_write(chunk) {
-                if let DfuStep::Notify(bytes) = step {
-                    if bytes[0] == PACKET_RECEIPT_NOTIFICATION {
-                        receipts += 1;
-                    }
+                if let DfuStep::Receipt(bytes) = step {
+                    assert_eq!(bytes[0], PACKET_RECEIPT_NOTIFICATION);
+                    receipts += 1;
                 }
             }
         }
@@ -509,9 +565,10 @@ mod tests {
     #[test]
     fn final_packet_fits_the_exact_maximum_step_bound() {
         // Reach a fresh sector with 16 bytes already buffered. The final
-        // 248-byte packet first completes and flushes that page, then flushes
-        // its remaining eight bytes and emits the completion notification:
-        // erase + program + program + notify.
+        // 248-byte packet first completes and flushes that page (emitting the
+        // erase-ahead for the *next* sector), then flushes its remaining eight
+        // bytes and emits the completion notification: erase + program +
+        // program + notify — the exact maximum step bound.
         const PREFIX_LEN: usize = SECTOR_SIZE as usize + 16;
         const FINAL_LEN: usize = 248;
         const IMAGE_LEN: usize = PREFIX_LEN + FINAL_LEN;
@@ -532,7 +589,9 @@ mod tests {
         let steps = engine.packet_write(&image[PREFIX_LEN..]);
 
         assert_eq!(steps.len(), 4);
-        assert!(matches!(steps[0], DfuStep::Erase(SECTOR_SIZE)));
+        // The current sector was already erased ahead of time; this flush
+        // erases the sector beyond it.
+        assert!(matches!(steps[0], DfuStep::Erase(sector) if sector == 2 * SECTOR_SIZE));
         assert!(
             matches!(&steps[1], DfuStep::Program { offset, data } if *offset == SECTOR_SIZE && data.len() == PAGE_SIZE)
         );
