@@ -21,3 +21,4 @@ crates/*/Cargo.lock
 
 # Local development notes (intentionally not versioned)
 /LOCAL-PLAN.md
+/UI-DESIGN.md
