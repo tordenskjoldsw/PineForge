@@ -5,11 +5,39 @@
 //! wrapping sequence number, so an interrupted write never loses the previous
 //! configuration.
 
+use crate::WatchfaceId;
+
 pub const SETTINGS_RECORD_LEN: usize = 32;
 
 const SETTINGS_MAGIC: [u8; 4] = *b"PFST";
-const SETTINGS_VERSION: u16 = 2;
+const SETTINGS_VERSION: u16 = 3;
+/// Versions this build still reads; older ones migrate on decode.
+const READABLE_VERSIONS: [u16; 3] = [1, 2, SETTINGS_VERSION];
 const CRC_OFFSET: usize = 28;
+
+/// Constant so the default is reachable from `DisplaySettings::DEFAULT`, which
+/// is a `const` and cannot call `WatchfaceId::default`.
+const DEFAULT_WATCHFACE: WatchfaceId = {
+    #[cfg(feature = "diagnostics")]
+    {
+        WatchfaceId::Diagnostics
+    }
+    #[cfg(not(feature = "diagnostics"))]
+    {
+        WatchfaceId::Terminal
+    }
+};
+
+const fn contains_version(version: u16) -> bool {
+    let mut index = 0;
+    while index < READABLE_VERSIONS.len() {
+        if READABLE_VERSIONS[index] == version {
+            return true;
+        }
+        index += 1;
+    }
+    false
+}
 
 /// The three cumulative backlight levels, matching `InfiniTime`'s Low/Med/High.
 ///
@@ -47,6 +75,7 @@ pub struct DisplaySettings {
     off_after_millis: u32,
     heart_rate_enabled: bool,
     heart_rate_interval_seconds: u32,
+    watchface: WatchfaceId,
 }
 
 impl DisplaySettings {
@@ -56,6 +85,7 @@ impl DisplaySettings {
         off_after_millis: 20_000,
         heart_rate_enabled: false,
         heart_rate_interval_seconds: 300,
+        watchface: DEFAULT_WATCHFACE,
     };
 
     pub const fn new(
@@ -78,6 +108,7 @@ impl DisplaySettings {
             off_after_millis,
             heart_rate_enabled: false,
             heart_rate_interval_seconds: 300,
+            watchface: DEFAULT_WATCHFACE,
         })
     }
 
@@ -177,7 +208,20 @@ impl DisplaySettings {
         }
     }
 
-    /// Serializes a version-2 record carrying the given sequence number.
+    #[must_use]
+    pub const fn watchface(self) -> WatchfaceId {
+        self.watchface
+    }
+
+    /// Selects a watchface. Any id is accepted: a build that cannot show it
+    /// falls back when the record is decoded, so the choice is not lost by
+    /// passing through firmware that lacks the face.
+    #[must_use]
+    pub const fn with_watchface(self, watchface: WatchfaceId) -> Self {
+        Self { watchface, ..self }
+    }
+
+    /// Serializes a version-3 record carrying the given sequence number.
     #[must_use]
     pub fn encode(self, sequence: u32) -> [u8; SETTINGS_RECORD_LEN] {
         let mut record = [0_u8; SETTINGS_RECORD_LEN];
@@ -189,6 +233,7 @@ impl DisplaySettings {
         record[12..16].copy_from_slice(&self.off_after_millis.to_le_bytes());
         record[16..20].copy_from_slice(&sequence.to_le_bytes());
         record[20..24].copy_from_slice(&self.heart_rate_interval_seconds.to_le_bytes());
+        record[24] = self.watchface.to_byte();
         let crc = crc32(&record[..CRC_OFFSET]);
         record[CRC_OFFSET..].copy_from_slice(&crc.to_le_bytes());
         record
@@ -204,7 +249,7 @@ impl DisplaySettings {
             return Err(DecodeError::BadChecksum);
         }
         let version = u16::from_le_bytes([record[4], record[5]]);
-        if version != 1 && version != SETTINGS_VERSION {
+        if !contains_version(version) {
             // Newer or unknown formats fall back to defaults at the caller.
             return Err(DecodeError::UnsupportedVersion(version));
         }
@@ -212,7 +257,7 @@ impl DisplaySettings {
         let off = u32::from_le_bytes([record[12], record[13], record[14], record[15]]);
         let sequence = u32::from_le_bytes([record[16], record[17], record[18], record[19]]);
         let mut settings = Self::new(record[6], dim, off).map_err(DecodeError::InvalidContent)?;
-        if version == SETTINGS_VERSION {
+        if version >= 2 {
             let interval = u32::from_le_bytes([record[20], record[21], record[22], record[23]]);
             if record[7] > 1 || !HEART_RATE_INTERVALS_SECONDS.contains(&interval) {
                 return Err(DecodeError::InvalidContent(
@@ -221,6 +266,11 @@ impl DisplaySettings {
             }
             settings.heart_rate_enabled = record[7] != 0;
             settings.heart_rate_interval_seconds = interval;
+        }
+        if version >= SETTINGS_VERSION {
+            // A face this build does not carry is not corruption - the record
+            // may come from one that did - so the default stands in.
+            settings.watchface = WatchfaceId::from_byte(record[24]).unwrap_or(DEFAULT_WATCHFACE);
         }
         Ok((settings, sequence))
     }
@@ -337,6 +387,7 @@ pub const fn select_slot(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::WATCHFACES;
 
     #[test]
     fn defaults_match_previous_hardcoded_behavior() {
@@ -405,14 +456,51 @@ mod tests {
 
     #[test]
     fn decode_rejects_future_versions_without_misreading_them() {
+        let future = SETTINGS_VERSION + 1;
         let mut record = DisplaySettings::DEFAULT.encode(1);
-        record[4..6].copy_from_slice(&3_u16.to_le_bytes());
+        record[4..6].copy_from_slice(&future.to_le_bytes());
         let crc = crc32(&record[..CRC_OFFSET]);
         record[CRC_OFFSET..].copy_from_slice(&crc.to_le_bytes());
         assert_eq!(
             DisplaySettings::decode(&record),
-            Err(DecodeError::UnsupportedVersion(3))
+            Err(DecodeError::UnsupportedVersion(future))
         );
+    }
+
+    #[test]
+    fn the_watchface_choice_survives_a_round_trip() {
+        for face in WATCHFACES {
+            let settings = DisplaySettings::DEFAULT.with_watchface(face.id);
+            let (decoded, sequence) = DisplaySettings::decode(&settings.encode(7)).unwrap();
+            assert_eq!(decoded.watchface(), face.id);
+            assert_eq!(sequence, 7);
+        }
+    }
+
+    #[test]
+    fn version_two_migrates_with_the_default_watchface() {
+        let mut record = DisplaySettings::DEFAULT.encode(1);
+        record[4..6].copy_from_slice(&2_u16.to_le_bytes());
+        // A version-2 writer never touched this byte, so it may hold anything.
+        record[24] = 0xAB;
+        let crc = crc32(&record[..CRC_OFFSET]);
+        record[CRC_OFFSET..].copy_from_slice(&crc.to_le_bytes());
+
+        let (settings, _) = DisplaySettings::decode(&record).unwrap();
+        assert_eq!(settings.watchface(), WatchfaceId::default());
+    }
+
+    #[test]
+    fn a_face_this_build_lacks_falls_back_without_losing_the_rest() {
+        let mut record = DisplaySettings::DEFAULT.encode(1);
+        record[24] = 0xFE;
+        let crc = crc32(&record[..CRC_OFFSET]);
+        record[CRC_OFFSET..].copy_from_slice(&crc.to_le_bytes());
+
+        let (settings, _) = DisplaySettings::decode(&record).unwrap();
+        assert_eq!(settings.watchface(), WatchfaceId::default());
+        // The unknown face must not discard the settings around it.
+        assert_eq!(settings.brightness(), DisplaySettings::DEFAULT.brightness());
     }
 
     #[test]

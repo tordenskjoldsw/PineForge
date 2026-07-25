@@ -295,6 +295,15 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                     interval_seconds: updated.heart_rate_interval_seconds(),
                 })
                 .await;
+            // The persisted choice arrives as a settings snapshot, at boot and
+            // whenever it changes. A face swap only has to be painted when the
+            // watchface is what the user is looking at; otherwise the next
+            // navigation redraws it anyway.
+            if screens.watchface.select(updated.watchface())
+                && app.active_screen() == ScreenId::Watchface
+            {
+                let _ = screens.draw_full(ScreenId::Watchface, &mut display, || watchdog.pet());
+            }
         }
         if matches!(event, AppEvent::HeartRateStateUpdated(_))
             && app.active_screen() != ScreenId::Watchface

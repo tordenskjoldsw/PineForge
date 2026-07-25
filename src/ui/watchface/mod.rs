@@ -6,12 +6,17 @@
 //! therefore costs its drawing code and nothing else - no second copy of the
 //! battery, the step count, or the logic deciding what changed.
 
+#[cfg(feature = "diagnostics")]
+mod diagnostics;
+mod row;
 mod terminal;
 
 use embedded_graphics::{draw_target::DrawTarget, pixelcolor::Rgb565};
-use pineforge_state::{AppEvent, ScreenAction, WatchFields, WatchState};
+use pineforge_state::{AppEvent, ScreenAction, WatchFields, WatchState, WatchfaceId};
 
 use crate::ui::screen::Screen;
+#[cfg(feature = "diagnostics")]
+pub use diagnostics::DiagnosticsWatchface;
 pub use terminal::TerminalWatchface;
 
 /// Renders the watch state in one particular style.
@@ -43,16 +48,103 @@ pub trait Watchface {
         D: DrawTarget<Color = Rgb565>;
 }
 
+/// A face this build can show, with its state.
+///
+/// Static dispatch: there is no allocator to hold a boxed face, and an enum
+/// keeps the compiler checking that every face is handled. It costs the size of
+/// its largest variant, which is why faces hold no readings.
+enum ActiveWatchface {
+    Terminal(TerminalWatchface),
+    #[cfg(feature = "diagnostics")]
+    Diagnostics(DiagnosticsWatchface),
+}
+
+impl ActiveWatchface {
+    /// Exhaustive in every build: an id for a face this build lacks cannot be
+    /// constructed, because decoding a settings record substitutes the default
+    /// for one it does not recognize.
+    const fn new(id: WatchfaceId) -> Self {
+        match id {
+            WatchfaceId::Terminal => Self::Terminal(TerminalWatchface),
+            #[cfg(feature = "diagnostics")]
+            WatchfaceId::Diagnostics => Self::Diagnostics(DiagnosticsWatchface),
+        }
+    }
+
+    const fn id(&self) -> WatchfaceId {
+        match self {
+            Self::Terminal(_) => WatchfaceId::Terminal,
+            #[cfg(feature = "diagnostics")]
+            Self::Diagnostics(_) => WatchfaceId::Diagnostics,
+        }
+    }
+}
+
+impl Watchface for ActiveWatchface {
+    fn draw_full<D>(
+        &self,
+        state: &WatchState,
+        display: &mut D,
+        keep_alive: impl FnMut(),
+    ) -> Result<(), D::Error>
+    where
+        D: DrawTarget<Color = Rgb565>,
+    {
+        match self {
+            Self::Terminal(face) => face.draw_full(state, display, keep_alive),
+            #[cfg(feature = "diagnostics")]
+            Self::Diagnostics(face) => face.draw_full(state, display, keep_alive),
+        }
+    }
+
+    fn draw_changed<D>(
+        &self,
+        state: &WatchState,
+        changed: WatchFields,
+        display: &mut D,
+        keep_alive: impl FnMut(),
+    ) -> Result<(), D::Error>
+    where
+        D: DrawTarget<Color = Rgb565>,
+    {
+        match self {
+            Self::Terminal(face) => face.draw_changed(state, changed, display, keep_alive),
+            #[cfg(feature = "diagnostics")]
+            Self::Diagnostics(face) => face.draw_changed(state, changed, display, keep_alive),
+        }
+    }
+}
+
 /// The watchface screen: owns the readings and the face showing them.
 ///
-/// The screen stack sees one watchface, whichever face is selected, so
-/// navigation is unaffected by the choice. Once a second face exists, this
-/// field becomes an enum over the available faces - static dispatch, since
-/// there is no allocator to hold a boxed one.
-#[derive(Default)]
+/// The screen stack sees one watchface whichever face is selected, so
+/// navigation is unaffected by the choice.
 pub struct WatchfaceScreen {
     state: WatchState,
-    face: TerminalWatchface,
+    face: ActiveWatchface,
+}
+
+impl Default for WatchfaceScreen {
+    fn default() -> Self {
+        Self {
+            state: WatchState::new(),
+            face: ActiveWatchface::new(WatchfaceId::default()),
+        }
+    }
+}
+
+impl WatchfaceScreen {
+    /// Switches to a face, reporting whether the screen has to be repainted.
+    ///
+    /// Selecting the showing face is not a change, so a settings update that
+    /// leaves the choice alone costs no redraw.
+    pub fn select(&mut self, id: WatchfaceId) -> bool {
+        if self.face.id() == id {
+            return false;
+        }
+        self.face = ActiveWatchface::new(id);
+        true
+    }
 }
 
 impl Screen for WatchfaceScreen {

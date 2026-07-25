@@ -1,4 +1,8 @@
-//! A terminal-styled watchface: one labelled row per reading.
+//! A bring-up watchface: raw sensor readings instead of finished values.
+//!
+//! It shows what the terminal face deliberately hides - millivolts rather than
+//! a percentage, acceleration counts, the photoplethysmograph's own numbers -
+//! so a sealed watch can still be diagnosed by looking at it.
 
 use core::fmt::Write;
 
@@ -9,31 +13,33 @@ use embedded_graphics::{
     primitives::{PrimitiveStyle, Rectangle},
 };
 use heapless::String;
-use pineforge_state::{HeartRateState, NotificationCategory, WatchField, WatchFields, WatchState};
+use pineforge_state::{
+    AccelerometerKind, FeatureEngineStatus, HeartRateSensorKind, PpgAnalysis, WatchField,
+    WatchFields, WatchState,
+};
 
 use crate::ui::{
     render::draw_mono_text_visible,
     watchface::{
         Watchface,
         row::{
-            self, BATTERY_ROW, DATE_ROW, LIGHT_GRAY, SCREEN_AREA, STATUS_ROW, TERMINAL_BLUE,
-            TERMINAL_GREEN, TERMINAL_ORANGE, TERMINAL_RED, TIME_ROW, UNSYNCHRONIZED_DATE, row_at,
+            self, BATTERY_ROW, DATE_ROW, LIGHT_GRAY, SCREEN_AREA, STATUS_ROW, TERMINAL_GREEN,
+            TERMINAL_ORANGE, TERMINAL_RED, TIME_ROW, UNSYNCHRONIZED_DATE, row_at,
         },
     },
 };
 
-const STEP_ROW: Rectangle = row_at(100);
-const HEART_RATE_ROW: Rectangle = row_at(125);
-const NOTIFICATION_ROW: Rectangle = row_at(150);
+const MOTION_ROW: Rectangle = row_at(100);
+const STEP_ROW: Rectangle = row_at(125);
+const HEART_RATE_ROW: Rectangle = row_at(150);
 
-/// Holds no readings of its own: everything it shows comes from the shared
-/// [`WatchState`], so it is a layout and nothing else.
+/// Holds no readings of its own; see [`TerminalWatchface`].
+///
+/// [`TerminalWatchface`]: super::TerminalWatchface
 #[derive(Default)]
-pub struct TerminalWatchface;
+pub struct DiagnosticsWatchface;
 
-impl TerminalWatchface {
-    /// The date of the last synchronization, or a fixed stand-in before the
-    /// first one arrives.
+impl DiagnosticsWatchface {
     fn draw_date<D>(state: &WatchState, display: &mut D) -> Result<(), D::Error>
     where
         D: DrawTarget<Color = Rgb565>,
@@ -59,6 +65,8 @@ impl TerminalWatchface {
         row::draw_changed_value(display, TIME_ROW, &old_clock, &new_clock, TERMINAL_GREEN)
     }
 
+    /// Terminal voltage as well as the estimate derived from it, so a suspect
+    /// capacity curve can be checked against the raw reading.
     fn draw_battery<D>(state: &WatchState, display: &mut D) -> Result<(), D::Error>
     where
         D: DrawTarget<Color = Rgb565>,
@@ -72,11 +80,47 @@ impl TerminalWatchface {
             } else {
                 "BAT"
             };
-            let _ = write!(value, "{}% {power}", status.percent);
+            let _ = write!(value, "{}mV {}% {power}", status.millivolts, status.percent);
         } else {
             let _ = value.push_str("---");
         }
         row::draw(display, BATTERY_ROW, "[BATT]", &value, TERMINAL_RED)
+    }
+
+    fn draw_accelerometer<D>(state: &WatchState, display: &mut D) -> Result<(), D::Error>
+    where
+        D: DrawTarget<Color = Rgb565>,
+    {
+        let mut value: String<20> = String::new();
+        if state.feature_engine() == Some(FeatureEngineStatus::Failed) {
+            let _ = value.push_str("FEATURE ERROR");
+        } else if let Some(sample) = state.acceleration() {
+            let _ = write!(value, "{:+} {:+} {:+}", sample.x, sample.y, sample.z);
+        } else {
+            match state.accelerometer() {
+                Some(AccelerometerKind::Bma421) => {
+                    let _ = value.push_str("BMA421");
+                }
+                Some(AccelerometerKind::Bma425) => {
+                    let _ = value.push_str("BMA425");
+                }
+                Some(AccelerometerKind::Unknown(chip_id)) => {
+                    let _ = write!(value, "ID 0x{chip_id:02X}");
+                }
+                Some(AccelerometerKind::Unavailable) => {
+                    let _ = value.push_str("ERROR");
+                }
+                None => {
+                    let _ = value.push_str("---");
+                }
+            }
+        }
+        let label = if state.feature_engine() == Some(FeatureEngineStatus::Ready) {
+            "[IMU+]"
+        } else {
+            "[IMU ]"
+        };
+        row::draw(display, MOTION_ROW, label, &value, TERMINAL_ORANGE)
     }
 
     fn draw_steps<D>(state: &WatchState, display: &mut D) -> Result<(), D::Error>
@@ -92,68 +136,57 @@ impl TerminalWatchface {
         row::draw(display, STEP_ROW, "[STEP]", &value, TERMINAL_ORANGE)
     }
 
+    /// Falls back through the analysis, the raw counts, and finally the sensor
+    /// identity, so the row says something useful at every bring-up stage.
+    fn format_heart_rate(state: &WatchState) -> String<12> {
+        let mut value = String::new();
+        match state.heart_rate_analysis() {
+            Some(PpgAnalysis::HeartRate { bpm }) => {
+                let _ = write!(value, "{bpm} BPM");
+                return value;
+            }
+            Some(PpgAnalysis::AmbientLight) => {
+                let _ = value.push_str("AMBIENT");
+                return value;
+            }
+            Some(PpgAnalysis::NoSignal) => {
+                let _ = value.push_str("NO SIGNAL");
+                return value;
+            }
+            Some(PpgAnalysis::Collecting { .. }) | None => {}
+        }
+        if let Some(sample) = state.heart_rate_raw() {
+            let _ = write!(value, "{} A{}", sample.hrs, sample.als);
+            return value;
+        }
+        match state.heart_rate_sensor() {
+            Some(HeartRateSensorKind::Hrs3300) => {
+                let _ = value.push_str("HRS3300");
+            }
+            Some(HeartRateSensorKind::Unknown(id)) => {
+                let _ = write!(value, "HRS 0x{id:02X}");
+            }
+            Some(HeartRateSensorKind::Unavailable) => {
+                let _ = value.push_str("HRS ERROR");
+            }
+            None => {
+                let _ = value.push_str("HRS ---");
+            }
+        }
+        value
+    }
+
     fn draw_heart_rate<D>(state: &WatchState, display: &mut D) -> Result<(), D::Error>
     where
         D: DrawTarget<Color = Rgb565>,
     {
-        let mut value: String<16> = String::new();
-        match state.heart_rate() {
-            HeartRateState::Disabled => {
-                let _ = value.push_str("OFF");
-            }
-            HeartRateState::Starting | HeartRateState::Collecting | HeartRateState::Measuring => {
-                let _ = value.push_str("MEASURING");
-            }
-            HeartRateState::Result(bpm) => {
-                let _ = write!(value, "{bpm} BPM");
-            }
-            HeartRateState::NoSignal => {
-                let _ = value.push_str("NO SIGNAL");
-            }
-            HeartRateState::AmbientLight => {
-                let _ = value.push_str("AMBIENT");
-            }
-            HeartRateState::Error => {
-                let _ = value.push_str("ERROR");
-            }
-        }
-        row::draw(display, HEART_RATE_ROW, "[HRT ]", &value, TERMINAL_RED)
-    }
-
-    const fn category_label(category: NotificationCategory) -> &'static str {
-        match category {
-            NotificationCategory::Call => "CALL",
-            NotificationCategory::MissedCall => "MISSED",
-            NotificationCategory::Sms => "SMS",
-            NotificationCategory::Email => "EMAIL",
-            NotificationCategory::InstantMessage => "IM",
-            NotificationCategory::News => "NEWS",
-            NotificationCategory::VoiceMail => "VMAIL",
-            NotificationCategory::Schedule => "CAL",
-            NotificationCategory::HighPriority => "ALERT",
-            NotificationCategory::SimpleAlert | NotificationCategory::Other(_) => "MSG",
-        }
-    }
-
-    /// The session's notification count and the latest category. A full
-    /// per-message view arrives with the notification screen in the UI
-    /// redesign.
-    fn draw_notifications<D>(state: &WatchState, display: &mut D) -> Result<(), D::Error>
-    where
-        D: DrawTarget<Color = Rgb565>,
-    {
-        let mut value: String<16> = String::new();
-        if let Some(category) = state.last_category() {
-            let _ = write!(
-                value,
-                "{} {}",
-                state.notifications(),
-                Self::category_label(category)
-            );
-        } else {
-            let _ = value.push_str("---");
-        }
-        row::draw(display, NOTIFICATION_ROW, "[MSG ]", &value, TERMINAL_BLUE)
+        row::draw(
+            display,
+            HEART_RATE_ROW,
+            "[HRS ]",
+            &Self::format_heart_rate(state),
+            TERMINAL_RED,
+        )
     }
 
     fn draw_status<D>(state: &WatchState, display: &mut D) -> Result<(), D::Error>
@@ -170,7 +203,7 @@ impl TerminalWatchface {
     }
 }
 
-impl Watchface for TerminalWatchface {
+impl Watchface for DiagnosticsWatchface {
     fn draw_full<D>(
         &self,
         state: &WatchState,
@@ -180,9 +213,6 @@ impl Watchface for TerminalWatchface {
     where
         D: DrawTarget<Color = Rgb565>,
     {
-        // The rows draw in place, so the one blanking pass belongs here: a full
-        // redraw follows a modal or a screen change and repaints everything
-        // anyway.
         SCREEN_AREA
             .into_styled(PrimitiveStyle::with_fill(Rgb565::BLACK))
             .draw(display)?;
@@ -196,16 +226,21 @@ impl Watchface for TerminalWatchface {
         keep_alive();
         Self::draw_battery(state, display)?;
         keep_alive();
+        Self::draw_accelerometer(state, display)?;
+        keep_alive();
         Self::draw_steps(state, display)?;
         keep_alive();
         Self::draw_heart_rate(state, display)?;
         keep_alive();
-        Self::draw_notifications(state, display)?;
-        keep_alive();
         Self::draw_status(state, display)?;
         keep_alive();
 
-        draw_mono_text_visible("user@watch:~ $", Point::new(0, 226), prompt, display)?;
+        draw_mono_text_visible(
+            "swipe >",
+            Point::new(0, 226),
+            MonoTextStyle::new(&FONT_10X20, TERMINAL_GREEN),
+            display,
+        )?;
         keep_alive();
         Ok(())
     }
@@ -220,8 +255,6 @@ impl Watchface for TerminalWatchface {
     where
         D: DrawTarget<Color = Rgb565>,
     {
-        // A tick crossing midnight moves the clock and the date at once, so
-        // these are independent tests rather than one choice.
         if changed.contains(WatchField::Date) {
             Self::draw_date(state, display)?;
             keep_alive();
@@ -234,6 +267,10 @@ impl Watchface for TerminalWatchface {
             Self::draw_battery(state, display)?;
             keep_alive();
         }
+        if changed.contains(WatchField::Motion) {
+            Self::draw_accelerometer(state, display)?;
+            keep_alive();
+        }
         if changed.contains(WatchField::Steps) {
             Self::draw_steps(state, display)?;
             keep_alive();
@@ -242,13 +279,7 @@ impl Watchface for TerminalWatchface {
             Self::draw_heart_rate(state, display)?;
             keep_alive();
         }
-        if changed.contains(WatchField::Notifications) {
-            Self::draw_notifications(state, display)?;
-            keep_alive();
-        }
         if changed.contains(WatchField::Ble) {
-            // The pairing passkey changes both text and colour, so the whole
-            // row is redrawn rather than diffed.
             Self::draw_status(state, display)?;
             keep_alive();
         }

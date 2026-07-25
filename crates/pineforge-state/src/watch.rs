@@ -13,7 +13,6 @@ use crate::{
     HeartRateSensorKind, PpgAnalysis,
 };
 use crate::{AppEvent, BatteryStatus, BleState, CalendarDate, WallTime};
-#[cfg(not(feature = "diagnostics"))]
 use crate::{HeartRateState, NotificationCategory};
 
 /// A part of the watch state, addressable by a face's layout.
@@ -75,11 +74,8 @@ pub struct WatchState {
     battery: Option<BatteryStatus>,
     steps: Option<u32>,
     ble: BleState,
-    #[cfg(not(feature = "diagnostics"))]
     heart_rate: HeartRateState,
-    #[cfg(not(feature = "diagnostics"))]
     notifications: u32,
-    #[cfg(not(feature = "diagnostics"))]
     last_category: Option<NotificationCategory>,
     #[cfg(feature = "diagnostics")]
     accelerometer: Option<AccelerometerKind>,
@@ -112,11 +108,8 @@ impl WatchState {
             battery: None,
             steps: None,
             ble: BleState::Off,
-            #[cfg(not(feature = "diagnostics"))]
             heart_rate: HeartRateState::Disabled,
-            #[cfg(not(feature = "diagnostics"))]
             notifications: 0,
-            #[cfg(not(feature = "diagnostics"))]
             last_category: None,
             #[cfg(feature = "diagnostics")]
             accelerometer: None,
@@ -178,11 +171,9 @@ impl WatchState {
                 Self::moved(&mut self.steps, Some(steps), WatchField::Steps)
             }
             AppEvent::BleUpdated(state) => Self::moved(&mut self.ble, state, WatchField::Ble),
-            #[cfg(not(feature = "diagnostics"))]
             AppEvent::HeartRateStateUpdated(state) => {
                 Self::moved(&mut self.heart_rate, state, WatchField::HeartRate)
             }
-            #[cfg(not(feature = "diagnostics"))]
             AppEvent::NotificationReceived(category) => {
                 self.notifications = self.notifications.saturating_add(1);
                 self.last_category = Some(category);
@@ -264,19 +255,16 @@ impl WatchState {
         self.ble
     }
 
-    #[cfg(not(feature = "diagnostics"))]
     #[must_use]
     pub const fn heart_rate(&self) -> HeartRateState {
         self.heart_rate
     }
 
-    #[cfg(not(feature = "diagnostics"))]
     #[must_use]
     pub const fn notifications(&self) -> u32 {
         self.notifications
     }
 
-    #[cfg(not(feature = "diagnostics"))]
     #[must_use]
     pub const fn last_category(&self) -> Option<NotificationCategory> {
         self.last_category
@@ -426,7 +414,6 @@ mod tests {
         assert!(WatchFields::NONE.is_empty());
     }
 
-    #[cfg(not(feature = "diagnostics"))]
     #[test]
     fn notifications_count_up_and_keep_the_latest_category() {
         let mut state = WatchState::new();

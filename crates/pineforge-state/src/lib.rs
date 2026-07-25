@@ -36,6 +36,9 @@ pub use settings::{
 mod watch;
 pub use watch::{WatchField, WatchFields, WatchState};
 
+mod watchface;
+pub use watchface::{WATCHFACES, WatchfaceDescriptor, WatchfaceId};
+
 mod storage;
 pub use storage::{
     STORAGE_BASE, STORAGE_DATA_SECTOR_COUNT, STORAGE_END, STORAGE_FORMAT_VERSION,
