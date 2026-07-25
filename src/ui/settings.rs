@@ -124,11 +124,11 @@ impl DisplaySettingsScreen {
     where
         D: DrawTarget<Color = Rgb565>,
     {
-        // The three backlight FETs only yield two distinguishable levels.
-        let brightness = if self.settings.brightness() > 1 {
-            "FULL"
-        } else {
-            "LOW"
+        // The three cumulative backlight levels (see BRIGHTNESS_LEVELS).
+        let brightness = match self.settings.brightness() {
+            1 => "LOW",
+            3 => "MED",
+            _ => "FULL",
         };
         Self::draw_row(display, BRIGHTNESS_ROW_Y, "BRIGHT", brightness)?;
 

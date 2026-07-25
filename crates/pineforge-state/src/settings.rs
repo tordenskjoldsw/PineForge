@@ -11,9 +11,11 @@ const SETTINGS_MAGIC: [u8; 4] = *b"PFST";
 const SETTINGS_VERSION: u16 = 2;
 const CRC_OFFSET: usize = 28;
 
-/// The backlight FETs only produce two distinguishable active levels; the
-/// dimmed level doubles as the idle-dimming stage.
-pub const BRIGHTNESS_LEVELS: [u8; 2] = [1, 7];
+/// The three cumulative backlight levels, matching `InfiniTime`'s Low/Med/High.
+///
+/// One, two, then all three FET gates are driven (`0b001`, `0b011`, `0b111`);
+/// the lowest level also doubles as the idle-dimming stage.
+pub const BRIGHTNESS_LEVELS: [u8; 3] = [1, 3, 7];
 pub const DIM_TIMEOUTS_MILLIS: [u32; 4] = [5_000, 10_000, 20_000, 30_000];
 pub const OFF_TIMEOUTS_MILLIS: [u32; 4] = [10_000, 20_000, 30_000, 60_000];
 pub const HEART_RATE_INTERVALS_SECONDS: [u32; 4] = [60, 300, 900, 1_800];
@@ -482,6 +484,19 @@ mod tests {
                 .is_ok()
             );
         }
+    }
+
+    #[test]
+    fn brightness_cycles_through_three_levels() {
+        // Default is the brightest; cycling wraps low, medium, high.
+        let mut settings = DisplaySettings::DEFAULT;
+        assert_eq!(settings.brightness(), 7);
+        settings = settings.cycle_brightness();
+        assert_eq!(settings.brightness(), 1);
+        settings = settings.cycle_brightness();
+        assert_eq!(settings.brightness(), 3);
+        settings = settings.cycle_brightness();
+        assert_eq!(settings.brightness(), 7);
     }
 
     #[test]
