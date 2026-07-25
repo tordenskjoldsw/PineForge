@@ -263,6 +263,24 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
             continue;
         }
         if storage_percent.is_some() {
+            // The format screen is modal, but BLE comes up behind it; keep the
+            // active screen's status current so the post-format redraw shows the
+            // real state instead of a stale "off". Input stays suppressed so
+            // nothing navigates behind the modal.
+            if matches!(event, AppEvent::BleUpdated(_)) {
+                match app.active_screen() {
+                    ScreenId::Watchface => {
+                        let _ = watchface.handle_event(event);
+                    }
+                    ScreenId::DisplaySettings => {
+                        let _ = display_settings.handle_event(event);
+                    }
+                    #[cfg(feature = "diagnostics")]
+                    ScreenId::TouchTest => {
+                        let _ = touch_test.handle_event(event);
+                    }
+                }
+            }
             if matches!(
                 event,
                 AppEvent::StorageUpdated(StorageState::Ready | StorageState::Failed)

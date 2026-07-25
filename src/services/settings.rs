@@ -182,6 +182,19 @@ pub async fn run(spi: FlashSpi, watchdog: BootloaderWatchdog) {
         }
     }
 
+    // Publish the stored bond before the potentially long one-time storage
+    // format below. The BLE task waits only briefly for it in restore_bond, so
+    // signalling here (the bond record lives outside the formatted range) keeps
+    // bond restore from racing the format and timing out on the first confirmed
+    // boot. Always signal, even when absent, so the BLE task never blocks.
+    let bond = if writable {
+        read_bond(&mut flash)
+    } else {
+        None
+    };
+    info!("BLE bond loaded: stored={}", bond.is_some());
+    BOND_LOADED.signal(bond);
+
     if writable && crate::boot::confirm::is_validated() {
         if initialize_storage(&mut flash, watchdog).await.is_err() {
             warn!("PineForge storage initialization failed");
@@ -212,16 +225,6 @@ pub async fn run(spi: FlashSpi, watchdog: BootloaderWatchdog) {
         next_sequence
     );
     sender.send(current);
-
-    // Publish the stored bond so the BLE task can install it before it starts
-    // advertising; always signal, even absent, so it never blocks waiting.
-    let bond = if writable {
-        read_bond(&mut flash)
-    } else {
-        None
-    };
-    info!("BLE bond loaded: stored={}", bond.is_some());
-    BOND_LOADED.signal(bond);
 
     loop {
         match select3(
