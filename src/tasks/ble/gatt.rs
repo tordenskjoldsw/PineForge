@@ -258,8 +258,8 @@ async fn gatt_events(server: &Server<'_>, connection: &GattConnection<'_, '_, De
                     // One long alert pulse; the UI shows the running count and
                     // latest category on the watchface.
                     let _ = VIBRATION_COMMANDS.try_send(VibrationPattern::Long);
-                    let _ = UI_EVENTS
-                        .try_send(AppEvent::NotificationReceived(notification.category));
+                    let _ =
+                        UI_EVENTS.try_send(AppEvent::NotificationReceived(notification.category));
                 }
             }
             _ => {}

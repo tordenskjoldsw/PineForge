@@ -9,14 +9,14 @@ use embedded_graphics::{
 use heapless::String;
 
 use crate::ui::{render::draw_mono_text_visible, screen::Screen};
-#[cfg(not(feature = "diagnostics"))]
-use pineforge_state::{HeartRateState, NotificationCategory};
 #[cfg(feature = "diagnostics")]
 use pineforge_state::{
     AccelerationSample, AccelerometerKind, FeatureEngineStatus, HeartRateRawSample,
     HeartRateSensorKind, PpgAnalysis,
 };
 use pineforge_state::{AppEvent, BatteryStatus, BleState, ScreenAction, ScreenId, SwipeDirection};
+#[cfg(not(feature = "diagnostics"))]
+use pineforge_state::{HeartRateState, NotificationCategory};
 
 const ROW_HEIGHT: u32 = 25;
 const VALUE_X: i32 = 70;
@@ -358,7 +358,12 @@ impl TerminalWatchface {
     {
         let mut value: String<16> = String::new();
         if let Some(category) = self.last_category {
-            let _ = write!(value, "{} {}", self.notifications, Self::category_label(category));
+            let _ = write!(
+                value,
+                "{} {}",
+                self.notifications,
+                Self::category_label(category)
+            );
         } else {
             let _ = value.push_str("---");
         }

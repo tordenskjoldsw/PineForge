@@ -83,10 +83,10 @@ pub fn parse_new_alert(payload: &[u8]) -> Option<Notification> {
     }
     let category = NotificationCategory::from_id(payload[0]);
     let text = &payload[HEADER_LEN..];
-    let (title, body) = text.iter().position(|&byte| byte == 0).map_or_else(
-        || (&[][..], text),
-        |nul| (&text[..nul], &text[nul + 1..]),
-    );
+    let (title, body) = text
+        .iter()
+        .position(|&byte| byte == 0)
+        .map_or_else(|| (&[][..], text), |nul| (&text[..nul], &text[nul + 1..]));
     Some(Notification {
         category,
         title: sanitize(title),
@@ -150,7 +150,10 @@ mod tests {
         ] {
             assert_eq!(NotificationCategory::from_id(id), expected);
         }
-        assert_eq!(NotificationCategory::from_id(0x42), NotificationCategory::Other(0x42));
+        assert_eq!(
+            NotificationCategory::from_id(0x42),
+            NotificationCategory::Other(0x42)
+        );
         assert!(NotificationCategory::MissedCall.is_call());
         assert!(!NotificationCategory::Email.is_call());
     }
