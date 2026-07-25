@@ -1,3 +1,5 @@
+//! A terminal-styled watchface: one labelled row per reading.
+
 use core::fmt::Write;
 
 use embedded_graphics::{
@@ -8,13 +10,10 @@ use embedded_graphics::{
 };
 use heapless::String;
 
-use crate::ui::{render::draw_mono_text_visible, screen::Screen};
+use crate::ui::{render::draw_mono_text_visible, watchface::Watchface};
 #[cfg(feature = "diagnostics")]
-use pineforge_state::{
-    AccelerationSample, AccelerometerKind, FeatureEngineStatus, HeartRateRawSample,
-    HeartRateSensorKind, PpgAnalysis,
-};
-use pineforge_state::{AppEvent, BatteryStatus, BleState, CalendarDate, ScreenAction};
+use pineforge_state::{AccelerometerKind, FeatureEngineStatus, HeartRateSensorKind, PpgAnalysis};
+use pineforge_state::{BleState, CalendarDate, WatchField, WatchFields, WatchState};
 #[cfg(not(feature = "diagnostics"))]
 use pineforge_state::{HeartRateState, NotificationCategory};
 
@@ -32,6 +31,8 @@ const MOTION_ROW: Rectangle = Rectangle::new(Point::new(0, 100), Size::new(240, 
 const STEP_ROW: Rectangle = Rectangle::new(Point::new(0, 125), Size::new(240, ROW_HEIGHT));
 #[cfg(not(feature = "diagnostics"))]
 const STEP_ROW: Rectangle = Rectangle::new(Point::new(0, 100), Size::new(240, ROW_HEIGHT));
+#[cfg(not(feature = "diagnostics"))]
+const HEART_RATE_ROW: Rectangle = Rectangle::new(Point::new(0, 125), Size::new(240, ROW_HEIGHT));
 const RESERVED_ROW: Rectangle = Rectangle::new(Point::new(0, 150), Size::new(240, ROW_HEIGHT));
 const STATUS_ROW: Rectangle = Rectangle::new(Point::new(0, 175), Size::new(240, ROW_HEIGHT));
 
@@ -48,85 +49,10 @@ const UNSYNCHRONIZED_DATE: CalendarDate = CalendarDate {
     day: 1,
 };
 
-#[derive(Clone, Copy, Default)]
-enum DirtyRegion {
-    #[default]
-    None,
-    Clock,
-    Status,
-    Battery,
-    #[cfg(feature = "diagnostics")]
-    Motion,
-    #[cfg(feature = "diagnostics")]
-    HeartRate,
-    #[cfg(not(feature = "diagnostics"))]
-    HeartRate,
-    Steps,
-    #[cfg(not(feature = "diagnostics"))]
-    Notification,
-}
-
-pub struct TerminalWatchface {
-    previous_clock_seconds: u64,
-    clock_seconds: u64,
-    previous_date: Option<CalendarDate>,
-    date: Option<CalendarDate>,
-    ble: BleState,
-    battery: Option<BatteryStatus>,
-    #[cfg(feature = "diagnostics")]
-    accelerometer: Option<AccelerometerKind>,
-    #[cfg(feature = "diagnostics")]
-    acceleration: Option<AccelerationSample>,
-    #[cfg(feature = "diagnostics")]
-    feature_engine: Option<FeatureEngineStatus>,
-    #[cfg(feature = "diagnostics")]
-    heart_rate_sensor: Option<HeartRateSensorKind>,
-    #[cfg(feature = "diagnostics")]
-    heart_rate_raw: Option<HeartRateRawSample>,
-    #[cfg(feature = "diagnostics")]
-    heart_rate_analysis: Option<PpgAnalysis>,
-    #[cfg(not(feature = "diagnostics"))]
-    heart_rate_state: HeartRateState,
-    steps: Option<u32>,
-    #[cfg(not(feature = "diagnostics"))]
-    notifications: u32,
-    #[cfg(not(feature = "diagnostics"))]
-    last_category: Option<NotificationCategory>,
-    dirty: DirtyRegion,
-}
-
-impl Default for TerminalWatchface {
-    fn default() -> Self {
-        Self {
-            previous_clock_seconds: 0,
-            clock_seconds: 0,
-            previous_date: None,
-            date: None,
-            ble: BleState::Off,
-            battery: None,
-            #[cfg(feature = "diagnostics")]
-            accelerometer: None,
-            #[cfg(feature = "diagnostics")]
-            acceleration: None,
-            #[cfg(feature = "diagnostics")]
-            feature_engine: None,
-            #[cfg(feature = "diagnostics")]
-            heart_rate_sensor: None,
-            #[cfg(feature = "diagnostics")]
-            heart_rate_raw: None,
-            #[cfg(feature = "diagnostics")]
-            heart_rate_analysis: None,
-            #[cfg(not(feature = "diagnostics"))]
-            heart_rate_state: HeartRateState::Disabled,
-            steps: None,
-            #[cfg(not(feature = "diagnostics"))]
-            notifications: 0,
-            #[cfg(not(feature = "diagnostics"))]
-            last_category: None,
-            dirty: DirtyRegion::None,
-        }
-    }
-}
+/// Holds no readings of its own: everything it shows comes from the shared
+/// [`WatchState`], so it is a layout and nothing else.
+#[derive(Default)]
+pub struct TerminalWatchface;
 
 impl TerminalWatchface {
     /// Formats a time of day; before synchronization the uptime stands in for
@@ -223,38 +149,44 @@ impl TerminalWatchface {
         .draw(display)
     }
 
-    /// Marks a region dirty only when the value actually moved. Sensor events
-    /// arrive on a timer whether or not anything changed, and an unchanged row
-    /// costs a redraw for nothing.
-    fn on_change<T: PartialEq>(field: &mut T, next: T, region: DirtyRegion) -> DirtyRegion {
-        if *field == next {
-            return DirtyRegion::None;
-        }
-        *field = next;
-        region
-    }
-
     /// The date of the last synchronization, or a fixed stand-in before the
     /// first one arrives.
-    fn draw_date<D>(&self, display: &mut D) -> Result<(), D::Error>
+    fn draw_date<D>(state: &WatchState, display: &mut D) -> Result<(), D::Error>
     where
         D: DrawTarget<Color = Rgb565>,
     {
-        let date = Self::format_date(self.date.unwrap_or(UNSYNCHRONIZED_DATE));
+        let date = Self::format_date(state.date().unwrap_or(UNSYNCHRONIZED_DATE));
         Self::draw_row(display, DATE_ROW, "[DATE]", &date, TERMINAL_GREEN)
     }
 
-    fn draw_time<D>(&self, display: &mut D) -> Result<(), D::Error>
+    fn draw_time<D>(state: &WatchState, display: &mut D) -> Result<(), D::Error>
     where
         D: DrawTarget<Color = Rgb565>,
     {
-        let clock = Self::format_clock(self.clock_seconds);
+        let clock = Self::format_clock(state.clock_seconds());
         Self::draw_row(display, TIME_ROW, "[TIME]", &clock, TERMINAL_GREEN)
     }
 
-    fn format_battery(&self) -> String<16> {
+    /// Redraws only the clock characters that changed, which is a single digit
+    /// on most seconds.
+    fn update_clock<D>(state: &WatchState, display: &mut D) -> Result<(), D::Error>
+    where
+        D: DrawTarget<Color = Rgb565>,
+    {
+        let old_clock = Self::format_clock(state.previous_clock_seconds());
+        let new_clock = Self::format_clock(state.clock_seconds());
+        Self::draw_changed_value(
+            display,
+            &old_clock,
+            &new_clock,
+            TIME_ROW.top_left.y + 20,
+            TERMINAL_GREEN,
+        )
+    }
+
+    fn format_battery(state: &WatchState) -> String<16> {
         let mut value = String::new();
-        if let Some(status) = self.battery {
+        if let Some(status) = state.battery() {
             let power = if status.charging {
                 "CHG"
             } else if status.power_present {
@@ -272,7 +204,7 @@ impl TerminalWatchface {
         value
     }
 
-    fn draw_battery<D>(&self, display: &mut D) -> Result<(), D::Error>
+    fn draw_battery<D>(state: &WatchState, display: &mut D) -> Result<(), D::Error>
     where
         D: DrawTarget<Color = Rgb565>,
     {
@@ -280,23 +212,23 @@ impl TerminalWatchface {
             display,
             BATTERY_ROW,
             "[BATT]",
-            &self.format_battery(),
+            &Self::format_battery(state),
             TERMINAL_RED,
         )
     }
 
     #[cfg(feature = "diagnostics")]
-    fn draw_accelerometer<D>(&self, display: &mut D) -> Result<(), D::Error>
+    fn draw_accelerometer<D>(state: &WatchState, display: &mut D) -> Result<(), D::Error>
     where
         D: DrawTarget<Color = Rgb565>,
     {
         let mut value: String<20> = String::new();
-        if self.feature_engine == Some(FeatureEngineStatus::Failed) {
+        if state.feature_engine() == Some(FeatureEngineStatus::Failed) {
             let _ = value.push_str("FEATURE ERROR");
-        } else if let Some(sample) = self.acceleration {
+        } else if let Some(sample) = state.acceleration() {
             let _ = write!(value, "{:+} {:+} {:+}", sample.x, sample.y, sample.z);
         } else {
-            match self.accelerometer {
+            match state.accelerometer() {
                 Some(AccelerometerKind::Bma421) => {
                     let _ = value.push_str("BMA421");
                 }
@@ -314,7 +246,7 @@ impl TerminalWatchface {
                 }
             }
         }
-        let label = if self.feature_engine == Some(FeatureEngineStatus::Ready) {
+        let label = if state.feature_engine() == Some(FeatureEngineStatus::Ready) {
             "[IMU+]"
         } else {
             "[IMU ]"
@@ -348,12 +280,12 @@ impl TerminalWatchface {
         value
     }
 
-    fn draw_status<D>(&self, display: &mut D) -> Result<(), D::Error>
+    fn draw_status<D>(state: &WatchState, display: &mut D) -> Result<(), D::Error>
     where
         D: DrawTarget<Color = Rgb565>,
     {
         // A passkey during pairing takes visual priority.
-        let color = if matches!(self.ble, BleState::Pairing(_)) {
+        let color = if matches!(state.ble(), BleState::Pairing(_)) {
             TERMINAL_ORANGE
         } else {
             TERMINAL_BLUE
@@ -362,17 +294,17 @@ impl TerminalWatchface {
             display,
             STATUS_ROW,
             "[BLE ]",
-            &Self::format_ble(self.ble),
+            &Self::format_ble(state.ble()),
             color,
         )
     }
 
-    fn draw_steps<D>(&self, display: &mut D) -> Result<(), D::Error>
+    fn draw_steps<D>(state: &WatchState, display: &mut D) -> Result<(), D::Error>
     where
         D: DrawTarget<Color = Rgb565>,
     {
         let mut value: String<16> = String::new();
-        if let Some(steps) = self.steps {
+        if let Some(steps) = state.steps() {
             let _ = write!(value, "{steps}");
         } else {
             let _ = value.push_str("---");
@@ -400,16 +332,16 @@ impl TerminalWatchface {
     /// row the non-diagnostics build otherwise leaves blank. A full per-message
     /// view arrives with the notification screen in the UI redesign.
     #[cfg(not(feature = "diagnostics"))]
-    fn draw_notifications<D>(&self, display: &mut D) -> Result<(), D::Error>
+    fn draw_notifications<D>(state: &WatchState, display: &mut D) -> Result<(), D::Error>
     where
         D: DrawTarget<Color = Rgb565>,
     {
         let mut value: String<16> = String::new();
-        if let Some(category) = self.last_category {
+        if let Some(category) = state.last_category() {
             let _ = write!(
                 value,
                 "{} {}",
-                self.notifications,
+                state.notifications(),
                 Self::category_label(category)
             );
         } else {
@@ -419,9 +351,9 @@ impl TerminalWatchface {
     }
 
     #[cfg(feature = "diagnostics")]
-    fn format_heart_rate(&self) -> String<12> {
+    fn format_heart_rate(state: &WatchState) -> String<12> {
         let mut value = String::new();
-        match self.heart_rate_analysis {
+        match state.heart_rate_analysis() {
             Some(PpgAnalysis::HeartRate { bpm }) => {
                 let _ = write!(value, "{bpm} BPM");
                 return value;
@@ -436,11 +368,11 @@ impl TerminalWatchface {
             }
             Some(PpgAnalysis::Collecting { .. }) | None => {}
         }
-        if let Some(sample) = self.heart_rate_raw {
+        if let Some(sample) = state.heart_rate_raw() {
             let _ = write!(value, "{} A{}", sample.hrs, sample.als);
             return value;
         }
-        match self.heart_rate_sensor {
+        match state.heart_rate_sensor() {
             Some(HeartRateSensorKind::Hrs3300) => {
                 let _ = value.push_str("HRS3300");
             }
@@ -458,7 +390,7 @@ impl TerminalWatchface {
     }
 
     #[cfg(feature = "diagnostics")]
-    fn draw_heart_rate<D>(&self, display: &mut D) -> Result<(), D::Error>
+    fn draw_heart_rate<D>(state: &WatchState, display: &mut D) -> Result<(), D::Error>
     where
         D: DrawTarget<Color = Rgb565>,
     {
@@ -466,18 +398,18 @@ impl TerminalWatchface {
             display,
             RESERVED_ROW,
             "[HRS ]",
-            &self.format_heart_rate(),
+            &Self::format_heart_rate(state),
             TERMINAL_RED,
         )
     }
 
     #[cfg(not(feature = "diagnostics"))]
-    fn draw_heart_rate<D>(&self, display: &mut D) -> Result<(), D::Error>
+    fn draw_heart_rate<D>(state: &WatchState, display: &mut D) -> Result<(), D::Error>
     where
         D: DrawTarget<Color = Rgb565>,
     {
         let mut value: String<16> = String::new();
-        match self.heart_rate_state {
+        match state.heart_rate() {
             HeartRateState::Disabled => {
                 let _ = value.push_str("OFF");
             }
@@ -497,13 +429,7 @@ impl TerminalWatchface {
                 let _ = value.push_str("ERROR");
             }
         }
-        Self::draw_row(
-            display,
-            Rectangle::new(Point::new(0, 125), Size::new(240, ROW_HEIGHT)),
-            "[HRT ]",
-            &value,
-            TERMINAL_RED,
-        )
+        Self::draw_row(display, HEART_RATE_ROW, "[HRT ]", &value, TERMINAL_RED)
     }
 
     #[cfg(feature = "diagnostics")]
@@ -518,130 +444,15 @@ impl TerminalWatchface {
             display,
         )
     }
-
-    fn update_clock<D>(&self, display: &mut D) -> Result<(), D::Error>
-    where
-        D: DrawTarget<Color = Rgb565>,
-    {
-        // The date only moves on a synchronization, so it is redrawn on the
-        // ticks that carry a new one rather than every second.
-        if self.date != self.previous_date {
-            self.draw_date(display)?;
-        }
-        let old_clock = Self::format_clock(self.previous_clock_seconds);
-        let new_clock = Self::format_clock(self.clock_seconds);
-        Self::draw_changed_value(
-            display,
-            &old_clock,
-            &new_clock,
-            TIME_ROW.top_left.y + 20,
-            TERMINAL_GREEN,
-        )
-    }
-
-    fn update_status<D>(&self, display: &mut D) -> Result<(), D::Error>
-    where
-        D: DrawTarget<Color = Rgb565>,
-    {
-        // The pairing passkey changes both text and color, so redraw the whole
-        // row rather than diffing the value.
-        self.draw_status(display)
-    }
 }
 
-impl Screen for TerminalWatchface {
-    fn handle_event(&mut self, event: AppEvent) -> ScreenAction {
-        match event {
-            AppEvent::Tick {
-                uptime_seconds,
-                wall_time,
-                date,
-            } => {
-                self.previous_clock_seconds = self.clock_seconds;
-                self.previous_date = self.date;
-                // Once synchronized over BLE, the rows show the real time and
-                // date; before that the uptime stands in for the time of day.
-                self.date = date;
-                self.clock_seconds =
-                    wall_time.map_or(uptime_seconds, pineforge_state::WallTime::total_seconds);
-                self.dirty = DirtyRegion::Clock;
-            }
-            // Touch state is visualized on the diagnostics touch-test screen.
-            AppEvent::Touch { .. } => {}
-            AppEvent::BatteryUpdated(status) => {
-                self.dirty = Self::on_change(&mut self.battery, Some(status), DirtyRegion::Battery);
-            }
-            #[cfg(feature = "diagnostics")]
-            AppEvent::AccelerometerDetected(kind) => {
-                self.dirty =
-                    Self::on_change(&mut self.accelerometer, Some(kind), DirtyRegion::Motion);
-            }
-            #[cfg(feature = "diagnostics")]
-            AppEvent::AccelerationUpdated(sample) => {
-                self.dirty =
-                    Self::on_change(&mut self.acceleration, Some(sample), DirtyRegion::Motion);
-            }
-            #[cfg(feature = "diagnostics")]
-            AppEvent::FeatureEngineUpdated(status) => {
-                self.dirty =
-                    Self::on_change(&mut self.feature_engine, Some(status), DirtyRegion::Motion);
-            }
-            #[cfg(feature = "diagnostics")]
-            AppEvent::HeartRateSensorDetected(kind) => {
-                self.dirty = Self::on_change(
-                    &mut self.heart_rate_sensor,
-                    Some(kind),
-                    DirtyRegion::HeartRate,
-                );
-            }
-            #[cfg(feature = "diagnostics")]
-            AppEvent::HeartRateRawSampleUpdated(raw) => {
-                self.dirty =
-                    Self::on_change(&mut self.heart_rate_raw, Some(raw), DirtyRegion::HeartRate);
-            }
-            #[cfg(feature = "diagnostics")]
-            AppEvent::HeartRateAnalysisUpdated(analysis) => {
-                self.dirty = Self::on_change(
-                    &mut self.heart_rate_analysis,
-                    Some(analysis),
-                    DirtyRegion::HeartRate,
-                );
-            }
-            #[cfg(feature = "diagnostics")]
-            AppEvent::HeartRateStateUpdated(_) => {}
-            #[cfg(not(feature = "diagnostics"))]
-            AppEvent::HeartRateSensorDetected(_) | AppEvent::HeartRateAnalysisUpdated(_) => {}
-            #[cfg(not(feature = "diagnostics"))]
-            AppEvent::HeartRateStateUpdated(state) => {
-                self.dirty =
-                    Self::on_change(&mut self.heart_rate_state, state, DirtyRegion::HeartRate);
-            }
-            AppEvent::StepsUpdated(steps) => {
-                self.dirty = Self::on_change(&mut self.steps, Some(steps), DirtyRegion::Steps);
-            }
-            #[cfg(not(feature = "diagnostics"))]
-            AppEvent::NotificationReceived(category) => {
-                self.notifications = self.notifications.saturating_add(1);
-                self.last_category = Some(category);
-                self.dirty = DirtyRegion::Notification;
-            }
-            #[cfg(feature = "diagnostics")]
-            AppEvent::NotificationReceived(_) => {}
-            AppEvent::DisplaySettingsUpdated(_) => {}
-            AppEvent::BleUpdated(state) => {
-                self.dirty = Self::on_change(&mut self.ble, state, DirtyRegion::Status);
-            }
-            AppEvent::StorageUpdated(_) => {}
-            // Where a swipe leads is the navigation contract's business, not
-            // this screen's; it only stops a pending partial redraw.
-            AppEvent::Swipe(_) => {
-                self.dirty = DirtyRegion::None;
-            }
-        }
-        ScreenAction::None
-    }
-
-    fn draw_full<D>(&self, display: &mut D, mut keep_alive: impl FnMut()) -> Result<(), D::Error>
+impl Watchface for TerminalWatchface {
+    fn draw_full<D>(
+        &self,
+        state: &WatchState,
+        display: &mut D,
+        mut keep_alive: impl FnMut(),
+    ) -> Result<(), D::Error>
     where
         D: DrawTarget<Color = Rgb565>,
     {
@@ -655,28 +466,21 @@ impl Screen for TerminalWatchface {
         draw_mono_text_visible("user@watch:~ $ now", Point::new(0, 20), prompt, display)?;
         keep_alive();
 
-        self.draw_date(display)?;
+        Self::draw_date(state, display)?;
         keep_alive();
-        self.draw_time(display)?;
+        Self::draw_time(state, display)?;
         keep_alive();
-        self.draw_battery(display)?;
-        keep_alive();
-        #[cfg(feature = "diagnostics")]
-        self.draw_accelerometer(display)?;
-        #[cfg(not(feature = "diagnostics"))]
-        self.draw_steps(display)?;
-        keep_alive();
-        #[cfg(not(feature = "diagnostics"))]
-        self.draw_heart_rate(display)?;
-        #[cfg(feature = "diagnostics")]
-        self.draw_steps(display)?;
+        Self::draw_battery(state, display)?;
         keep_alive();
         #[cfg(feature = "diagnostics")]
-        self.draw_heart_rate(display)?;
-        #[cfg(not(feature = "diagnostics"))]
-        self.draw_notifications(display)?;
+        Self::draw_accelerometer(state, display)?;
+        Self::draw_steps(state, display)?;
         keep_alive();
-        self.draw_status(display)?;
+        Self::draw_heart_rate(state, display)?;
+        keep_alive();
+        #[cfg(not(feature = "diagnostics"))]
+        Self::draw_notifications(state, display)?;
+        Self::draw_status(state, display)?;
         keep_alive();
 
         #[cfg(feature = "diagnostics")]
@@ -687,30 +491,54 @@ impl Screen for TerminalWatchface {
         Ok(())
     }
 
-    fn draw_dirty<D>(&self, display: &mut D, mut keep_alive: impl FnMut()) -> Result<(), D::Error>
+    fn draw_changed<D>(
+        &self,
+        state: &WatchState,
+        changed: WatchFields,
+        display: &mut D,
+        mut keep_alive: impl FnMut(),
+    ) -> Result<(), D::Error>
     where
         D: DrawTarget<Color = Rgb565>,
     {
-        match self.dirty {
-            DirtyRegion::Clock => {
-                self.update_clock(display)?;
-                keep_alive();
-                keep_alive();
-            }
-            DirtyRegion::Status => self.update_status(display)?,
-            DirtyRegion::Battery => self.draw_battery(display)?,
-            #[cfg(feature = "diagnostics")]
-            DirtyRegion::Motion => self.draw_accelerometer(display)?,
-            #[cfg(feature = "diagnostics")]
-            DirtyRegion::HeartRate => self.draw_heart_rate(display)?,
-            #[cfg(not(feature = "diagnostics"))]
-            DirtyRegion::HeartRate => self.draw_heart_rate(display)?,
-            DirtyRegion::Steps => self.draw_steps(display)?,
-            #[cfg(not(feature = "diagnostics"))]
-            DirtyRegion::Notification => self.draw_notifications(display)?,
-            DirtyRegion::None => {}
+        // A tick crossing midnight moves the clock and the date at once, so
+        // these are independent tests rather than one choice.
+        if changed.contains(WatchField::Date) {
+            Self::draw_date(state, display)?;
+            keep_alive();
         }
-        keep_alive();
+        if changed.contains(WatchField::Clock) {
+            Self::update_clock(state, display)?;
+            keep_alive();
+        }
+        if changed.contains(WatchField::Battery) {
+            Self::draw_battery(state, display)?;
+            keep_alive();
+        }
+        if changed.contains(WatchField::Steps) {
+            Self::draw_steps(state, display)?;
+            keep_alive();
+        }
+        if changed.contains(WatchField::HeartRate) {
+            Self::draw_heart_rate(state, display)?;
+            keep_alive();
+        }
+        if changed.contains(WatchField::Ble) {
+            // The pairing passkey changes both text and colour, so the whole
+            // row is redrawn rather than diffed.
+            Self::draw_status(state, display)?;
+            keep_alive();
+        }
+        #[cfg(not(feature = "diagnostics"))]
+        if changed.contains(WatchField::Notifications) {
+            Self::draw_notifications(state, display)?;
+            keep_alive();
+        }
+        #[cfg(feature = "diagnostics")]
+        if changed.contains(WatchField::Motion) {
+            Self::draw_accelerometer(state, display)?;
+            keep_alive();
+        }
         Ok(())
     }
 }

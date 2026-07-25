@@ -25,7 +25,7 @@ use crate::{
         pairing::draw_pairing,
         screen::Screen,
         settings::DisplaySettingsScreen,
-        watchface::TerminalWatchface,
+        watchface::WatchfaceScreen,
     },
 };
 use pineforge_state::{
@@ -52,7 +52,7 @@ enum DisplayEvent {
 /// Screens are held for the lifetime of the task so their model state survives
 /// navigation and sleep; only the active one receives events and draws.
 struct Screens {
-    watchface: TerminalWatchface,
+    watchface: WatchfaceScreen,
     settings: DisplaySettingsScreen,
     #[cfg(feature = "diagnostics")]
     touch_test: TestScreen,
@@ -156,7 +156,7 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
     let started_at = Instant::now();
     let mut next_tick = started_at + Duration::from_secs(1);
     let mut screens = Screens {
-        watchface: TerminalWatchface::default(),
+        watchface: WatchfaceScreen::default(),
         settings: DisplaySettingsScreen::default(),
         #[cfg(feature = "diagnostics")]
         touch_test: TestScreen::default(),

@@ -33,6 +33,9 @@ pub use settings::{
     BRIGHTNESS_LEVELS, DIM_TIMEOUTS_MILLIS, DecodeError, DisplaySettings, OFF_TIMEOUTS_MILLIS,
     SETTINGS_RECORD_LEN, SettingsError, SettingsSlot, SlotDecision, crc32, select_slot,
 };
+mod watch;
+pub use watch::{WatchField, WatchFields, WatchState};
+
 mod storage;
 pub use storage::{
     STORAGE_BASE, STORAGE_DATA_SECTOR_COUNT, STORAGE_END, STORAGE_FORMAT_VERSION,
