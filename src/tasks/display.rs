@@ -146,7 +146,8 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                         uptime_seconds,
                         wall_time: wall_clock_reference
                             .map(|reference| reference.wall_time_at(now.as_secs())),
-                        date: wall_clock_reference.map(|reference| reference.date()),
+                        date: wall_clock_reference
+                            .map(|reference| reference.date_at(now.as_secs())),
                     })
                 }
                 Either4::Third(state) => DisplayEvent::Power(state),
@@ -207,7 +208,8 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                             uptime_seconds,
                             wall_time: wall_clock_reference
                                 .map(|reference| reference.wall_time_at(now.as_secs())),
-                            date: wall_clock_reference.map(|reference| reference.date()),
+                            date: wall_clock_reference
+                                .map(|reference| reference.date_at(now.as_secs())),
                         };
                         match app.active_screen() {
                             ScreenId::Watchface => {
