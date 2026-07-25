@@ -82,6 +82,67 @@ where
     Ok(())
 }
 
+/// Draws the power-loss-safe, one-time storage formatting progress.
+pub fn draw_storage_progress<D>(
+    display: &mut D,
+    percent: u8,
+    mut keep_alive: impl FnMut(),
+) -> Result<(), D::Error>
+where
+    D: DrawTarget<Color = Rgb565>,
+{
+    let percent = percent.min(100);
+    display.clear(Rgb565::BLACK)?;
+    draw_visible(
+        &Text::with_alignment(
+            "PREPARING STORAGE",
+            Point::new(120, 60),
+            MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE),
+            Alignment::Center,
+        ),
+        display,
+    )?;
+    keep_alive();
+
+    let mut label: String<8> = String::new();
+    let _ = write!(label, "{percent}%");
+    draw_visible(
+        &Text::with_alignment(
+            &label,
+            Point::new(120, 108),
+            MonoTextStyle::new(&FONT_10X20, ACCENT),
+            Alignment::Center,
+        ),
+        display,
+    )?;
+    BAR.into_styled(
+        PrimitiveStyleBuilder::new()
+            .fill_color(Rgb565::BLACK)
+            .stroke_color(ACCENT)
+            .stroke_width(2)
+            .build(),
+    )
+    .draw(display)?;
+    let fill_width = u32::from(percent) * BAR.size.width / 100;
+    if fill_width > 0 {
+        Rectangle::new(BAR.top_left, Size::new(fill_width, BAR.size.height))
+            .into_styled(PrimitiveStyleBuilder::new().fill_color(ACCENT).build())
+            .draw(display)?;
+    }
+    keep_alive();
+    draw_visible(
+        &Text::with_alignment(
+            "Safe to restart",
+            Point::new(120, 184),
+            MonoTextStyle::new(&FONT_6X10, Rgb565::WHITE),
+            Alignment::Center,
+        ),
+        display,
+    )?;
+    keep_alive();
+    Ok(())
+}
+
 /// Draws a full-screen firmware-update failure notice; a flash operation
 /// during the update failed and the transfer was abandoned. There is no wire
 /// protocol error for this case, so the watch's own screen is the only place

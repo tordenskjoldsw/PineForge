@@ -3,12 +3,11 @@
 The PineTime carries a 4 MiB XT25F32B SPI-NOR flash (4 KiB erase sectors,
 256 B program pages) shared on SPIM0 with the ST7789 LCD.
 
-PineForge is currently installed as an unconfirmed image with stock
-InfiniTime as the rollback target, so the regions InfiniTime and the stock
-MCUBoot bootloader use are treated as read-only **for now**. Once PineForge
-is confirmed as the primary firmware and no longer relies on the InfiniTime
-rollback path, the littlefs region below becomes reclaimable for PineForge's
-own storage (assets, logs, a future filesystem).
+While PineForge is an unconfirmed image with stock InfiniTime as the rollback
+target, InfiniTime's littlefs region remains read-only. On the first boot after
+PineForge is confirmed as the primary firmware, PineForge initializes that
+region as its own storage. Returning to InfiniTime remains possible, but
+InfiniTime must then recreate its littlefs.
 
 ## Layout
 
@@ -16,7 +15,7 @@ own storage (assets, logs, a future filesystem).
 | --------------------- | --------- | ------------------------------------------------- | ---------------- |
 | `0x000000`–`0x03FFFF` | 256 KiB   | MCUBoot bootloader graphics assets                | never write      |
 | `0x040000`–`0x0B3FFF` | 464 KiB   | MCUBoot secondary slot / DFU staging              | DFU service only  |
-| `0x0B4000`–`0x3FCFFF` | ~3.3 MiB  | InfiniTime littlefs (temporary, rollback era)     | reserved for future PineForge storage; no writes while rollback exists |
+| `0x0B4000`–`0x3FCFFF` | 3,364 KiB | **PineForge data/assets** after confirmation      | read/write; reserved while rollback exists |
 | `0x3FD000`–`0x3FDFFF` | 4 KiB     | **PineForge BLE bond**                            | read/write       |
 | `0x3FE000`–`0x3FEFFF` | 4 KiB     | **PineForge settings slot A**                     | read/write       |
 | `0x3FF000`–`0x3FFFFF` | 4 KiB     | **PineForge settings slot B**                     | read/write       |
@@ -26,6 +25,28 @@ The named constants mirroring this table live in `src/services/settings.rs`
 records sit at the top of the chip so they can stay put when the littlefs
 region is later reclaimed.
 
+## PineForge storage initialization
+
+The range contains exactly 841 erase sectors. Sector 0 is a metadata sector;
+the other 840 sectors provide 3,360 KiB for data and assets. The metadata
+contains:
+
+- a format-in-progress header with format version, geometry, and CRC32;
+- a separate ready header with the same validation fields;
+- one monotonic completion byte for each data sector.
+
+Initialization erases one data sector at a time, pets the inherited bootloader
+watchdog, writes and verifies that sector's completion byte, then yields while
+the flash driver polls. Other Embassy tasks continue to run and the display
+receives percentage updates. If power is lost, boot skips every sector whose
+completion byte was verified and resumes the remainder. A sector interrupted
+between erase and marker write is safely erased again.
+
+The ready header is written and read back only after all sector markers are
+complete. A valid ready header makes later boots constant-time. PineForge
+refuses to erase a header carrying an unknown newer format version; a future
+release must provide an explicit migration or reformat policy.
+
 The BLE bond sector holds one CRC32-checked record with the serialized bond
 keys, so a paired phone reconnects across reboots without re-pairing. A
 corrupt or missing record simply falls back to re-pairing.
@@ -34,7 +55,9 @@ corrupt or missing record simply falls back to re-pairing.
 
 Each slot holds one 32-byte record (defined in
 `crates/pineforge-state/src/settings.rs`, version-dispatched and
-CRC32-checked). Writes alternate between the slots: erase the inactive
+CRC32-checked). Format version 2 adds the background heart-rate enable flag
+and measurement interval; version-1 records migrate with heart-rate disabled
+and the five-minute default interval. Writes alternate between the slots: erase the inactive
 sector, program the record, read it back, and only then treat it as current.
 A power loss at any point leaves the previous record intact; boot picks the
 valid record with the newer wrapping sequence number and falls back to

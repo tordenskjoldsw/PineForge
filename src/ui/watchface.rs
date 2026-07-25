@@ -9,6 +9,8 @@ use embedded_graphics::{
 use heapless::String;
 
 use crate::ui::{render::draw_mono_text_visible, screen::Screen};
+#[cfg(not(feature = "diagnostics"))]
+use pineforge_state::HeartRateState;
 #[cfg(feature = "diagnostics")]
 use pineforge_state::{
     AccelerationSample, AccelerometerKind, FeatureEngineStatus, HeartRateRawSample,
@@ -48,6 +50,8 @@ enum DirtyRegion {
     Motion,
     #[cfg(feature = "diagnostics")]
     HeartRate,
+    #[cfg(not(feature = "diagnostics"))]
+    HeartRate,
     Steps,
 }
 
@@ -70,6 +74,8 @@ pub struct TerminalWatchface {
     heart_rate_raw: Option<HeartRateRawSample>,
     #[cfg(feature = "diagnostics")]
     heart_rate_analysis: Option<PpgAnalysis>,
+    #[cfg(not(feature = "diagnostics"))]
+    heart_rate_state: HeartRateState,
     steps: Option<u32>,
     dirty: DirtyRegion,
 }
@@ -95,6 +101,8 @@ impl Default for TerminalWatchface {
             heart_rate_raw: None,
             #[cfg(feature = "diagnostics")]
             heart_rate_analysis: None,
+            #[cfg(not(feature = "diagnostics"))]
+            heart_rate_state: HeartRateState::Disabled,
             steps: None,
             dirty: DirtyRegion::None,
         }
@@ -367,6 +375,41 @@ impl TerminalWatchface {
         )
     }
 
+    #[cfg(not(feature = "diagnostics"))]
+    fn draw_heart_rate<D>(&self, display: &mut D) -> Result<(), D::Error>
+    where
+        D: DrawTarget<Color = Rgb565>,
+    {
+        let mut value: String<16> = String::new();
+        match self.heart_rate_state {
+            HeartRateState::Disabled => {
+                let _ = value.push_str("OFF");
+            }
+            HeartRateState::Starting | HeartRateState::Collecting | HeartRateState::Measuring => {
+                let _ = value.push_str("MEASURING");
+            }
+            HeartRateState::Result(bpm) => {
+                let _ = write!(value, "{bpm} BPM");
+            }
+            HeartRateState::NoSignal => {
+                let _ = value.push_str("NO SIGNAL");
+            }
+            HeartRateState::AmbientLight => {
+                let _ = value.push_str("AMBIENT");
+            }
+            HeartRateState::Error => {
+                let _ = value.push_str("ERROR");
+            }
+        }
+        Self::draw_row(
+            display,
+            Rectangle::new(Point::new(0, 125), Size::new(240, ROW_HEIGHT)),
+            "[HRT ]",
+            &value,
+            TERMINAL_RED,
+        )
+    }
+
     #[cfg(feature = "diagnostics")]
     fn draw_diagnostics_footer<D>(display: &mut D) -> Result<(), D::Error>
     where
@@ -460,6 +503,13 @@ impl Screen for TerminalWatchface {
             }
             #[cfg(feature = "diagnostics")]
             AppEvent::HeartRateStateUpdated(_) => {}
+            #[cfg(not(feature = "diagnostics"))]
+            AppEvent::HeartRateSensorDetected(_) | AppEvent::HeartRateAnalysisUpdated(_) => {}
+            #[cfg(not(feature = "diagnostics"))]
+            AppEvent::HeartRateStateUpdated(state) => {
+                self.heart_rate_state = state;
+                self.dirty = DirtyRegion::HeartRate;
+            }
             AppEvent::StepsUpdated(steps) => {
                 self.steps = Some(steps);
                 self.dirty = DirtyRegion::Steps;
@@ -469,6 +519,7 @@ impl Screen for TerminalWatchface {
                 self.ble = state;
                 self.dirty = DirtyRegion::Status;
             }
+            AppEvent::StorageUpdated(_) => {}
             AppEvent::Swipe(direction) => {
                 self.dirty = DirtyRegion::None;
                 if direction == SwipeDirection::Down {
@@ -477,10 +528,6 @@ impl Screen for TerminalWatchface {
                 #[cfg(feature = "diagnostics")]
                 if direction == SwipeDirection::Left {
                     return ScreenAction::Push(ScreenId::TouchTest);
-                }
-                #[cfg(feature = "diagnostics")]
-                if direction == SwipeDirection::Up {
-                    return ScreenAction::Push(ScreenId::HeartRate);
                 }
             }
         }
@@ -516,13 +563,7 @@ impl Screen for TerminalWatchface {
         self.draw_steps(display)?;
         keep_alive();
         #[cfg(not(feature = "diagnostics"))]
-        Self::draw_row(
-            display,
-            Rectangle::new(Point::new(0, 125), Size::new(240, ROW_HEIGHT)),
-            "[L_HR]",
-            "---",
-            Rgb565::new(20, 20, 20),
-        )?;
+        self.draw_heart_rate(display)?;
         #[cfg(feature = "diagnostics")]
         self.draw_steps(display)?;
         keep_alive();
@@ -562,6 +603,8 @@ impl Screen for TerminalWatchface {
             #[cfg(feature = "diagnostics")]
             DirtyRegion::Motion => self.draw_accelerometer(display)?,
             #[cfg(feature = "diagnostics")]
+            DirtyRegion::HeartRate => self.draw_heart_rate(display)?,
+            #[cfg(not(feature = "diagnostics"))]
             DirtyRegion::HeartRate => self.draw_heart_rate(display)?,
             DirtyRegion::Steps => self.draw_steps(display)?,
             DirtyRegion::None => {}

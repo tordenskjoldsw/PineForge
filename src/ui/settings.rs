@@ -13,13 +13,15 @@ use pineforge_state::{
 
 use crate::ui::{render::draw_mono_text_visible, screen::Screen};
 
-const ROW_HEIGHT: i32 = 46;
+const ROW_HEIGHT: i32 = 34;
 const ROW_WIDTH: i32 = 200;
 const ROW_X: i32 = 20;
-const BRIGHTNESS_ROW_Y: i32 = 20;
-const DIM_ROW_Y: i32 = 70;
-const OFF_ROW_Y: i32 = 120;
-const FIRMWARE_ROW_Y: i32 = 170;
+const BRIGHTNESS_ROW_Y: i32 = 2;
+const DIM_ROW_Y: i32 = 38;
+const OFF_ROW_Y: i32 = 74;
+const HEART_RATE_ROW_Y: i32 = 110;
+const HEART_RATE_INTERVAL_ROW_Y: i32 = 146;
+const FIRMWARE_ROW_Y: i32 = 182;
 
 /// Adjusts display settings and confirms the firmware image.
 pub struct DisplaySettingsScreen {
@@ -28,6 +30,8 @@ pub struct DisplaySettingsScreen {
     brightness_row: Button,
     dim_row: Button,
     off_row: Button,
+    heart_rate_row: Button,
+    heart_rate_interval_row: Button,
     firmware_row: Button,
     dirty: bool,
 }
@@ -45,6 +49,18 @@ impl Default for DisplaySettingsScreen {
             )),
             dim_row: Button::new(ButtonBounds::new(ROW_X, DIM_ROW_Y, ROW_WIDTH, ROW_HEIGHT)),
             off_row: Button::new(ButtonBounds::new(ROW_X, OFF_ROW_Y, ROW_WIDTH, ROW_HEIGHT)),
+            heart_rate_row: Button::new(ButtonBounds::new(
+                ROW_X,
+                HEART_RATE_ROW_Y,
+                ROW_WIDTH,
+                ROW_HEIGHT,
+            )),
+            heart_rate_interval_row: Button::new(ButtonBounds::new(
+                ROW_X,
+                HEART_RATE_INTERVAL_ROW_Y,
+                ROW_WIDTH,
+                ROW_HEIGHT,
+            )),
             firmware_row: Button::new(ButtonBounds::new(
                 ROW_X,
                 FIRMWARE_ROW_Y,
@@ -82,13 +98,13 @@ impl DisplaySettingsScreen {
             .draw(display)?;
         draw_mono_text_visible(
             label,
-            Point::new(ROW_X + 10, y + 18),
+            Point::new(ROW_X + 8, y + 23),
             MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE),
             display,
         )?;
         draw_mono_text_visible(
             value,
-            Point::new(ROW_X + 10, y + 38),
+            Point::new(ROW_X + 110, y + 23),
             MonoTextStyle::new(&FONT_10X20, Rgb565::CSS_ORANGE),
             display,
         )
@@ -124,6 +140,24 @@ impl DisplaySettingsScreen {
         let _ = write!(value, "{} s", self.settings.off_after_millis() / 1_000);
         Self::draw_row(display, OFF_ROW_Y, "OFF", &value)?;
 
+        Self::draw_row(
+            display,
+            HEART_RATE_ROW_Y,
+            "HEART",
+            if self.settings.heart_rate_enabled() {
+                "ON"
+            } else {
+                "OFF"
+            },
+        )?;
+        value.clear();
+        let _ = write!(
+            value,
+            "{} min",
+            self.settings.heart_rate_interval_seconds() / 60
+        );
+        Self::draw_row(display, HEART_RATE_INTERVAL_ROW_Y, "HR INT", &value)?;
+
         Self::draw_row(display, FIRMWARE_ROW_Y, "FW", &self.firmware_value())
     }
 }
@@ -149,6 +183,10 @@ impl Screen for DisplaySettingsScreen {
             updated = Some(self.settings.cycle_dim_timeout());
         } else if self.off_row.handle_event(event) == ButtonOutcome::Activated {
             updated = Some(self.settings.cycle_off_timeout());
+        } else if self.heart_rate_row.handle_event(event) == ButtonOutcome::Activated {
+            updated = Some(self.settings.toggle_heart_rate());
+        } else if self.heart_rate_interval_row.handle_event(event) == ButtonOutcome::Activated {
+            updated = Some(self.settings.cycle_heart_rate_interval());
         } else if self.firmware_row.handle_event(event) == ButtonOutcome::Activated
             && !self.firmware_confirmed
         {

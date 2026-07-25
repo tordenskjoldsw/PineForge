@@ -9,6 +9,15 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST="$ROOT/dist"
 MCUBOOT="$ROOT/tools/mcuboot-src/scripts/imgtool.py"
 PACKAGE="$DIST/pineforge-mcuboot-app-dfu-$VERSION.zip"
+PYTHON="${PINEFORGE_PYTHON:-$ROOT/.venv/bin/python}"
+NRFUTIL="${PINEFORGE_NRFUTIL:-$ROOT/.venv/bin/adafruit-nrfutil}"
+
+if [[ ! -x "$PYTHON" ]]; then
+  PYTHON="$(command -v python3 || true)"
+fi
+if [[ ! -x "$NRFUTIL" ]]; then
+  NRFUTIL="$(command -v adafruit-nrfutil || true)"
+fi
 
 [[ "$VERSION" =~ ^[0-9]+(\.[0-9]+){0,2}(\+[0-9]+)?$ ]] || {
   echo "invalid MCUBoot version (expected maj[.min[.rev]][+build]): $VERSION" >&2
@@ -16,7 +25,11 @@ PACKAGE="$DIST/pineforge-mcuboot-app-dfu-$VERSION.zip"
 }
 
 command -v cargo >/dev/null || { echo "cargo is missing" >&2; exit 1; }
-command -v adafruit-nrfutil >/dev/null || { echo "adafruit-nrfutil is missing" >&2; exit 1; }
+[[ -x "$PYTHON" ]] || { echo "python3 is missing" >&2; exit 1; }
+[[ -x "$NRFUTIL" ]] || {
+  echo "adafruit-nrfutil is missing (checked .venv and PATH)" >&2
+  exit 1
+}
 [[ -f "$MCUBOOT" ]] || {
   echo "tools/mcuboot-src/scripts/imgtool.py is missing. Copy imgtool.py from the official MCUBoot project to this location." >&2
   exit 1
@@ -29,7 +42,7 @@ if [[ -n "$FEATURES" ]]; then
 fi
 cargo build "${CARGO_ARGS[@]}"
 cargo objcopy "${CARGO_ARGS[@]}" -- -O binary "$DIST/pineforge.bin"
-python3 "$MCUBOOT" create \
+"$PYTHON" "$MCUBOOT" create \
   --align 4 \
   --version "$VERSION" \
   --header-size 32 \
@@ -37,7 +50,7 @@ python3 "$MCUBOOT" create \
   --pad-header \
   "$DIST/pineforge.bin" \
   "$DIST/pineforge-image.bin"
-adafruit-nrfutil dfu genpkg \
+"$NRFUTIL" dfu genpkg \
   --dev-type 0x0052 \
   --application "$DIST/pineforge-image.bin" \
   "$PACKAGE"

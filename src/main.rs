@@ -16,7 +16,6 @@ mod services;
 mod tasks;
 mod ui;
 
-#[cfg(feature = "diagnostics")]
 use board::peripherals::HeartRateResources;
 use board::peripherals::{
     BatteryResources, ButtonResources, DisplayFlashBusResources, DisplayResources,
@@ -63,7 +62,6 @@ async fn main(spawner: embassy_executor::Spawner) {
         board::buses::motion_device(sensor_bus),
         sensor_bus,
     )));
-    #[cfg(feature = "diagnostics")]
     spawner.spawn(defmt::unwrap!(tasks::heart_rate::run(
         HeartRateResources { interrupt: p.P0_30 },
         board::buses::heart_rate_device(sensor_bus)
@@ -105,7 +103,8 @@ async fn main(spawner: embassy_executor::Spawner) {
         watchdog
     )));
     spawner.spawn(defmt::unwrap!(services::settings::run(
-        board::buses::flash_device(display_flash_bus, p.P0_05)
+        board::buses::flash_device(display_flash_bus, p.P0_05),
+        watchdog
     )));
     spawner.spawn(defmt::unwrap!(tasks::vibration::run(VibrationResources {
         motor: p.P0_16,

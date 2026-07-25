@@ -8,7 +8,7 @@
 pub const SETTINGS_RECORD_LEN: usize = 32;
 
 const SETTINGS_MAGIC: [u8; 4] = *b"PFST";
-const SETTINGS_VERSION: u16 = 1;
+const SETTINGS_VERSION: u16 = 2;
 const CRC_OFFSET: usize = 28;
 
 /// The backlight FETs only produce two distinguishable active levels; the
@@ -16,6 +16,7 @@ const CRC_OFFSET: usize = 28;
 pub const BRIGHTNESS_LEVELS: [u8; 2] = [1, 7];
 pub const DIM_TIMEOUTS_MILLIS: [u32; 4] = [5_000, 10_000, 20_000, 30_000];
 pub const OFF_TIMEOUTS_MILLIS: [u32; 4] = [10_000, 20_000, 30_000, 60_000];
+pub const HEART_RATE_INTERVALS_SECONDS: [u32; 4] = [60, 300, 900, 1_800];
 
 const MIN_BRIGHTNESS: u8 = 1;
 const MAX_BRIGHTNESS: u8 = 7;
@@ -25,6 +26,7 @@ pub enum SettingsError {
     BrightnessOutOfRange,
     ZeroDimTimeout,
     OffNotAfterDim,
+    InvalidHeartRateSettings,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -41,6 +43,8 @@ pub struct DisplaySettings {
     brightness: u8,
     dim_after_millis: u32,
     off_after_millis: u32,
+    heart_rate_enabled: bool,
+    heart_rate_interval_seconds: u32,
 }
 
 impl DisplaySettings {
@@ -48,6 +52,8 @@ impl DisplaySettings {
         brightness: 7,
         dim_after_millis: 10_000,
         off_after_millis: 20_000,
+        heart_rate_enabled: false,
+        heart_rate_interval_seconds: 300,
     };
 
     pub const fn new(
@@ -68,6 +74,8 @@ impl DisplaySettings {
             brightness,
             dim_after_millis,
             off_after_millis,
+            heart_rate_enabled: false,
+            heart_rate_interval_seconds: 300,
         })
     }
 
@@ -84,6 +92,35 @@ impl DisplaySettings {
     #[must_use]
     pub const fn off_after_millis(self) -> u32 {
         self.off_after_millis
+    }
+
+    #[must_use]
+    pub const fn heart_rate_enabled(self) -> bool {
+        self.heart_rate_enabled
+    }
+
+    #[must_use]
+    pub const fn heart_rate_interval_seconds(self) -> u32 {
+        self.heart_rate_interval_seconds
+    }
+
+    #[must_use]
+    pub const fn toggle_heart_rate(self) -> Self {
+        Self {
+            heart_rate_enabled: !self.heart_rate_enabled,
+            ..self
+        }
+    }
+
+    #[must_use]
+    pub fn cycle_heart_rate_interval(self) -> Self {
+        Self {
+            heart_rate_interval_seconds: next_preset(
+                &HEART_RATE_INTERVALS_SECONDS,
+                self.heart_rate_interval_seconds,
+            ),
+            ..self
+        }
     }
 
     /// Converts to the inactivity policy configuration. The constructor
@@ -138,17 +175,18 @@ impl DisplaySettings {
         }
     }
 
-    /// Serializes a version-1 record carrying the given sequence number.
+    /// Serializes a version-2 record carrying the given sequence number.
     #[must_use]
     pub fn encode(self, sequence: u32) -> [u8; SETTINGS_RECORD_LEN] {
         let mut record = [0_u8; SETTINGS_RECORD_LEN];
         record[0..4].copy_from_slice(&SETTINGS_MAGIC);
         record[4..6].copy_from_slice(&SETTINGS_VERSION.to_le_bytes());
         record[6] = self.brightness;
-        record[7] = 0; // watchface selection, reserved for a future version
+        record[7] = u8::from(self.heart_rate_enabled);
         record[8..12].copy_from_slice(&self.dim_after_millis.to_le_bytes());
         record[12..16].copy_from_slice(&self.off_after_millis.to_le_bytes());
         record[16..20].copy_from_slice(&sequence.to_le_bytes());
+        record[20..24].copy_from_slice(&self.heart_rate_interval_seconds.to_le_bytes());
         let crc = crc32(&record[..CRC_OFFSET]);
         record[CRC_OFFSET..].copy_from_slice(&crc.to_le_bytes());
         record
@@ -164,14 +202,24 @@ impl DisplaySettings {
             return Err(DecodeError::BadChecksum);
         }
         let version = u16::from_le_bytes([record[4], record[5]]);
-        if version != SETTINGS_VERSION {
+        if version != 1 && version != SETTINGS_VERSION {
             // Newer or unknown formats fall back to defaults at the caller.
             return Err(DecodeError::UnsupportedVersion(version));
         }
         let dim = u32::from_le_bytes([record[8], record[9], record[10], record[11]]);
         let off = u32::from_le_bytes([record[12], record[13], record[14], record[15]]);
         let sequence = u32::from_le_bytes([record[16], record[17], record[18], record[19]]);
-        let settings = Self::new(record[6], dim, off).map_err(DecodeError::InvalidContent)?;
+        let mut settings = Self::new(record[6], dim, off).map_err(DecodeError::InvalidContent)?;
+        if version == SETTINGS_VERSION {
+            let interval = u32::from_le_bytes([record[20], record[21], record[22], record[23]]);
+            if record[7] > 1 || !HEART_RATE_INTERVALS_SECONDS.contains(&interval) {
+                return Err(DecodeError::InvalidContent(
+                    SettingsError::InvalidHeartRateSettings,
+                ));
+            }
+            settings.heart_rate_enabled = record[7] != 0;
+            settings.heart_rate_interval_seconds = interval;
+        }
         Ok((settings, sequence))
     }
 }
@@ -317,9 +365,24 @@ mod tests {
 
     #[test]
     fn encode_decode_round_trip_preserves_settings_and_sequence() {
-        let settings = DisplaySettings::new(7, 5_000, 30_000).unwrap();
+        let settings = DisplaySettings::new(7, 5_000, 30_000)
+            .unwrap()
+            .toggle_heart_rate()
+            .cycle_heart_rate_interval();
         let record = settings.encode(41);
         assert_eq!(DisplaySettings::decode(&record), Ok((settings, 41)));
+    }
+
+    #[test]
+    fn version_one_migrates_with_heart_rate_disabled() {
+        let mut record = DisplaySettings::DEFAULT.toggle_heart_rate().encode(7);
+        record[4..6].copy_from_slice(&1_u16.to_le_bytes());
+        let crc = crc32(&record[..CRC_OFFSET]);
+        record[CRC_OFFSET..].copy_from_slice(&crc.to_le_bytes());
+        let (settings, sequence) = DisplaySettings::decode(&record).unwrap();
+        assert_eq!(sequence, 7);
+        assert!(!settings.heart_rate_enabled());
+        assert_eq!(settings.heart_rate_interval_seconds(), 300);
     }
 
     #[test]
@@ -341,12 +404,12 @@ mod tests {
     #[test]
     fn decode_rejects_future_versions_without_misreading_them() {
         let mut record = DisplaySettings::DEFAULT.encode(1);
-        record[4..6].copy_from_slice(&2_u16.to_le_bytes());
+        record[4..6].copy_from_slice(&3_u16.to_le_bytes());
         let crc = crc32(&record[..CRC_OFFSET]);
         record[CRC_OFFSET..].copy_from_slice(&crc.to_le_bytes());
         assert_eq!(
             DisplaySettings::decode(&record),
-            Err(DecodeError::UnsupportedVersion(2))
+            Err(DecodeError::UnsupportedVersion(3))
         );
     }
 

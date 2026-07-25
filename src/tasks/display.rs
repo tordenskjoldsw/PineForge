@@ -6,10 +6,7 @@ use mipidsi::interface::SpiInterface;
 use mipidsi::options::{ColorInversion, Orientation};
 use static_cell::StaticCell;
 
-#[cfg(feature = "diagnostics")]
 use crate::services::events::HEART_RATE_COMMANDS;
-#[cfg(feature = "diagnostics")]
-use crate::ui::heart_rate::HeartRateScreen;
 #[cfg(feature = "diagnostics")]
 use crate::ui::test_screen::TestScreen;
 #[cfg(feature = "ui-animations")]
@@ -23,18 +20,16 @@ use crate::{
         display_settings_receiver, system_power_receiver, wall_clock_receiver,
     },
     ui::{
-        dfu::{draw_dfu_failed, draw_dfu_progress},
+        dfu::{draw_dfu_failed, draw_dfu_progress, draw_storage_progress},
         pairing::draw_pairing,
         screen::Screen,
         settings::DisplaySettingsScreen,
         watchface::TerminalWatchface,
     },
 };
-#[cfg(feature = "diagnostics")]
-use pineforge_state::HeartRateCommand;
 use pineforge_state::{
-    AppEffect, AppEvent, AppState, BleState, DfuFailReason, DisplaySettings, PowerCommand,
-    ScreenId, SystemPowerState, VibrationPattern,
+    AppEffect, AppEvent, AppState, BleState, DfuFailReason, DisplaySettings, HeartRateCommand,
+    PowerCommand, ScreenId, StorageState, SystemPowerState, VibrationPattern,
 };
 
 static DISPLAY_BUFFER: StaticCell<[u8; 512]> = StaticCell::new();
@@ -85,8 +80,6 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
     display_settings.set_firmware_confirmed(crate::boot::confirm::is_validated());
     #[cfg(feature = "diagnostics")]
     let mut touch_test = TestScreen::default();
-    #[cfg(feature = "diagnostics")]
-    let mut heart_rate = HeartRateScreen::default();
     #[cfg(feature = "ui-animations")]
     let ui_scratch = UI_SCRATCH.init(UiScratch::new());
     let mut app = AppState::new(ScreenId::Watchface);
@@ -101,6 +94,7 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
     // the active screen while set so sensor/tick events can't redraw over it.
     let mut dfu_percent: Option<u8> = None;
     let mut dfu_fail_reason: Option<DfuFailReason> = None;
+    let mut storage_percent: Option<u8> = None;
     let mut power = power_receiver.get().await;
     let mut ignore_input_until = started_at;
     let _ = watchface.draw_full(&mut display, || watchdog.pet());
@@ -230,12 +224,6 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                                 let _ = display.wake(&mut delay);
                                 let _ = touch_test.draw_full(&mut display, || watchdog.pet());
                             }
-                            #[cfg(feature = "diagnostics")]
-                            ScreenId::HeartRate => {
-                                let _ = heart_rate.handle_event(uptime);
-                                let _ = display.wake(&mut delay);
-                                let _ = heart_rate.draw_full(&mut display, || watchdog.pet());
-                            }
                         }
                         backlight.set_level(settings.brightness());
                         ignore_input_until = Instant::now() + WAKE_INPUT_GUARD;
@@ -244,12 +232,6 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                     SystemPowerState::Interactive => backlight.set_level(settings.brightness()),
                     SystemPowerState::Idle => backlight.set_level(DIMMED_BRIGHTNESS),
                     SystemPowerState::Sleeping => {
-                        #[cfg(feature = "diagnostics")]
-                        if app.active_screen() == ScreenId::HeartRate {
-                            let _ = heart_rate.handle_event(AppEvent::HeartRateStateUpdated(
-                                pineforge_state::HeartRateState::Disabled,
-                            ));
-                        }
                         backlight.set_level(0);
                         let _ = display.sleep(&mut delay);
                     }
@@ -257,6 +239,50 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                 continue;
             }
         };
+
+        if let AppEvent::DisplaySettingsUpdated(updated) = event {
+            HEART_RATE_COMMANDS
+                .send(HeartRateCommand::Configure {
+                    enabled: updated.heart_rate_enabled(),
+                    interval_seconds: updated.heart_rate_interval_seconds(),
+                })
+                .await;
+        }
+        if matches!(event, AppEvent::HeartRateStateUpdated(_))
+            && app.active_screen() != ScreenId::Watchface
+        {
+            let _ = watchface.handle_event(event);
+        }
+
+        if let AppEvent::StorageUpdated(StorageState::Formatting(percent)) = event {
+            let _ = display.wake(&mut delay);
+            backlight.set_level(settings.brightness());
+            POWER_COMMANDS.send(PowerCommand::UserActivity).await;
+            let _ = draw_storage_progress(&mut display, percent, || watchdog.pet());
+            storage_percent = Some(percent);
+            continue;
+        }
+        if storage_percent.is_some() {
+            if matches!(
+                event,
+                AppEvent::StorageUpdated(StorageState::Ready | StorageState::Failed)
+            ) {
+                storage_percent = None;
+                match app.active_screen() {
+                    ScreenId::Watchface => {
+                        let _ = watchface.draw_full(&mut display, || watchdog.pet());
+                    }
+                    ScreenId::DisplaySettings => {
+                        let _ = display_settings.draw_full(&mut display, || watchdog.pet());
+                    }
+                    #[cfg(feature = "diagnostics")]
+                    ScreenId::TouchTest => {
+                        let _ = touch_test.draw_full(&mut display, || watchdog.pet());
+                    }
+                }
+            }
+            continue;
+        }
 
         // BLE pairing is a system modal: show the passkey full-screen,
         // overriding the active screen and any sleep state.
@@ -325,13 +351,6 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                         }
                         let _ = touch_test.draw_full(&mut display, || watchdog.pet());
                     }
-                    #[cfg(feature = "diagnostics")]
-                    ScreenId::HeartRate => {
-                        if forward {
-                            let _ = heart_rate.handle_event(event);
-                        }
-                        let _ = heart_rate.draw_full(&mut display, || watchdog.pet());
-                    }
                 }
             }
             continue;
@@ -356,11 +375,6 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                         let _ = touch_test.handle_event(event);
                         let _ = touch_test.draw_full(&mut display, || watchdog.pet());
                     }
-                    #[cfg(feature = "diagnostics")]
-                    ScreenId::HeartRate => {
-                        let _ = heart_rate.handle_event(event);
-                        let _ = heart_rate.draw_full(&mut display, || watchdog.pet());
-                    }
                 }
             }
             continue;
@@ -377,8 +391,6 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
             ScreenId::DisplaySettings => display_settings.handle_event(event),
             #[cfg(feature = "diagnostics")]
             ScreenId::TouchTest => touch_test.handle_event(event),
-            #[cfg(feature = "diagnostics")]
-            ScreenId::HeartRate => heart_rate.handle_event(event),
         };
         let effect = app.transition(action);
 
@@ -407,18 +419,6 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
             AppEffect::Navigate(direction) => {
                 #[cfg(not(feature = "ui-animations"))]
                 let _ = direction;
-                #[cfg(feature = "diagnostics")]
-                if app.active_screen() == ScreenId::HeartRate {
-                    heart_rate.begin_measurement();
-                }
-                #[cfg(feature = "diagnostics")]
-                HEART_RATE_COMMANDS
-                    .send(if app.active_screen() == ScreenId::HeartRate {
-                        HeartRateCommand::Start
-                    } else {
-                        HeartRateCommand::Stop
-                    })
-                    .await;
                 #[cfg(feature = "ui-animations")]
                 match app.active_screen() {
                     ScreenId::Watchface => {
@@ -459,16 +459,6 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                             watchdog.pet();
                         }
                     }
-                    #[cfg(feature = "diagnostics")]
-                    ScreenId::HeartRate => {
-                        let _ = draw_slide_reveal(
-                            &heart_rate,
-                            &mut display,
-                            ui_scratch,
-                            direction,
-                            || watchdog.pet(),
-                        );
-                    }
                 }
                 #[cfg(not(feature = "ui-animations"))]
                 match app.active_screen() {
@@ -482,10 +472,6 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                     ScreenId::TouchTest => {
                         let _ = touch_test.draw_full(&mut display, || watchdog.pet());
                     }
-                    #[cfg(feature = "diagnostics")]
-                    ScreenId::HeartRate => {
-                        let _ = heart_rate.draw_full(&mut display, || watchdog.pet());
-                    }
                 }
             }
             AppEffect::None => match app.active_screen() {
@@ -498,10 +484,6 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                 #[cfg(feature = "diagnostics")]
                 ScreenId::TouchTest => {
                     let _ = touch_test.draw_dirty(&mut display, || watchdog.pet());
-                }
-                #[cfg(feature = "diagnostics")]
-                ScreenId::HeartRate => {
-                    let _ = heart_rate.draw_dirty(&mut display, || watchdog.pet());
                 }
             },
         }

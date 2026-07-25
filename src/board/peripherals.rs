@@ -29,7 +29,6 @@ pub struct TouchResources {
     pub interrupt: Peri<'static, peripherals::P0_28>,
 }
 
-#[cfg(feature = "diagnostics")]
 pub struct HeartRateResources {
     pub interrupt: Peri<'static, peripherals::P0_30>,
 }

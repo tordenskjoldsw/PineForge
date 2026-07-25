@@ -7,9 +7,7 @@
 
 use heapless::Vec;
 
-#[cfg(feature = "diagnostics")]
 mod ppg;
-#[cfg(feature = "diagnostics")]
 pub use ppg::{PpgAnalysis, PpgProcessor};
 
 mod bond;
@@ -25,6 +23,13 @@ mod settings;
 pub use settings::{
     BRIGHTNESS_LEVELS, DIM_TIMEOUTS_MILLIS, DecodeError, DisplaySettings, OFF_TIMEOUTS_MILLIS,
     SETTINGS_RECORD_LEN, SettingsError, SettingsSlot, SlotDecision, crc32, select_slot,
+};
+mod storage;
+pub use storage::{
+    STORAGE_BASE, STORAGE_DATA_SECTOR_COUNT, STORAGE_END, STORAGE_FORMAT_VERSION,
+    STORAGE_HEADER_LEN, STORAGE_PROGRESS_OFFSET, STORAGE_READY_HEADER_OFFSET, STORAGE_SECTOR_COUNT,
+    STORAGE_SECTOR_SIZE, StorageHeader, decode_storage_header, encode_storage_header,
+    storage_header_version,
 };
 
 pub const SCREEN_STACK_CAPACITY: usize = 4;
@@ -196,6 +201,14 @@ pub enum DfuFailReason {
     VerifyFailed,
 }
 
+/// State of the one-time external storage initialization.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StorageState {
+    Formatting(u8),
+    Ready,
+    Failed,
+}
+
 /// Haptic patterns playable by the vibration service.
 ///
 /// Callers describe intent; the timing lives here so future features such as
@@ -298,7 +311,6 @@ pub enum FeatureEngineStatus {
     Failed,
 }
 
-#[cfg(feature = "diagnostics")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HeartRateSensorKind {
     Hrs3300,
@@ -313,14 +325,14 @@ pub struct HeartRateRawSample {
     pub als: u16,
 }
 
-#[cfg(feature = "diagnostics")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HeartRateCommand {
-    Start,
-    Stop,
+    Configure {
+        enabled: bool,
+        interval_seconds: u32,
+    },
 }
 
-#[cfg(feature = "diagnostics")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HeartRateState {
     Disabled,
@@ -333,12 +345,10 @@ pub enum HeartRateState {
     Error,
 }
 
-#[cfg(feature = "diagnostics")]
 pub struct HeartRateSession {
     state: HeartRateState,
 }
 
-#[cfg(feature = "diagnostics")]
 impl HeartRateSession {
     #[must_use]
     pub const fn new() -> Self {
@@ -383,7 +393,6 @@ impl HeartRateSession {
     }
 }
 
-#[cfg(feature = "diagnostics")]
 impl Default for HeartRateSession {
     fn default() -> Self {
         Self::new()
@@ -449,8 +458,6 @@ pub enum ScreenId {
     DisplaySettings,
     #[cfg(feature = "diagnostics")]
     TouchTest,
-    #[cfg(feature = "diagnostics")]
-    HeartRate,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -472,17 +479,15 @@ pub enum AppEvent {
     AccelerationUpdated(AccelerationSample),
     #[cfg(feature = "diagnostics")]
     FeatureEngineUpdated(FeatureEngineStatus),
-    #[cfg(feature = "diagnostics")]
     HeartRateSensorDetected(HeartRateSensorKind),
     #[cfg(feature = "diagnostics")]
     HeartRateRawSampleUpdated(HeartRateRawSample),
-    #[cfg(feature = "diagnostics")]
     HeartRateAnalysisUpdated(PpgAnalysis),
-    #[cfg(feature = "diagnostics")]
     HeartRateStateUpdated(HeartRateState),
     StepsUpdated(u32),
     DisplaySettingsUpdated(DisplaySettings),
     BleUpdated(BleState),
+    StorageUpdated(StorageState),
 }
 
 impl AppEvent {

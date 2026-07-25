@@ -32,7 +32,6 @@ pub type DisplaySpi = SpiDevice<'static, NoopRawMutex, Spim<'static>, Output<'st
 pub type FlashSpi = SpiDevice<'static, NoopRawMutex, Spim<'static>, Output<'static>>;
 pub type TouchI2c = BlockingAsync<TimedI2cDevice>;
 pub type MotionI2c = YieldingAsync<BlockingAsync<TimedI2cDevice>>;
-#[cfg(feature = "diagnostics")]
 pub type HeartRateI2c = YieldingAsync<BlockingAsync<TimedI2cDevice>>;
 
 static SENSOR_BUS: StaticCell<SensorBus> = StaticCell::new();
@@ -189,9 +188,8 @@ pub fn motion_device(bus: &'static SensorBus) -> MotionI2c {
     YieldingAsync::new(BlockingAsync::new(TimedI2cDevice::new(bus)))
 }
 
-/// Creates the heart-rate device used by the diagnostics runner. Heart-rate
+/// Creates the heart-rate device used by the measurement runner. Heart-rate
 /// sampling is not latency-sensitive, so every short transaction yields.
-#[cfg(feature = "diagnostics")]
 pub fn heart_rate_device(bus: &'static SensorBus) -> HeartRateI2c {
     YieldingAsync::new(BlockingAsync::new(TimedI2cDevice::new(bus)))
 }

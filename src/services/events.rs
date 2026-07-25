@@ -5,11 +5,9 @@ use embassy_sync::{
     watch::{Receiver, Watch},
 };
 
-#[cfg(feature = "diagnostics")]
-use pineforge_state::HeartRateCommand;
 use pineforge_state::{
-    AppEvent, BatteryStatus, DfuFailReason, DisplaySettings, PowerCommand, SystemPowerState,
-    VibrationPattern, WallClockReference,
+    AppEvent, BatteryStatus, DfuFailReason, DisplaySettings, HeartRateCommand, PowerCommand,
+    SystemPowerState, VibrationPattern, WallClockReference,
 };
 
 pub static UI_EVENTS: Channel<CriticalSectionRawMutex, AppEvent, 8> = Channel::new();
@@ -19,7 +17,6 @@ pub static POWER_COMMANDS: Channel<CriticalSectionRawMutex, PowerCommand, 8> = C
 /// Enforces `PineTime`'s proven touch -> motion -> heart-rate bus bring-up.
 pub static TOUCH_READY: Signal<CriticalSectionRawMutex, ()> = Signal::new();
 pub static MOTION_READY: Signal<CriticalSectionRawMutex, ()> = Signal::new();
-#[cfg(feature = "diagnostics")]
 pub static HEART_RATE_COMMANDS: Channel<CriticalSectionRawMutex, HeartRateCommand, 2> =
     Channel::new();
 

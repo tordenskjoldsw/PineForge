@@ -9,18 +9,82 @@ use defmt::{info, warn};
 use embassy_futures::select::{Either3, select3};
 use embassy_time::{Duration, Instant, with_deadline};
 use pineforge_state::{
-    BOND_RECORD_LEN, DFU_SLOT_SIZE, DfuFailReason, DisplaySettings, SETTINGS_RECORD_LEN,
-    SettingsSlot, frame_bond, parse_bond, select_slot,
+    AppEvent, BOND_RECORD_LEN, DFU_SLOT_SIZE, DfuFailReason, DisplaySettings, SETTINGS_RECORD_LEN,
+    STORAGE_BASE, STORAGE_DATA_SECTOR_COUNT, STORAGE_FORMAT_VERSION, STORAGE_HEADER_LEN,
+    STORAGE_PROGRESS_OFFSET, STORAGE_READY_HEADER_OFFSET, STORAGE_SECTOR_SIZE, SettingsSlot,
+    StorageHeader, StorageState, decode_storage_header, encode_storage_header, frame_bond,
+    parse_bond, select_slot, storage_header_version,
 };
 
 use crate::{
     board::buses::FlashSpi,
+    boot::watchdog::BootloaderWatchdog,
     drivers::xt25f32::{Error as FlashError, Xt25f32, is_supported_jedec_id},
     services::events::{
         BOND_LOADED, BOND_STORE, DFU_FLASH_COMMANDS, DFU_FLASH_RESULT, DISPLAY_SETTINGS,
-        DfuFlashCommand, SETTINGS_COMMANDS, StoredBond,
+        DfuFlashCommand, SETTINGS_COMMANDS, StoredBond, UI_EVENTS,
     },
 };
+
+async fn initialize_storage(
+    flash: &mut Xt25f32<FlashSpi>,
+    watchdog: BootloaderWatchdog,
+) -> Result<(), FlashError<<FlashSpi as embedded_hal::spi::ErrorType>::Error>> {
+    let mut formatting = [0_u8; STORAGE_HEADER_LEN];
+    let mut ready = [0_u8; STORAGE_HEADER_LEN];
+    flash.read(STORAGE_BASE, &mut formatting)?;
+    flash.read(STORAGE_BASE + STORAGE_READY_HEADER_OFFSET, &mut ready)?;
+
+    if decode_storage_header(&ready) == Some(StorageHeader::Ready) {
+        info!("PineForge storage format is ready");
+        return Ok(());
+    }
+    if [formatting, ready].iter().any(|header| {
+        storage_header_version(header).is_some_and(|version| version != STORAGE_FORMAT_VERSION)
+    }) {
+        warn!("Unsupported PineForge storage version; refusing destructive downgrade");
+        return Err(FlashError::VerifyFailed);
+    }
+
+    if decode_storage_header(&formatting) != Some(StorageHeader::Formatting) {
+        flash.erase_sector(STORAGE_BASE).await?;
+        watchdog.pet();
+        formatting = encode_storage_header(StorageHeader::Formatting);
+        flash.program_verified(STORAGE_BASE, &formatting).await?;
+    }
+
+    let mut last_percent = u8::MAX;
+    for index in 0..STORAGE_DATA_SECTOR_COUNT {
+        let marker_address =
+            STORAGE_BASE + STORAGE_PROGRESS_OFFSET + u32::try_from(index).unwrap_or(u32::MAX);
+        let mut marker = [0xff_u8; 1];
+        flash.read(marker_address, &mut marker)?;
+        if marker[0] != 0 {
+            let sector_address =
+                STORAGE_BASE + STORAGE_SECTOR_SIZE * (u32::try_from(index).unwrap_or(u32::MAX) + 1);
+            flash.erase_sector(sector_address).await?;
+            watchdog.pet();
+            flash.program_verified(marker_address, &[0]).await?;
+        }
+
+        let percent = u8::try_from(((index + 1) * 100) / STORAGE_DATA_SECTOR_COUNT).unwrap_or(100);
+        if percent != last_percent {
+            let _ = UI_EVENTS.try_send(AppEvent::StorageUpdated(StorageState::Formatting(percent)));
+            last_percent = percent;
+        }
+    }
+
+    ready = encode_storage_header(StorageHeader::Ready);
+    flash
+        .program_verified(STORAGE_BASE + STORAGE_READY_HEADER_OFFSET, &ready)
+        .await?;
+    watchdog.pet();
+    UI_EVENTS
+        .send(AppEvent::StorageUpdated(StorageState::Ready))
+        .await;
+    info!("PineForge storage format complete");
+    Ok(())
+}
 
 /// Mirrors the reserved region in `docs/FLASH-MAP.md`.
 const BOND_ADDRESS: u32 = 0x003F_D000;
@@ -91,7 +155,7 @@ async fn run_dfu_command(
 
 #[embassy_executor::task]
 #[allow(clippy::too_many_lines)]
-pub async fn run(spi: FlashSpi) {
+pub async fn run(spi: FlashSpi, watchdog: BootloaderWatchdog) {
     let mut flash = Xt25f32::new(spi);
     let sender = DISPLAY_SETTINGS.sender();
 
@@ -116,6 +180,17 @@ pub async fn run(spi: FlashSpi) {
             writable = false;
             flash_fault = DfuFailReason::FlashInitFailed;
         }
+    }
+
+    if writable && crate::boot::confirm::is_validated() {
+        if initialize_storage(&mut flash, watchdog).await.is_err() {
+            warn!("PineForge storage initialization failed");
+            UI_EVENTS
+                .send(AppEvent::StorageUpdated(StorageState::Failed))
+                .await;
+        }
+    } else if writable {
+        info!("Storage remains reserved while firmware rollback is possible");
     }
 
     let decision = if writable {
