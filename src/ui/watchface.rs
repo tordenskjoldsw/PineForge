@@ -14,13 +14,16 @@ use pineforge_state::{
     AccelerationSample, AccelerometerKind, FeatureEngineStatus, HeartRateRawSample,
     HeartRateSensorKind, PpgAnalysis,
 };
-use pineforge_state::{AppEvent, BatteryStatus, BleState, ScreenAction, ScreenId, SwipeDirection};
+use pineforge_state::{
+    AppEvent, BatteryStatus, BleState, CalendarDate, ScreenAction, ScreenId, SwipeDirection,
+};
 #[cfg(not(feature = "diagnostics"))]
 use pineforge_state::{HeartRateState, NotificationCategory};
 
 const ROW_HEIGHT: u32 = 25;
 const VALUE_X: i32 = 70;
-const UPTIME_ROW: Rectangle = Rectangle::new(Point::new(0, 50), Size::new(240, ROW_HEIGHT));
+const DATE_ROW: Rectangle = Rectangle::new(Point::new(0, 25), Size::new(240, ROW_HEIGHT));
+const TIME_ROW: Rectangle = Rectangle::new(Point::new(0, 50), Size::new(240, ROW_HEIGHT));
 const BATTERY_ROW: Rectangle = Rectangle::new(Point::new(0, 75), Size::new(240, ROW_HEIGHT));
 #[cfg(feature = "diagnostics")]
 const MOTION_ROW: Rectangle = Rectangle::new(Point::new(0, 100), Size::new(240, ROW_HEIGHT));
@@ -38,6 +41,13 @@ const TERMINAL_GREEN: Rgb565 = Rgb565::new(4, 51, 10);
 const TERMINAL_BLUE: Rgb565 = Rgb565::new(0, 31, 31);
 const TERMINAL_ORANGE: Rgb565 = Rgb565::new(31, 32, 0);
 const TERMINAL_RED: Rgb565 = Rgb565::new(31, 12, 0);
+
+/// Stand-in date shown until a phone synchronizes the clock over BLE.
+const UNSYNCHRONIZED_DATE: CalendarDate = CalendarDate {
+    year: 2026,
+    month: 1,
+    day: 1,
+};
 
 #[derive(Clone, Copy, Default)]
 enum DirtyRegion {
@@ -60,8 +70,8 @@ enum DirtyRegion {
 pub struct TerminalWatchface {
     previous_clock_seconds: u64,
     clock_seconds: u64,
-    previous_synchronized: bool,
-    synchronized: bool,
+    previous_date: Option<CalendarDate>,
+    date: Option<CalendarDate>,
     ble: BleState,
     battery: Option<BatteryStatus>,
     #[cfg(feature = "diagnostics")]
@@ -91,8 +101,8 @@ impl Default for TerminalWatchface {
         Self {
             previous_clock_seconds: 0,
             clock_seconds: 0,
-            previous_synchronized: false,
-            synchronized: false,
+            previous_date: None,
+            date: None,
             ble: BleState::Off,
             battery: None,
             #[cfg(feature = "diagnostics")]
@@ -120,13 +130,22 @@ impl Default for TerminalWatchface {
 }
 
 impl TerminalWatchface {
+    /// Formats a time of day; before synchronization the uptime stands in for
+    /// it, so the seconds wrap at a day rather than counting past 24 hours.
     fn format_clock(seconds: u64) -> String<16> {
-        let hours = seconds / 3_600;
-        let minutes = (seconds / 60) % 60;
-        let seconds = seconds % 60;
-        let mut uptime = String::new();
-        let _ = write!(uptime, "{hours:02}:{minutes:02}:{seconds:02}");
-        uptime
+        let of_day = seconds % 86_400;
+        let hours = of_day / 3_600;
+        let minutes = (of_day / 60) % 60;
+        let seconds = of_day % 60;
+        let mut clock = String::new();
+        let _ = write!(clock, "{hours:02}:{minutes:02}:{seconds:02}");
+        clock
+    }
+
+    fn format_date(date: CalendarDate) -> String<16> {
+        let mut value = String::new();
+        let _ = write!(value, "{:04}-{:02}-{:02}", date.year, date.month, date.day);
+        value
     }
 
     fn draw_changed_value<D>(
@@ -191,17 +210,22 @@ impl TerminalWatchface {
         Ok(())
     }
 
-    fn draw_uptime<D>(&self, display: &mut D) -> Result<(), D::Error>
+    /// The date of the last synchronization, or a fixed stand-in before the
+    /// first one arrives.
+    fn draw_date<D>(&self, display: &mut D) -> Result<(), D::Error>
     where
         D: DrawTarget<Color = Rgb565>,
     {
-        let label = if self.synchronized {
-            "[TIME]"
-        } else {
-            "[UPTM]"
-        };
-        let uptime = Self::format_clock(self.clock_seconds);
-        Self::draw_row(display, UPTIME_ROW, label, &uptime, TERMINAL_GREEN)
+        let date = Self::format_date(self.date.unwrap_or(UNSYNCHRONIZED_DATE));
+        Self::draw_row(display, DATE_ROW, "[DATE]", &date, TERMINAL_GREEN)
+    }
+
+    fn draw_time<D>(&self, display: &mut D) -> Result<(), D::Error>
+    where
+        D: DrawTarget<Color = Rgb565>,
+    {
+        let clock = Self::format_clock(self.clock_seconds);
+        Self::draw_row(display, TIME_ROW, "[TIME]", &clock, TERMINAL_GREEN)
     }
 
     fn format_battery(&self) -> String<16> {
@@ -478,13 +502,20 @@ impl TerminalWatchface {
     where
         D: DrawTarget<Color = Rgb565>,
     {
-        // The first synchronization replaces the row label as well.
-        if self.synchronized != self.previous_synchronized {
-            return self.draw_uptime(display);
+        // The date only moves on a synchronization, so it is redrawn on the
+        // ticks that carry a new one rather than every second.
+        if self.date != self.previous_date {
+            self.draw_date(display)?;
         }
-        let old_uptime = Self::format_clock(self.previous_clock_seconds);
-        let new_uptime = Self::format_clock(self.clock_seconds);
-        Self::draw_changed_value(display, &old_uptime, &new_uptime, 70, TERMINAL_GREEN)
+        let old_clock = Self::format_clock(self.previous_clock_seconds);
+        let new_clock = Self::format_clock(self.clock_seconds);
+        Self::draw_changed_value(
+            display,
+            &old_clock,
+            &new_clock,
+            TIME_ROW.top_left.y + 20,
+            TERMINAL_GREEN,
+        )
     }
 
     fn update_status<D>(&self, display: &mut D) -> Result<(), D::Error>
@@ -503,12 +534,13 @@ impl Screen for TerminalWatchface {
             AppEvent::Tick {
                 uptime_seconds,
                 wall_time,
+                date,
             } => {
                 self.previous_clock_seconds = self.clock_seconds;
-                self.previous_synchronized = self.synchronized;
-                // Once synchronized over BLE, the clock row shows the time of
-                // day; before that it keeps counting uptime.
-                self.synchronized = wall_time.is_some();
+                self.previous_date = self.date;
+                // Once synchronized over BLE, the rows show the real time and
+                // date; before that the uptime stands in for the time of day.
+                self.date = date;
                 self.clock_seconds =
                     wall_time.map_or(uptime_seconds, pineforge_state::WallTime::total_seconds);
                 self.dirty = DirtyRegion::Clock;
@@ -601,15 +633,9 @@ impl Screen for TerminalWatchface {
         draw_mono_text_visible("user@watch:~ $ now", Point::new(0, 20), prompt, display)?;
         keep_alive();
 
-        Self::draw_row(
-            display,
-            Rectangle::new(Point::new(0, 25), Size::new(240, ROW_HEIGHT)),
-            "[TIME]",
-            "--:--:--",
-            TERMINAL_GREEN,
-        )?;
+        self.draw_date(display)?;
         keep_alive();
-        self.draw_uptime(display)?;
+        self.draw_time(display)?;
         keep_alive();
         self.draw_battery(display)?;
         keep_alive();

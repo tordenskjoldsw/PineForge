@@ -14,7 +14,7 @@ mod bond;
 pub use bond::{BOND_PAYLOAD_MAX, BOND_RECORD_LEN, frame_bond, parse_bond};
 
 mod clock;
-pub use clock::{WallClockReference, WallTime, parse_cts};
+pub use clock::{CalendarDate, WallClockReference, WallTime, parse_cts};
 
 mod dfu;
 pub use dfu::{DFU_SLOT_SIZE, DfuEngine, DfuStep, crc16_update};
@@ -477,6 +477,9 @@ pub enum AppEvent {
     Tick {
         uptime_seconds: u64,
         wall_time: Option<WallTime>,
+        /// The calendar date of the last synchronization, absent until one
+        /// arrives over BLE.
+        date: Option<CalendarDate>,
     },
     BatteryUpdated(BatteryStatus),
     #[cfg(feature = "diagnostics")]

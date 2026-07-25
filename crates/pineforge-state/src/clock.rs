@@ -37,6 +37,14 @@ impl WallTime {
     }
 }
 
+/// Calendar date carried for display, taken from the last synchronization.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CalendarDate {
+    pub year: u16,
+    pub month: u8,
+    pub day: u8,
+}
+
 impl WallClockReference {
     /// Returns the time of day at the given uptime, rolling over midnight.
     ///
@@ -57,6 +65,17 @@ impl WallClockReference {
             hour: (of_day / SECONDS_PER_HOUR) as u8,
             minute: ((of_day / 60) % 60) as u8,
             second: (of_day % 60) as u8,
+        }
+    }
+
+    /// The calendar date of this reference. Like the derived time of day's date
+    /// fields, it does not advance past midnight; a fresh sync updates it.
+    #[must_use]
+    pub const fn date(&self) -> CalendarDate {
+        CalendarDate {
+            year: self.year,
+            month: self.month,
+            day: self.day,
         }
     }
 }
