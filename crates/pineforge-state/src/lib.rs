@@ -19,6 +19,9 @@ pub use clock::{CalendarDate, WallClockReference, WallTime, parse_cts};
 mod dfu;
 pub use dfu::{DFU_SLOT_SIZE, DfuEngine, DfuStep, crc16_update};
 
+mod modal;
+pub use modal::{Modal, ModalOutcome, ModalState};
+
 mod notification;
 pub use notification::{
     NOTIFICATION_BODY_MAX, NOTIFICATION_TITLE_MAX, Notification, NotificationCategory,
