@@ -8,7 +8,8 @@ use defmt::{info, warn};
 use embassy_futures::select::select;
 use embassy_time::Instant;
 use pineforge_state::{
-    AppEvent, BOND_PAYLOAD_MAX, BleState, DfuEngine, VibrationPattern, parse_cts,
+    AppEvent, BOND_PAYLOAD_MAX, BleState, DfuEngine, Notification, VibrationPattern, parse_cts,
+    parse_new_alert,
 };
 use trouble_host::prelude::*;
 
@@ -30,6 +31,21 @@ pub struct Server {
     pub battery: BatteryService,
     pub current_time: CurrentTimeService,
     pub dfu: DfuService,
+    pub alert_notification: AlertNotificationService,
+}
+
+/// Largest New Alert write accepted, one ATT payload at the negotiated MTU, so
+/// no single-packet notification is ever rejected for length. Text past the
+/// parser's title/body bounds is truncated, not dropped.
+const NEW_ALERT_MAX: usize = DefaultPacketPool::MTU - 3;
+
+/// Standard Alert Notification Service. Gadgetbridge writes phone
+/// notifications to the New Alert characteristic exactly as it does for
+/// InfiniTime: a `[category, count, reserved]` header followed by the text.
+#[gatt_service(uuid = service::ALERT_NOTIFICATION)]
+pub struct AlertNotificationService {
+    #[characteristic(uuid = characteristic::NEW_ALERT, write)]
+    pub new_alert: heapless::Vec<u8, NEW_ALERT_MAX>,
 }
 
 /// Nordic legacy DFU service, as spoken by Gadgetbridge's InfiniTime
@@ -119,10 +135,12 @@ pub async fn serve(
     .await;
 }
 
+#[allow(clippy::too_many_lines)]
 async fn gatt_events(server: &Server<'_>, connection: &GattConnection<'_, '_, DefaultPacketPool>) {
     let cts_handle = server.current_time.current_time.handle;
     let dfu_control_handle = server.dfu.control_point.handle;
     let dfu_packet_handle = server.dfu.packet.handle;
+    let new_alert_handle = server.alert_notification.new_alert.handle;
     // An unconfirmed image refuses DFU so it never overwrites the rollback.
     let mut engine = DfuEngine::new(is_validated());
     let mut dfu_flash = dfu::FlashPipeline::new();
@@ -179,6 +197,8 @@ async fn gatt_events(server: &Server<'_>, connection: &GattConnection<'_, '_, De
                 // Captured DFU write (is_control_point, buffer, length), acted
                 // on after the write is accepted so notifications flow cleanly.
                 let mut dfu_write: Option<(bool, [u8; DFU_PACKET_MAX], usize)> = None;
+                // A parsed phone notification, likewise acted on after accept.
+                let mut alert: Option<Notification> = None;
                 if let GattEvent::Write(write) = &event {
                     let handle = write.handle();
                     if handle == cts_handle {
@@ -208,6 +228,8 @@ async fn gatt_events(server: &Server<'_>, connection: &GattConnection<'_, '_, De
                             len
                         });
                         dfu_write = Some((handle == dfu_control_handle, buffer, len));
+                    } else if handle == new_alert_handle {
+                        alert = write.with_data(|_, data| parse_new_alert(data));
                     }
                 }
                 match event.accept() {
@@ -225,6 +247,19 @@ async fn gatt_events(server: &Server<'_>, connection: &GattConnection<'_, '_, De
                     )
                     .await;
                     report_dfu_progress(&engine, &mut last_dfu_pct);
+                }
+                if let Some(notification) = alert {
+                    info!(
+                        "Notification [{}]: {} - {}",
+                        defmt::Debug2Format(&notification.category),
+                        notification.title.as_str(),
+                        notification.body.as_str()
+                    );
+                    // One long alert pulse; the UI shows the running count and
+                    // latest category on the watchface.
+                    let _ = VIBRATION_COMMANDS.try_send(VibrationPattern::Long);
+                    let _ = UI_EVENTS
+                        .try_send(AppEvent::NotificationReceived(notification.category));
                 }
             }
             _ => {}

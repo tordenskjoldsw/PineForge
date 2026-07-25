@@ -19,6 +19,12 @@ pub use clock::{WallClockReference, WallTime, parse_cts};
 mod dfu;
 pub use dfu::{DFU_SLOT_SIZE, DfuEngine, DfuStep, crc16_update};
 
+mod notification;
+pub use notification::{
+    NOTIFICATION_BODY_MAX, NOTIFICATION_TITLE_MAX, Notification, NotificationCategory,
+    parse_new_alert,
+};
+
 mod settings;
 pub use settings::{
     BRIGHTNESS_LEVELS, DIM_TIMEOUTS_MILLIS, DecodeError, DisplaySettings, OFF_TIMEOUTS_MILLIS,
@@ -485,6 +491,10 @@ pub enum AppEvent {
     HeartRateAnalysisUpdated(PpgAnalysis),
     HeartRateStateUpdated(HeartRateState),
     StepsUpdated(u32),
+    /// A phone notification arrived over the Alert Notification Service. Only
+    /// the category rides on the event; the full text stays out of the fixed
+    /// event channel and is logged/handled by the BLE task.
+    NotificationReceived(NotificationCategory),
     DisplaySettingsUpdated(DisplaySettings),
     BleUpdated(BleState),
     StorageUpdated(StorageState),

@@ -10,7 +10,7 @@ use heapless::String;
 
 use crate::ui::{render::draw_mono_text_visible, screen::Screen};
 #[cfg(not(feature = "diagnostics"))]
-use pineforge_state::HeartRateState;
+use pineforge_state::{HeartRateState, NotificationCategory};
 #[cfg(feature = "diagnostics")]
 use pineforge_state::{
     AccelerationSample, AccelerometerKind, FeatureEngineStatus, HeartRateRawSample,
@@ -53,6 +53,8 @@ enum DirtyRegion {
     #[cfg(not(feature = "diagnostics"))]
     HeartRate,
     Steps,
+    #[cfg(not(feature = "diagnostics"))]
+    Notification,
 }
 
 pub struct TerminalWatchface {
@@ -77,6 +79,10 @@ pub struct TerminalWatchface {
     #[cfg(not(feature = "diagnostics"))]
     heart_rate_state: HeartRateState,
     steps: Option<u32>,
+    #[cfg(not(feature = "diagnostics"))]
+    notifications: u32,
+    #[cfg(not(feature = "diagnostics"))]
+    last_category: Option<NotificationCategory>,
     dirty: DirtyRegion,
 }
 
@@ -104,6 +110,10 @@ impl Default for TerminalWatchface {
             #[cfg(not(feature = "diagnostics"))]
             heart_rate_state: HeartRateState::Disabled,
             steps: None,
+            #[cfg(not(feature = "diagnostics"))]
+            notifications: 0,
+            #[cfg(not(feature = "diagnostics"))]
+            last_category: None,
             dirty: DirtyRegion::None,
         }
     }
@@ -322,6 +332,39 @@ impl TerminalWatchface {
         Self::draw_row(display, STEP_ROW, "[STEP]", &value, TERMINAL_ORANGE)
     }
 
+    #[cfg(not(feature = "diagnostics"))]
+    const fn category_label(category: NotificationCategory) -> &'static str {
+        match category {
+            NotificationCategory::Call => "CALL",
+            NotificationCategory::MissedCall => "MISSED",
+            NotificationCategory::Sms => "SMS",
+            NotificationCategory::Email => "EMAIL",
+            NotificationCategory::InstantMessage => "IM",
+            NotificationCategory::News => "NEWS",
+            NotificationCategory::VoiceMail => "VMAIL",
+            NotificationCategory::Schedule => "CAL",
+            NotificationCategory::HighPriority => "ALERT",
+            NotificationCategory::SimpleAlert | NotificationCategory::Other(_) => "MSG",
+        }
+    }
+
+    /// Shows the session's notification count and the latest category, in the
+    /// row the non-diagnostics build otherwise leaves blank. A full per-message
+    /// view arrives with the notification screen in the UI redesign.
+    #[cfg(not(feature = "diagnostics"))]
+    fn draw_notifications<D>(&self, display: &mut D) -> Result<(), D::Error>
+    where
+        D: DrawTarget<Color = Rgb565>,
+    {
+        let mut value: String<16> = String::new();
+        if let Some(category) = self.last_category {
+            let _ = write!(value, "{} {}", self.notifications, Self::category_label(category));
+        } else {
+            let _ = value.push_str("---");
+        }
+        Self::draw_row(display, RESERVED_ROW, "[MSG ]", &value, TERMINAL_BLUE)
+    }
+
     #[cfg(feature = "diagnostics")]
     fn format_heart_rate(&self) -> String<12> {
         let mut value = String::new();
@@ -514,6 +557,14 @@ impl Screen for TerminalWatchface {
                 self.steps = Some(steps);
                 self.dirty = DirtyRegion::Steps;
             }
+            #[cfg(not(feature = "diagnostics"))]
+            AppEvent::NotificationReceived(category) => {
+                self.notifications = self.notifications.saturating_add(1);
+                self.last_category = Some(category);
+                self.dirty = DirtyRegion::Notification;
+            }
+            #[cfg(feature = "diagnostics")]
+            AppEvent::NotificationReceived(_) => {}
             AppEvent::DisplaySettingsUpdated(_) => {}
             AppEvent::BleUpdated(state) => {
                 self.ble = state;
@@ -570,9 +621,7 @@ impl Screen for TerminalWatchface {
         #[cfg(feature = "diagnostics")]
         self.draw_heart_rate(display)?;
         #[cfg(not(feature = "diagnostics"))]
-        RESERVED_ROW
-            .into_styled(PrimitiveStyle::with_fill(Rgb565::BLACK))
-            .draw(display)?;
+        self.draw_notifications(display)?;
         keep_alive();
         self.draw_status(display)?;
         keep_alive();
@@ -607,6 +656,8 @@ impl Screen for TerminalWatchface {
             #[cfg(not(feature = "diagnostics"))]
             DirtyRegion::HeartRate => self.draw_heart_rate(display)?,
             DirtyRegion::Steps => self.draw_steps(display)?,
+            #[cfg(not(feature = "diagnostics"))]
+            DirtyRegion::Notification => self.draw_notifications(display)?,
             DirtyRegion::None => {}
         }
         keep_alive();
