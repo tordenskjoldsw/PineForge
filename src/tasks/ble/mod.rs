@@ -248,6 +248,16 @@ async fn advertise_and_serve<C: Controller>(
 
     let connection = advertiser.accept().await?.with_attribute_server(server)?;
     info!("BLE central connected");
+    // Connections are not bondable by default; without this, pairing completes
+    // without producing a bond, nothing is persisted, and the phone must
+    // re-pair after every reboot. trouble-host's own bonding example marks each
+    // connection bondable for exactly this reason.
+    if let Err(error) = connection.raw().set_bondable(true) {
+        warn!(
+            "Failed to mark connection bondable: {}",
+            defmt::Debug2Format(&error)
+        );
+    }
     UI_EVENTS
         .send(AppEvent::BleUpdated(BleState::Connected))
         .await;
