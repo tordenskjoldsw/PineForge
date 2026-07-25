@@ -2,6 +2,7 @@ use defmt::info;
 use embassy_futures::select::{Either3, Either4, select3, select4};
 use embassy_nrf::gpio::{Level, Output, OutputDrive};
 use embassy_time::{Delay, Duration, Instant, Timer};
+use embedded_graphics::{draw_target::DrawTarget, pixelcolor::Rgb565};
 use mipidsi::interface::SpiInterface;
 use mipidsi::options::{ColorInversion, Orientation};
 use static_cell::StaticCell;
@@ -28,8 +29,8 @@ use crate::{
     },
 };
 use pineforge_state::{
-    AppEffect, AppEvent, AppState, BleState, DfuFailReason, DisplaySettings, HeartRateCommand,
-    PowerCommand, ScreenId, StorageState, SystemPowerState, VibrationPattern,
+    AppEffect, AppEvent, AppState, DisplaySettings, HeartRateCommand, Modal, ModalOutcome,
+    ModalState, PowerCommand, ScreenAction, ScreenId, SystemPowerState, VibrationPattern,
 };
 
 static DISPLAY_BUFFER: StaticCell<[u8; 512]> = StaticCell::new();
@@ -43,6 +44,85 @@ enum DisplayEvent {
     Ui(AppEvent),
     Power(SystemPowerState),
     Settings(DisplaySettings),
+}
+
+/// Every screen instance, dispatching to whichever one the navigation state
+/// says is active.
+///
+/// Screens are held for the lifetime of the task so their model state survives
+/// navigation and sleep; only the active one receives events and draws.
+struct Screens {
+    watchface: TerminalWatchface,
+    settings: DisplaySettingsScreen,
+    #[cfg(feature = "diagnostics")]
+    touch_test: TestScreen,
+}
+
+impl Screens {
+    fn handle(&mut self, active: ScreenId, event: AppEvent) -> ScreenAction {
+        match active {
+            ScreenId::Watchface => self.watchface.handle_event(event),
+            ScreenId::DisplaySettings => self.settings.handle_event(event),
+            #[cfg(feature = "diagnostics")]
+            ScreenId::TouchTest => self.touch_test.handle_event(event),
+        }
+    }
+
+    fn draw_full<D>(
+        &self,
+        active: ScreenId,
+        display: &mut D,
+        keep_alive: impl FnMut(),
+    ) -> Result<(), D::Error>
+    where
+        D: DrawTarget<Color = Rgb565>,
+    {
+        match active {
+            ScreenId::Watchface => self.watchface.draw_full(display, keep_alive),
+            ScreenId::DisplaySettings => self.settings.draw_full(display, keep_alive),
+            #[cfg(feature = "diagnostics")]
+            ScreenId::TouchTest => self.touch_test.draw_full(display, keep_alive),
+        }
+    }
+
+    fn draw_dirty<D>(
+        &self,
+        active: ScreenId,
+        display: &mut D,
+        keep_alive: impl FnMut(),
+    ) -> Result<(), D::Error>
+    where
+        D: DrawTarget<Color = Rgb565>,
+    {
+        match active {
+            ScreenId::Watchface => self.watchface.draw_dirty(display, keep_alive),
+            ScreenId::DisplaySettings => self.settings.draw_dirty(display, keep_alive),
+            #[cfg(feature = "diagnostics")]
+            ScreenId::TouchTest => self.touch_test.draw_dirty(display, keep_alive),
+        }
+    }
+}
+
+/// Draws the system modal that owns the screen.
+fn draw_modal<D>(display: &mut D, modal: Modal, keep_alive: impl FnMut()) -> Result<(), D::Error>
+where
+    D: DrawTarget<Color = Rgb565>,
+{
+    match modal {
+        Modal::StorageFormat(percent) => draw_storage_progress(display, percent, keep_alive),
+        Modal::Pairing(passkey) => draw_pairing(display, passkey, keep_alive),
+        Modal::DfuProgress(percent) => draw_dfu_progress(display, percent, keep_alive),
+        Modal::DfuFailed(reason) => draw_dfu_failed(display, reason, keep_alive),
+    }
+}
+
+/// Whether showing this modal counts as user activity.
+///
+/// A prompt or a transfer in flight renews the idle timer so it stays readable.
+/// The terminal failure screen deliberately does not: it survives sleep and is
+/// redrawn on wake, so it must not hold the backlight on indefinitely.
+const fn renews_activity(modal: Modal) -> bool {
+    !matches!(modal, Modal::DfuFailed(_))
 }
 
 /// Owns the display and backlight and renders events received from the UI bus.
@@ -75,29 +155,29 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
 
     let started_at = Instant::now();
     let mut next_tick = started_at + Duration::from_secs(1);
-    let mut watchface = TerminalWatchface::default();
-    let mut display_settings = DisplaySettingsScreen::default();
-    display_settings.set_firmware_confirmed(crate::boot::confirm::is_validated());
-    #[cfg(feature = "diagnostics")]
-    let mut touch_test = TestScreen::default();
+    let mut screens = Screens {
+        watchface: TerminalWatchface::default(),
+        settings: DisplaySettingsScreen::default(),
+        #[cfg(feature = "diagnostics")]
+        touch_test: TestScreen::default(),
+    };
+    screens
+        .settings
+        .set_firmware_confirmed(crate::boot::confirm::is_validated());
     #[cfg(feature = "ui-animations")]
     let ui_scratch = UI_SCRATCH.init(UiScratch::new());
     let mut app = AppState::new(ScreenId::Watchface);
+    // Pairing, firmware updates, and the first-boot format are system modals
+    // above the screen stack; this owns which one is up and which events may
+    // still reach the screen behind it.
+    let mut modals = ModalState::new();
     let mut power_receiver = system_power_receiver();
     let mut settings_receiver = display_settings_receiver();
     let mut wall_clock = wall_clock_receiver();
     let mut wall_clock_reference = None;
-    // A system-modal passkey shown full-screen during BLE pairing, overriding
-    // the active screen while set.
-    let mut pairing_passkey: Option<u32> = None;
-    // A system-modal firmware-update progress or failure screen, overriding
-    // the active screen while set so sensor/tick events can't redraw over it.
-    let mut dfu_percent: Option<u8> = None;
-    let mut dfu_fail_reason: Option<DfuFailReason> = None;
-    let mut storage_percent: Option<u8> = None;
     let mut power = power_receiver.get().await;
     let mut ignore_input_until = started_at;
-    let _ = watchface.draw_full(&mut display, || watchdog.pet());
+    let _ = screens.draw_full(app.active_screen(), &mut display, || watchdog.pet());
     match power {
         SystemPowerState::Interactive => backlight.set_level(settings.brightness()),
         SystemPowerState::Idle => backlight.set_level(DIMMED_BRIGHTNESS),
@@ -173,61 +253,25 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                 power = next;
                 match next {
                     SystemPowerState::Interactive if was_sleeping => {
-                        // A pairing prompt outlives sleep/wake and takes the
-                        // whole screen until pairing resolves.
-                        if let Some(passkey) = pairing_passkey {
-                            let _ = display.wake(&mut delay);
-                            let _ = draw_pairing(&mut display, passkey, || watchdog.pet());
-                            backlight.set_level(settings.brightness());
-                            ignore_input_until = Instant::now() + WAKE_INPUT_GUARD;
-                            next_tick = Instant::now() + Duration::from_secs(1);
-                            continue;
-                        }
-                        // Likewise a firmware update outlives sleep/wake.
-                        if let Some(reason) = dfu_fail_reason {
-                            let _ = display.wake(&mut delay);
-                            let _ = draw_dfu_failed(&mut display, reason, || watchdog.pet());
-                            backlight.set_level(settings.brightness());
-                            ignore_input_until = Instant::now() + WAKE_INPUT_GUARD;
-                            next_tick = Instant::now() + Duration::from_secs(1);
-                            continue;
-                        }
-                        if let Some(percent) = dfu_percent {
-                            let _ = display.wake(&mut delay);
-                            let _ = draw_dfu_progress(&mut display, percent, || watchdog.pet());
-                            backlight.set_level(settings.brightness());
-                            ignore_input_until = Instant::now() + WAKE_INPUT_GUARD;
-                            next_tick = Instant::now() + Duration::from_secs(1);
-                            continue;
-                        }
-                        if let Some(reference) = wall_clock.try_changed() {
-                            wall_clock_reference = Some(reference);
-                        }
-                        let uptime_seconds = now.duration_since(started_at).as_secs();
-                        let uptime = AppEvent::Tick {
-                            uptime_seconds,
-                            wall_time: wall_clock_reference
-                                .map(|reference| reference.wall_time_at(now.as_secs())),
-                            date: wall_clock_reference
-                                .map(|reference| reference.date_at(now.as_secs())),
-                        };
-                        match app.active_screen() {
-                            ScreenId::Watchface => {
-                                let _ = watchface.handle_event(uptime);
-                                let _ = display.wake(&mut delay);
-                                let _ = watchface.draw_full(&mut display, || watchdog.pet());
+                        let _ = display.wake(&mut delay);
+                        // A modal outlives sleep and still owns the screen.
+                        if let Some(modal) = modals.current() {
+                            let _ = draw_modal(&mut display, modal, || watchdog.pet());
+                        } else {
+                            if let Some(reference) = wall_clock.try_changed() {
+                                wall_clock_reference = Some(reference);
                             }
-                            ScreenId::DisplaySettings => {
-                                let _ = display_settings.handle_event(uptime);
-                                let _ = display.wake(&mut delay);
-                                let _ = display_settings.draw_full(&mut display, || watchdog.pet());
-                            }
-                            #[cfg(feature = "diagnostics")]
-                            ScreenId::TouchTest => {
-                                let _ = touch_test.handle_event(uptime);
-                                let _ = display.wake(&mut delay);
-                                let _ = touch_test.draw_full(&mut display, || watchdog.pet());
-                            }
+                            let uptime_seconds = now.duration_since(started_at).as_secs();
+                            let tick = AppEvent::Tick {
+                                uptime_seconds,
+                                wall_time: wall_clock_reference
+                                    .map(|reference| reference.wall_time_at(now.as_secs())),
+                                date: wall_clock_reference
+                                    .map(|reference| reference.date_at(now.as_secs())),
+                            };
+                            let _ = screens.handle(app.active_screen(), tick);
+                            let _ = screens
+                                .draw_full(app.active_screen(), &mut display, || watchdog.pet());
                         }
                         backlight.set_level(settings.brightness());
                         ignore_input_until = Instant::now() + WAKE_INPUT_GUARD;
@@ -255,151 +299,34 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
         if matches!(event, AppEvent::HeartRateStateUpdated(_))
             && app.active_screen() != ScreenId::Watchface
         {
-            let _ = watchface.handle_event(event);
+            let _ = screens.watchface.handle_event(event);
         }
 
-        if let AppEvent::StorageUpdated(StorageState::Formatting(percent)) = event {
-            let _ = display.wake(&mut delay);
-            backlight.set_level(settings.brightness());
-            POWER_COMMANDS.send(PowerCommand::UserActivity).await;
-            let _ = draw_storage_progress(&mut display, percent, || watchdog.pet());
-            storage_percent = Some(percent);
-            continue;
-        }
-        if storage_percent.is_some() {
-            // The format screen is modal, but BLE comes up behind it; keep the
-            // active screen's status current so the post-format redraw shows the
-            // real state instead of a stale "off". Input stays suppressed so
-            // nothing navigates behind the modal.
-            if matches!(event, AppEvent::BleUpdated(_)) {
-                match app.active_screen() {
-                    ScreenId::Watchface => {
-                        let _ = watchface.handle_event(event);
-                    }
-                    ScreenId::DisplaySettings => {
-                        let _ = display_settings.handle_event(event);
-                    }
-                    #[cfg(feature = "diagnostics")]
-                    ScreenId::TouchTest => {
-                        let _ = touch_test.handle_event(event);
-                    }
+        // System modals rank above the screen stack, so they claim the event
+        // first; only `None` leaves it to the active screen.
+        match modals.handle(event) {
+            ModalOutcome::Show(modal) => {
+                let _ = display.wake(&mut delay);
+                backlight.set_level(settings.brightness());
+                if renews_activity(modal) {
+                    POWER_COMMANDS.send(PowerCommand::UserActivity).await;
                 }
+                let _ = draw_modal(&mut display, modal, || watchdog.pet());
+                continue;
             }
-            if matches!(
-                event,
-                AppEvent::StorageUpdated(StorageState::Ready | StorageState::Failed)
-            ) {
-                storage_percent = None;
-                match app.active_screen() {
-                    ScreenId::Watchface => {
-                        let _ = watchface.draw_full(&mut display, || watchdog.pet());
-                    }
-                    ScreenId::DisplaySettings => {
-                        let _ = display_settings.draw_full(&mut display, || watchdog.pet());
-                    }
-                    #[cfg(feature = "diagnostics")]
-                    ScreenId::TouchTest => {
-                        let _ = touch_test.draw_full(&mut display, || watchdog.pet());
-                    }
+            ModalOutcome::Suppressed => continue,
+            ModalOutcome::UpdateBehind => {
+                let _ = screens.handle(app.active_screen(), event);
+                continue;
+            }
+            ModalOutcome::Dismissed { deliver } => {
+                if deliver {
+                    let _ = screens.handle(app.active_screen(), event);
                 }
+                let _ = screens.draw_full(app.active_screen(), &mut display, || watchdog.pet());
+                continue;
             }
-            continue;
-        }
-
-        // BLE pairing is a system modal: show the passkey full-screen,
-        // overriding the active screen and any sleep state.
-        if let AppEvent::BleUpdated(BleState::Pairing(passkey)) = event {
-            let _ = display.wake(&mut delay);
-            backlight.set_level(settings.brightness());
-            // Keep the display awake long enough to read and enter the code.
-            POWER_COMMANDS.send(PowerCommand::UserActivity).await;
-            let _ = draw_pairing(&mut display, passkey, || watchdog.pet());
-            pairing_passkey = Some(passkey);
-            continue;
-        }
-        // A firmware update is a system modal too: show the progress screen
-        // full-screen and keep the display awake for the whole transfer.
-        if let AppEvent::BleUpdated(BleState::DfuProgress(percent)) = event {
-            let _ = display.wake(&mut delay);
-            backlight.set_level(settings.brightness());
-            POWER_COMMANDS.send(PowerCommand::UserActivity).await;
-            let _ = draw_dfu_progress(&mut display, percent, || watchdog.pet());
-            dfu_percent = Some(percent);
-            continue;
-        }
-        // A failed flash op has no wire-protocol error to report; show the
-        // concrete reason on-screen. Unlike an in-progress transfer this is
-        // terminal, so it can be dismissed by the user (below).
-        if let AppEvent::BleUpdated(BleState::DfuFailed(reason)) = event {
-            let _ = display.wake(&mut delay);
-            backlight.set_level(settings.brightness());
-            let _ = draw_dfu_failed(&mut display, reason, || watchdog.pet());
-            dfu_fail_reason = Some(reason);
-            continue;
-        }
-        if dfu_percent.is_some() || dfu_fail_reason.is_some() {
-            // An in-progress transfer ignores input so a stray touch can't
-            // kill the progress bar; only a terminal BLE state clears it. The
-            // failure screen is terminal, so a swipe or tap dismisses it too -
-            // otherwise the sealed watch would be stuck until a reboot. Every
-            // other event (sensor ticks included) is suppressed so nothing
-            // redraws over the modal.
-            let dismiss = matches!(event, AppEvent::BleUpdated(_))
-                || (dfu_fail_reason.is_some() && event.is_user_activity());
-            if dismiss {
-                dfu_percent = None;
-                dfu_fail_reason = None;
-                // A dismissing swipe only closes the modal; it must not also
-                // navigate, so its event is not forwarded to the screen. A BLE
-                // state change is forwarded so the status line reflects it.
-                let forward = matches!(event, AppEvent::BleUpdated(_));
-                match app.active_screen() {
-                    ScreenId::Watchface => {
-                        if forward {
-                            let _ = watchface.handle_event(event);
-                        }
-                        let _ = watchface.draw_full(&mut display, || watchdog.pet());
-                    }
-                    ScreenId::DisplaySettings => {
-                        if forward {
-                            let _ = display_settings.handle_event(event);
-                        }
-                        let _ = display_settings.draw_full(&mut display, || watchdog.pet());
-                    }
-                    #[cfg(feature = "diagnostics")]
-                    ScreenId::TouchTest => {
-                        if forward {
-                            let _ = touch_test.handle_event(event);
-                        }
-                        let _ = touch_test.draw_full(&mut display, || watchdog.pet());
-                    }
-                }
-            }
-            continue;
-        }
-
-        if pairing_passkey.is_some() {
-            // Only a terminal BLE state clears the prompt; everything else is
-            // suppressed so the code stays readable.
-            if matches!(event, AppEvent::BleUpdated(_)) {
-                pairing_passkey = None;
-                match app.active_screen() {
-                    ScreenId::Watchface => {
-                        let _ = watchface.handle_event(event);
-                        let _ = watchface.draw_full(&mut display, || watchdog.pet());
-                    }
-                    ScreenId::DisplaySettings => {
-                        let _ = display_settings.handle_event(event);
-                        let _ = display_settings.draw_full(&mut display, || watchdog.pet());
-                    }
-                    #[cfg(feature = "diagnostics")]
-                    ScreenId::TouchTest => {
-                        let _ = touch_test.handle_event(event);
-                        let _ = touch_test.draw_full(&mut display, || watchdog.pet());
-                    }
-                }
-            }
-            continue;
+            ModalOutcome::None => {}
         }
 
         if power == SystemPowerState::Sleeping
@@ -408,12 +335,7 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
             continue;
         }
 
-        let action = match app.active_screen() {
-            ScreenId::Watchface => watchface.handle_event(event),
-            ScreenId::DisplaySettings => display_settings.handle_event(event),
-            #[cfg(feature = "diagnostics")]
-            ScreenId::TouchTest => touch_test.handle_event(event),
-        };
+        let action = screens.handle(app.active_screen(), event);
         let effect = app.transition(action);
 
         match effect {
@@ -422,16 +344,16 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                 // drops the tick rather than stalling rendering.
                 let _ = VIBRATION_COMMANDS.try_send(VibrationPattern::Tap);
                 SETTINGS_COMMANDS.send(updated).await;
-                let _ = display_settings.draw_dirty(&mut display, || watchdog.pet());
+                let _ = screens.draw_dirty(app.active_screen(), &mut display, || watchdog.pet());
             }
             AppEffect::ConfirmFirmware => {
                 // Making the image permanent takes effect immediately; the
                 // side button no longer rolls back afterwards.
                 let confirmed = crate::boot::confirm::confirm();
                 info!("Firmware confirmation requested; confirmed={}", confirmed);
-                display_settings.set_firmware_confirmed(confirmed);
+                screens.settings.set_firmware_confirmed(confirmed);
                 let _ = VIBRATION_COMMANDS.try_send(VibrationPattern::Double);
-                let _ = display_settings.draw_full(&mut display, || watchdog.pet());
+                let _ = screens.draw_full(app.active_screen(), &mut display, || watchdog.pet());
             }
             AppEffect::RequestRollback => {
                 info!("Rollback requested; resetting unconfirmed image");
@@ -445,7 +367,7 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                 match app.active_screen() {
                     ScreenId::Watchface => {
                         let result = draw_slide_reveal(
-                            &watchface,
+                            &screens.watchface,
                             &mut display,
                             ui_scratch,
                             direction,
@@ -453,14 +375,14 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                         );
                         #[cfg(feature = "diagnostics")]
                         if let Ok(metrics) = result {
-                            touch_test.record_transition(direction, metrics);
+                            screens.touch_test.record_transition(direction, metrics);
                         }
                         #[cfg(not(feature = "diagnostics"))]
                         let _ = result;
                     }
                     ScreenId::DisplaySettings => {
                         let _ = draw_slide_reveal(
-                            &display_settings,
+                            &screens.settings,
                             &mut display,
                             ui_scratch,
                             direction,
@@ -470,44 +392,24 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                     #[cfg(feature = "diagnostics")]
                     ScreenId::TouchTest => {
                         if let Ok(metrics) = draw_slide_reveal(
-                            &touch_test,
+                            &screens.touch_test,
                             &mut display,
                             ui_scratch,
                             direction,
                             || watchdog.pet(),
                         ) {
-                            touch_test.record_transition(direction, metrics);
-                            let _ = touch_test.draw_metrics(&mut display);
+                            screens.touch_test.record_transition(direction, metrics);
+                            let _ = screens.touch_test.draw_metrics(&mut display);
                             watchdog.pet();
                         }
                     }
                 }
                 #[cfg(not(feature = "ui-animations"))]
-                match app.active_screen() {
-                    ScreenId::Watchface => {
-                        let _ = watchface.draw_full(&mut display, || watchdog.pet());
-                    }
-                    ScreenId::DisplaySettings => {
-                        let _ = display_settings.draw_full(&mut display, || watchdog.pet());
-                    }
-                    #[cfg(feature = "diagnostics")]
-                    ScreenId::TouchTest => {
-                        let _ = touch_test.draw_full(&mut display, || watchdog.pet());
-                    }
-                }
+                let _ = screens.draw_full(app.active_screen(), &mut display, || watchdog.pet());
             }
-            AppEffect::None => match app.active_screen() {
-                ScreenId::Watchface => {
-                    let _ = watchface.draw_dirty(&mut display, || watchdog.pet());
-                }
-                ScreenId::DisplaySettings => {
-                    let _ = display_settings.draw_dirty(&mut display, || watchdog.pet());
-                }
-                #[cfg(feature = "diagnostics")]
-                ScreenId::TouchTest => {
-                    let _ = touch_test.draw_dirty(&mut display, || watchdog.pet());
-                }
-            },
+            AppEffect::None => {
+                let _ = screens.draw_dirty(app.active_screen(), &mut display, || watchdog.pet());
+            }
         }
     }
 }
