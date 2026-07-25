@@ -1,4 +1,3 @@
-pub mod clock;
 pub mod events;
 pub mod heart_rate;
 pub mod motion;
