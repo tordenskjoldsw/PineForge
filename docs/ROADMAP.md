@@ -7,8 +7,9 @@ milestone should leave the sealed PineTime in a testable and recoverable state.
 
 - `v0.1.0`: released experimental OTA proof of concept
 - `v0.2.0`: released platform foundation — state-owned product policy, side
-  button as back button, persistent BLE pairing; launcher, quick settings and
-  the stricter memory targets carry forward
+  button as back button, persistent BLE pairing
+- `v0.3.0`: the navigation shell v0.2.0 shipped without — application launcher,
+  quick settings, and the two acceptance criteria carried forward with them
 
 The concrete scope and acceptance criteria for the active milestone live in
 [`V0.2-PLATFORM-FOUNDATION.md`](V0.2-PLATFORM-FOUNDATION.md).
