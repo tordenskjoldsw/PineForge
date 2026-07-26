@@ -1,12 +1,12 @@
 use embedded_graphics::{
     Drawable,
     geometry::{Dimensions, Point, Size},
-    mono_font::{MonoTextStyle, ascii::FONT_10X20},
     pixelcolor::Rgb565,
     primitives::{Primitive, PrimitiveStyleBuilder, Rectangle},
     text::Text,
 };
 
+use crate::ui::font::{AaTextStyle, ui_text};
 use crate::ui::{
     canvas::{Canvas, CanvasError},
     theme,
@@ -48,13 +48,13 @@ pub fn draw_row(
     draw_mono_text_visible(
         label,
         Point::new(ROW_X + LABEL_X_OFFSET, y + TEXT_BASELINE_OFFSET),
-        MonoTextStyle::new(&FONT_10X20, theme::TEXT),
+        ui_text(theme::TEXT, theme::SURFACE),
         canvas,
     )?;
     draw_mono_text_visible(
         value,
         Point::new(ROW_X + VALUE_X_OFFSET, y + TEXT_BASELINE_OFFSET),
-        MonoTextStyle::new(&FONT_10X20, theme::ACCENT),
+        ui_text(theme::ACCENT, theme::SURFACE),
         canvas,
     )
 }
@@ -86,19 +86,14 @@ where
 pub fn draw_mono_text_visible(
     text: &str,
     position: Point,
-    style: MonoTextStyle<'_, Rgb565>,
+    style: AaTextStyle,
     target: &mut Canvas<'_>,
 ) -> Result<(), CanvasError> {
     if !text.is_ascii() {
         return draw_visible(&Text::new(text, position, style), target);
     }
 
-    let stride = style
-        .font
-        .character_size
-        .width
-        .saturating_add(style.font.character_spacing);
-    let stride = i32::try_from(stride).unwrap_or(i32::MAX);
+    let stride = i32::try_from(style.font.cell.width).unwrap_or(i32::MAX);
     let clip = target.bounding_box();
     let clip_left = clip.top_left.x;
     let clip_right = clip

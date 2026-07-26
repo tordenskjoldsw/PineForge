@@ -1,6 +1,7 @@
 pub mod canvas;
 pub mod dfu;
 pub mod firmware;
+pub mod font;
 pub mod icons;
 pub mod launcher;
 #[cfg(feature = "diagnostics")]

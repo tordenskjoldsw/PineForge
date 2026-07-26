@@ -1,6 +1,5 @@
 use core::fmt::Write;
 
-use embedded_graphics::mono_font::{MonoTextStyle, ascii::FONT_10X20};
 use embedded_graphics::prelude::*;
 use heapless::String;
 use pineforge_state::{
@@ -8,6 +7,7 @@ use pineforge_state::{
 };
 
 use crate::ui::canvas::{Canvas, CanvasError};
+use crate::ui::font::ui_text;
 use crate::ui::{
     render::{ROW_HEIGHT, ROW_WIDTH, ROW_X, draw_mono_text_visible, draw_row},
     screen::{Paint, Screen},
@@ -114,7 +114,7 @@ impl Paint for DisplaySettingsScreen {
         draw_mono_text_visible(
             "> back",
             Point::new(ROW_X, 232),
-            MonoTextStyle::new(&FONT_10X20, theme::TEXT),
+            ui_text(theme::TEXT, theme::BACKGROUND),
             canvas,
         )
     }

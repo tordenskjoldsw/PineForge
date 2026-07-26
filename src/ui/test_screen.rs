@@ -1,7 +1,6 @@
 use core::fmt::Write;
 
 use embedded_graphics::{
-    mono_font::{MonoTextStyle, ascii::FONT_6X10, ascii::FONT_10X20},
     pixelcolor::Rgb565,
     prelude::*,
     primitives::{PrimitiveStyle, Rectangle},
@@ -10,6 +9,7 @@ use embedded_graphics::{
 use heapless::String;
 
 use crate::ui::canvas::{Canvas, CanvasError};
+use crate::ui::font::{AaTextStyle, hint_text, ui_text};
 use crate::ui::{
     metrics::RenderMetrics,
     render::{draw_mono_text_visible, draw_visible},
@@ -51,7 +51,7 @@ impl TestScreen {
         METRICS_AREA
             .into_styled(PrimitiveStyle::with_fill(Rgb565::BLACK))
             .draw(canvas)?;
-        let style = MonoTextStyle::new(&FONT_6X10, Rgb565::WHITE);
+        let style = hint_text(Rgb565::WHITE, Rgb565::BLACK);
         Self::draw_metric_line(canvas, "F", self.forward_metrics, 154, style)?;
         Self::draw_metric_line(canvas, "B", self.backward_metrics, 170, style)?;
         Self::draw_max_line(
@@ -76,13 +76,13 @@ impl TestScreen {
         Rectangle::new(Point::new(0, 214), Size::new(50, 26))
             .into_styled(PrimitiveStyle::with_fill(Rgb565::BLACK))
             .draw(canvas)?;
-        let style = MonoTextStyle::new(
-            &FONT_6X10,
+        let style = hint_text(
             if self.touching {
                 Rgb565::YELLOW
             } else {
                 Rgb565::WHITE
             },
+            Rgb565::BLACK,
         );
         let state = if self.touching { "AKTIV" } else { "BEREIT" };
         draw_mono_text_visible(state, Point::new(2, 232), style, canvas)
@@ -93,7 +93,7 @@ impl TestScreen {
         label: &str,
         metrics: Option<RenderMetrics>,
         baseline: i32,
-        style: MonoTextStyle<'_, Rgb565>,
+        style: AaTextStyle,
     ) -> Result<(), CanvasError> {
         let mut line = String::<24>::new();
         if let Some(metrics) = metrics {
@@ -115,7 +115,7 @@ impl TestScreen {
         forward: Option<RenderMetrics>,
         backward: Option<RenderMetrics>,
         baseline: i32,
-        style: MonoTextStyle<'_, Rgb565>,
+        style: AaTextStyle,
     ) -> Result<(), CanvasError> {
         let mut line = String::<24>::new();
         let forward_max = forward.map_or(0, |metrics| metrics.max_stripe_us / 1_000);
@@ -136,7 +136,7 @@ impl Paint for TestScreen {
             .draw(canvas)?;
         keep_alive();
 
-        let heading = MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE);
+        let heading = ui_text(Rgb565::WHITE, Rgb565::BLACK);
         draw_visible(
             &Text::with_alignment(
                 "PineForge Touch-Test",
@@ -164,7 +164,7 @@ impl Paint for TestScreen {
         FOOTER_AREA
             .into_styled(PrimitiveStyle::with_fill(Rgb565::BLACK))
             .draw(canvas)?;
-        let hint = MonoTextStyle::new(&FONT_6X10, Rgb565::WHITE);
+        let hint = hint_text(Rgb565::WHITE, Rgb565::BLACK);
         draw_visible(
             &Text::with_alignment(
                 "< Swipe right: Zurueck",

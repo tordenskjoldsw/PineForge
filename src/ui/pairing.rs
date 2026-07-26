@@ -1,7 +1,6 @@
 use core::fmt::Write;
 
 use embedded_graphics::{
-    mono_font::{MonoTextStyle, ascii::FONT_6X10, ascii::FONT_10X20},
     prelude::*,
     primitives::{PrimitiveStyleBuilder, Rectangle},
     text::{Alignment, Text},
@@ -9,6 +8,7 @@ use embedded_graphics::{
 use heapless::String;
 
 use crate::ui::canvas::{Canvas, CanvasError};
+use crate::ui::font::{hint_text, ui_text};
 use crate::ui::{render::draw_visible, theme};
 
 const CODE_BOX: Rectangle = Rectangle::new(Point::new(20, 96), Size::new(200, 48));
@@ -25,7 +25,7 @@ pub fn draw_pairing(
         &Text::with_alignment(
             "BLUETOOTH PAIRING",
             Point::new(120, 50),
-            MonoTextStyle::new(&FONT_10X20, theme::TEXT),
+            ui_text(theme::TEXT, theme::BACKGROUND),
             Alignment::Center,
         ),
         canvas,
@@ -47,7 +47,7 @@ pub fn draw_pairing(
         &Text::with_alignment(
             &code,
             Point::new(120, 128),
-            MonoTextStyle::new(&FONT_10X20, theme::ACCENT),
+            ui_text(theme::ACCENT, theme::BACKGROUND),
             Alignment::Center,
         ),
         canvas,
@@ -58,7 +58,7 @@ pub fn draw_pairing(
         &Text::with_alignment(
             "Enter this code on your phone",
             Point::new(120, 180),
-            MonoTextStyle::new(&FONT_6X10, theme::TEXT),
+            hint_text(theme::TEXT, theme::BACKGROUND),
             Alignment::Center,
         ),
         canvas,

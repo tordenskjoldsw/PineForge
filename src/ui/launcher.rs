@@ -6,7 +6,6 @@
 
 use embedded_graphics::{
     draw_target::DrawTarget,
-    mono_font::{MonoTextStyle, ascii::FONT_10X20},
     prelude::*,
     primitives::{PrimitiveStyle, Rectangle},
 };
@@ -15,6 +14,7 @@ use pineforge_state::{
 };
 
 use crate::ui::canvas::{Canvas, CanvasError};
+use crate::ui::font::{JETBRAINS_MONO_10X22, ui_text};
 use crate::ui::{
     icons::{self, ICON_SIZE, Icon, draw_icon},
     render::{draw_mono_text_visible, draw_visible},
@@ -62,8 +62,8 @@ const TOP: i32 = STATUS_HEIGHT + 2;
 const DOT_SIZE: i32 = 4;
 const DOT_SPACING: i32 = 10;
 const DOT_Y: i32 = TOP + 2 * TILE_HEIGHT + GAP + 2;
-/// Width of one character in `FONT_10X20`, for centring a label by hand.
-const CHARACTER_WIDTH: i32 = 10;
+/// Width of one character in the UI face, for centring a label by hand.
+const CHARACTER_WIDTH: i32 = JETBRAINS_MONO_10X22.cell.width.cast_signed();
 
 const ICON_TOP_OFFSET: i32 = 24;
 const LABEL_BASELINE_OFFSET: i32 = 78;
@@ -198,7 +198,7 @@ impl LauncherScreen {
                     bounds.x() + (TILE_WIDTH - text_width) / 2,
                     bounds.y() + LABEL_BASELINE_OFFSET,
                 ),
-                MonoTextStyle::new(&FONT_10X20, ink),
+                ui_text(ink, fill),
                 canvas,
             )?;
             keep_alive();

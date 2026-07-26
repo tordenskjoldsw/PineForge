@@ -1,11 +1,11 @@
 use core::fmt::Write;
 
-use embedded_graphics::mono_font::{MonoTextStyle, ascii::FONT_10X20};
 use embedded_graphics::prelude::*;
 use heapless::String;
 use pineforge_state::{AppEvent, Button, ButtonBounds, ButtonOutcome, ScreenAction};
 
 use crate::ui::canvas::{Canvas, CanvasError};
+use crate::ui::font::ui_text;
 use crate::ui::{
     render::{ROW_HEIGHT, ROW_WIDTH, ROW_X, draw_mono_text_visible, draw_row},
     screen::{Paint, Screen},
@@ -99,7 +99,7 @@ impl Paint for FirmwareScreen {
         draw_mono_text_visible(
             &title,
             Point::new(ROW_X, TITLE_BASELINE_Y),
-            MonoTextStyle::new(&FONT_10X20, theme::TEXT),
+            ui_text(theme::TEXT, theme::BACKGROUND),
             canvas,
         )?;
         keep_alive();
@@ -109,7 +109,7 @@ impl Paint for FirmwareScreen {
         draw_mono_text_visible(
             "> back",
             Point::new(ROW_X, HINT_BASELINE_Y),
-            MonoTextStyle::new(&FONT_10X20, theme::TEXT),
+            ui_text(theme::TEXT, theme::BACKGROUND),
             canvas,
         )
     }

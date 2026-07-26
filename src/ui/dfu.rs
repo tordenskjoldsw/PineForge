@@ -1,7 +1,6 @@
 use core::fmt::Write;
 
 use embedded_graphics::{
-    mono_font::{MonoTextStyle, ascii::FONT_6X10, ascii::FONT_10X20},
     prelude::*,
     primitives::{PrimitiveStyleBuilder, Rectangle},
     text::{Alignment, Text},
@@ -10,6 +9,7 @@ use heapless::String;
 use pineforge_state::DfuFailReason;
 
 use crate::ui::canvas::{Canvas, CanvasError};
+use crate::ui::font::{hint_text, ui_text};
 use crate::ui::{render::draw_visible, theme};
 
 const BAR: Rectangle = Rectangle::new(Point::new(20, 128), Size::new(200, 24));
@@ -27,7 +27,7 @@ pub fn draw_dfu_progress(
         &Text::with_alignment(
             "FIRMWARE UPDATE",
             Point::new(120, 60),
-            MonoTextStyle::new(&FONT_10X20, theme::TEXT),
+            ui_text(theme::TEXT, theme::BACKGROUND),
             Alignment::Center,
         ),
         canvas,
@@ -40,7 +40,7 @@ pub fn draw_dfu_progress(
         &Text::with_alignment(
             &label,
             Point::new(120, 108),
-            MonoTextStyle::new(&FONT_10X20, theme::ACCENT),
+            ui_text(theme::ACCENT, theme::BACKGROUND),
             Alignment::Center,
         ),
         canvas,
@@ -72,7 +72,7 @@ pub fn draw_dfu_progress(
         &Text::with_alignment(
             "Keep the watch nearby",
             Point::new(120, 184),
-            MonoTextStyle::new(&FONT_6X10, theme::TEXT),
+            hint_text(theme::TEXT, theme::BACKGROUND),
             Alignment::Center,
         ),
         canvas,
@@ -93,7 +93,7 @@ pub fn draw_storage_progress(
         &Text::with_alignment(
             "PREPARING STORAGE",
             Point::new(120, 60),
-            MonoTextStyle::new(&FONT_10X20, theme::TEXT),
+            ui_text(theme::TEXT, theme::BACKGROUND),
             Alignment::Center,
         ),
         canvas,
@@ -106,7 +106,7 @@ pub fn draw_storage_progress(
         &Text::with_alignment(
             &label,
             Point::new(120, 108),
-            MonoTextStyle::new(&FONT_10X20, theme::ACCENT),
+            ui_text(theme::ACCENT, theme::BACKGROUND),
             Alignment::Center,
         ),
         canvas,
@@ -134,7 +134,7 @@ pub fn draw_storage_progress(
         &Text::with_alignment(
             "Safe to restart",
             Point::new(120, 184),
-            MonoTextStyle::new(&FONT_6X10, theme::TEXT),
+            hint_text(theme::TEXT, theme::BACKGROUND),
             Alignment::Center,
         ),
         canvas,
@@ -159,7 +159,7 @@ pub fn draw_dfu_failed(
         &Text::with_alignment(
             "UPDATE FAILED",
             Point::new(120, 108),
-            MonoTextStyle::new(&FONT_10X20, theme::DANGER),
+            ui_text(theme::DANGER, theme::BACKGROUND),
             Alignment::Center,
         ),
         canvas,
@@ -188,7 +188,7 @@ pub fn draw_dfu_failed(
         &Text::with_alignment(
             &detail,
             Point::new(120, 145),
-            MonoTextStyle::new(&FONT_6X10, theme::TEXT),
+            hint_text(theme::TEXT, theme::BACKGROUND),
             Alignment::Center,
         ),
         canvas,
@@ -199,7 +199,7 @@ pub fn draw_dfu_failed(
         &Text::with_alignment(
             "Swipe to dismiss",
             Point::new(120, 190),
-            MonoTextStyle::new(&FONT_6X10, theme::ACCENT),
+            hint_text(theme::ACCENT, theme::BACKGROUND),
             Alignment::Center,
         ),
         canvas,

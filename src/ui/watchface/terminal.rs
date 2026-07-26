@@ -3,7 +3,6 @@
 use core::fmt::Write;
 
 use embedded_graphics::{
-    mono_font::{MonoTextStyle, ascii::FONT_10X20},
     pixelcolor::Rgb565,
     prelude::*,
     primitives::{PrimitiveStyle, Rectangle},
@@ -12,6 +11,7 @@ use heapless::String;
 use pineforge_state::{HeartRateState, NotificationCategory, WatchField, WatchFields, WatchState};
 
 use crate::ui::canvas::{Canvas, CanvasError};
+use crate::ui::font::ui_text;
 use crate::ui::{
     render::draw_mono_text_visible,
     watchface::{
@@ -160,7 +160,7 @@ impl Watchface for TerminalWatchface {
         SCREEN_AREA
             .into_styled(PrimitiveStyle::with_fill(Rgb565::BLACK))
             .draw(canvas)?;
-        let prompt = MonoTextStyle::new(&FONT_10X20, LIGHT_GRAY);
+        let prompt = ui_text(LIGHT_GRAY, Rgb565::BLACK);
         draw_mono_text_visible("user@watch:~ $ now", Point::new(0, 20), prompt, canvas)?;
         keep_alive();
 

@@ -6,7 +6,6 @@
 use core::fmt::Write;
 
 use embedded_graphics::{
-    mono_font::{MonoTextStyle, ascii::FONT_10X20},
     pixelcolor::Rgb565,
     prelude::*,
     primitives::{PrimitiveStyle, Rectangle},
@@ -15,12 +14,17 @@ use heapless::String;
 use pineforge_state::{BleState, CalendarDate};
 
 use crate::ui::canvas::{Canvas, CanvasError};
+use crate::ui::font::{JETBRAINS_MONO_10X22, ui_text};
 use crate::ui::render::draw_mono_text_visible;
 
 pub const ROW_HEIGHT: u32 = 25;
 const VALUE_X: i32 = 70;
-/// Advance of `FONT_10X20`, used to place partial value redraws by character.
-const GLYPH_WIDTH: i32 = 10;
+/// Advance of the UI face, used to place partial value redraws by character.
+///
+/// Read from the font rather than written out, so a later change of face moves
+/// the redraw boundaries with it instead of silently shifting them off the
+/// glyphs they are meant to land between.
+const GLYPH_WIDTH: i32 = JETBRAINS_MONO_10X22.cell.width.cast_signed();
 /// Baseline of a row's text, measured from its top edge.
 const BASELINE_OFFSET: i32 = 20;
 
@@ -115,8 +119,8 @@ pub fn draw(
     value_color: Rgb565,
 ) -> Result<(), CanvasError> {
     let baseline = area.top_left.y + BASELINE_OFFSET;
-    let label_style = MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE);
-    let value_style = MonoTextStyle::new(&FONT_10X20, value_color);
+    let label_style = ui_text(Rgb565::WHITE, Rgb565::BLACK);
+    let value_style = ui_text(value_color, Rgb565::BLACK);
     draw_mono_text_visible(label, Point::new(0, baseline), label_style, canvas)?;
     draw_mono_text_visible(value, Point::new(VALUE_X, baseline), value_style, canvas)?;
 
@@ -149,7 +153,7 @@ pub fn draw_changed_value(
         return Ok(());
     }
 
-    let style = MonoTextStyle::new(&FONT_10X20, color);
+    let style = ui_text(color, Rgb565::BLACK);
     let x = VALUE_X + i32::try_from(first_changed).unwrap_or(0) * GLYPH_WIDTH;
     draw_mono_text_visible(
         &new[first_changed..],
