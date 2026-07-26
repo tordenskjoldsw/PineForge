@@ -8,6 +8,8 @@ milestone should leave the sealed PineTime in a testable and recoverable state.
 - `v0.1.0`: released experimental OTA proof of concept
 - `v0.2.0`: released platform foundation — state-owned product policy, side
   button as back button, persistent BLE pairing
+- `v0.2.1`: released gesture and memory fixes — a gesture consumes its own
+  touch, and static RAM meets its design target
 - `v0.3.0`: the navigation shell v0.2.0 shipped without — application launcher,
   quick settings, and the two acceptance criteria carried forward with them
 

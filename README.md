@@ -25,8 +25,10 @@ hardware.
 `v0.2.0` turns that bring-up into a platform: product policy moved into a
 host-tested state crate, the side button became the back button once a software
 restart existed to replace it as the recovery path, and BLE pairings survive
-reboots and updates. Its launcher and quick-settings screens are still
-outstanding — see [`docs/releases/v0.2.0.md`](docs/releases/v0.2.0.md).
+reboots and updates. `v0.2.1` follows with a gesture no longer activating the
+control under the finger, and static RAM inside its design target. The launcher
+and quick-settings screens are still outstanding — see
+[`docs/releases/v0.2.1.md`](docs/releases/v0.2.1.md).
 
 That successful test does **not** establish general safety across PineTime
 hardware revisions, bootloader versions, phones, or future images. Expect
