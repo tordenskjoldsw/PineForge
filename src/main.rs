@@ -80,7 +80,7 @@ async fn main(spawner: embassy_executor::Spawner) {
     };
     let button_enable = Output::new(button.enable, Level::High, OutputDrive::Standard);
     let button_input = Input::new(button.input, Pull::Down);
-    spawner.spawn(defmt::unwrap!(boot::rollback::side_button(
+    spawner.spawn(defmt::unwrap!(tasks::button::run(
         button_input,
         button_enable
     )));

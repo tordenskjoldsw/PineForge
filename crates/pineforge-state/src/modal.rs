@@ -210,6 +210,29 @@ mod tests {
     }
 
     #[test]
+    fn the_back_button_dismisses_only_what_a_swipe_dismisses() {
+        let mut modals = ModalState::new();
+        let _ = modals.handle(AppEvent::BleUpdated(BleState::Pairing(123_456)));
+        // The button is an input like any other, so it cannot cancel a prompt
+        // that is still waiting on the phone.
+        assert_eq!(
+            modals.handle(AppEvent::BackPressed),
+            ModalOutcome::Suppressed
+        );
+
+        let _ = modals.handle(AppEvent::BleUpdated(BleState::DfuFailed(
+            DfuFailReason::EraseFailed,
+        )));
+        // The terminal failure screen is the one a user may close, and the
+        // press is consumed there instead of also popping the screen behind.
+        assert_eq!(
+            modals.handle(AppEvent::BackPressed),
+            ModalOutcome::Dismissed { deliver: false }
+        );
+        assert_eq!(modals.current(), None);
+    }
+
+    #[test]
     fn a_format_outranks_the_modals_that_start_behind_it() {
         let mut modals = ModalState::new();
         assert_eq!(

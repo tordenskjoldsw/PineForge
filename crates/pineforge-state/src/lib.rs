@@ -485,6 +485,12 @@ pub enum AppEvent {
         pressed: bool,
     },
     Swipe(SwipeDirection),
+    /// The user asked to leave the active screen.
+    ///
+    /// The side button raises this, but nothing about it is a button: the back
+    /// gesture keeps working, and a screen with an on-screen back control
+    /// returns [`ScreenAction::Back`] to the same effect.
+    BackPressed,
     Tick {
         uptime_seconds: u64,
         wall_time: Option<WallTime>,
@@ -517,7 +523,10 @@ pub enum AppEvent {
 impl AppEvent {
     #[must_use]
     pub const fn is_user_activity(self) -> bool {
-        matches!(self, Self::Touch { .. } | Self::Swipe(_))
+        matches!(
+            self,
+            Self::Touch { .. } | Self::Swipe(_) | Self::BackPressed
+        )
     }
 }
 
@@ -876,6 +885,16 @@ impl AppState {
         AppEffect::None
     }
 
+    /// Leaves the active screen without a gesture behind it.
+    ///
+    /// This is the side button's entire contribution to navigation: the same
+    /// pop the back gesture performs, so no screen can tell the two apart. The
+    /// root absorbs it, which is what makes the button safe to press anywhere -
+    /// it never leaves the user on nothing.
+    pub fn back(&mut self) -> AppEffect {
+        self.pop()
+    }
+
     /// Applies a high-level action returned by the active screen.
     pub fn transition(&mut self, action: ScreenAction) -> AppEffect {
         match action {
@@ -1184,6 +1203,50 @@ mod tests {
             AppEffect::Navigate(Navigation::backward(SwipeDirection::Left))
         );
         assert_eq!(app.active_screen(), ScreenId::Watchface);
+    }
+
+    #[test]
+    fn the_button_leaves_a_screen_the_way_its_gesture_would() {
+        let mut app = AppState::new(ScreenId::Watchface);
+        let _ = app.navigate(SwipeDirection::Right);
+        assert_eq!(app.active_screen(), ScreenId::Firmware);
+
+        // The screen was opened by a swipe right, so it leaves to the left -
+        // pressing the button looks exactly like swiping it away.
+        assert_eq!(
+            app.back(),
+            AppEffect::Navigate(Navigation::backward(SwipeDirection::Left))
+        );
+        assert_eq!(app.active_screen(), ScreenId::Watchface);
+    }
+
+    #[test]
+    fn the_button_also_leaves_a_screen_no_gesture_can_leave() {
+        let mut app = AppState::new(ScreenId::Watchface);
+        let _ = app.transition(ScreenAction::Push(ScreenId::DisplaySettings));
+
+        // Nothing opened it by gesture, so before the button this screen could
+        // only be left by an on-screen control.
+        assert_eq!(
+            app.back(),
+            AppEffect::Navigate(Navigation::backward(
+                Navigation::DEFAULT_FORWARD_MOTION.opposite(),
+            ))
+        );
+        assert_eq!(app.active_screen(), ScreenId::Watchface);
+    }
+
+    #[test]
+    fn the_root_absorbs_the_button() {
+        let mut app = AppState::new(ScreenId::Watchface);
+
+        assert_eq!(app.back(), AppEffect::None);
+        assert_eq!(app.active_screen(), ScreenId::Watchface);
+    }
+
+    #[test]
+    fn the_button_renews_the_idle_timer_like_any_other_input() {
+        assert!(AppEvent::BackPressed.is_user_activity());
     }
 
     #[test]

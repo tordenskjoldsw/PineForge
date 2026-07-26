@@ -2,6 +2,7 @@ pub mod accelerometer;
 pub mod battery;
 #[cfg(feature = "ble")]
 pub mod ble;
+pub mod button;
 pub mod display;
 pub mod heart_rate;
 pub mod input;

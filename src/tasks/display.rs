@@ -352,12 +352,14 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
 
         // Navigation resolves against the contract first. A swipe that leads
         // nowhere still belongs to the screen, which may use it for its own
-        // content.
+        // content; a back press that leads nowhere is at the root and is simply
+        // absorbed, so it never reaches a screen as content.
         let effect = match event {
             AppEvent::Swipe(direction) => match app.navigate(direction) {
                 AppEffect::None => app.transition(screens.handle(app.active_screen(), event)),
                 navigated => navigated,
             },
+            AppEvent::BackPressed => app.back(),
             _ => app.transition(screens.handle(app.active_screen(), event)),
         };
 
