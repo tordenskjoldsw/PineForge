@@ -11,7 +11,10 @@ mod ppg;
 pub use ppg::{PpgAnalysis, PpgProcessor};
 
 mod bond;
-pub use bond::{BOND_PAYLOAD_MAX, BOND_RECORD_LEN, frame_bond, parse_bond};
+pub use bond::{
+    BOND_PAYLOAD_MAX, BOND_RECORD_LEN, BOND_SCHEMA_LEN, BondRecord, bond_schema_tag, frame_bond,
+    parse_bond,
+};
 
 mod clock;
 pub use clock::{CalendarDate, WallClockReference, WallTime, parse_cts};

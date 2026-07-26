@@ -51,6 +51,18 @@ The BLE bond sector holds one CRC32-checked record with the serialized bond
 keys, so a paired phone reconnects across reboots without re-pairing. A
 corrupt or missing record simply falls back to re-pairing.
 
+The keys themselves are laid out by the BLE stack, not by `PineForge`, so the
+record also carries a 16-byte tag naming the layout it was written with.
+`build.rs` derives that tag from the locked `trouble-host` version and emits it
+as `PINEFORGE_BOND_SCHEMA`; a record whose tag differs is discarded in favour of
+re-pairing. Without the tag, a firmware update that changed the layout would
+read the old bytes as a valid record — `postcard` is not self-describing, so a
+same-length change deserializes into plausible nonsense — and install keys the
+phone cannot use, which on Android needs a manual unpair to escape. Records
+written before the tag existed (container version 1) are accepted only while the
+build still uses the layout they were written with, which stops being true by
+itself as soon as the dependency moves.
+
 ## Settings record
 
 Each slot holds one 32-byte record (defined in

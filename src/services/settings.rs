@@ -12,8 +12,8 @@ use pineforge_state::{
     AppEvent, BOND_RECORD_LEN, DFU_SLOT_SIZE, DfuFailReason, DisplaySettings, SETTINGS_RECORD_LEN,
     STORAGE_BASE, STORAGE_DATA_SECTOR_COUNT, STORAGE_FORMAT_VERSION, STORAGE_HEADER_LEN,
     STORAGE_PROGRESS_OFFSET, STORAGE_READY_HEADER_OFFSET, STORAGE_SECTOR_SIZE, SettingsSlot,
-    StorageHeader, StorageState, decode_storage_header, encode_storage_header, frame_bond,
-    parse_bond, select_slot, storage_header_version,
+    StorageHeader, StorageState, bond_schema_tag, decode_storage_header, encode_storage_header,
+    frame_bond, parse_bond, select_slot, storage_header_version,
 };
 
 use crate::{
@@ -96,6 +96,18 @@ const DFU_SLOT_BASE: u32 = 0x0004_0000;
 /// Collapses bursts of preset cycling into a single flash write.
 const PERSIST_DEBOUNCE: Duration = Duration::from_secs(2);
 
+/// Names the serialized bond layout this build reads and writes.
+///
+/// `build.rs` derives it from the locked BLE stack version, so an update that
+/// changes the layout changes the tag without anyone remembering to.
+const BOND_SCHEMA: &str = env!("PINEFORGE_BOND_SCHEMA");
+/// The layout that records written before tagging carry implicitly.
+///
+/// Such a record is only trustworthy while this build still reads that same
+/// layout - which stops being true by itself as soon as `BOND_SCHEMA` moves,
+/// and then the record is discarded in favour of re-pairing.
+const UNTAGGED_BOND_SCHEMA: &str = "0.7.0";
+
 const fn slot_address(slot: SettingsSlot) -> u32 {
     match slot {
         SettingsSlot::A => SETTINGS_SLOT_A_ADDRESS,
@@ -112,7 +124,20 @@ fn read_slot(flash: &mut Xt25f32<FlashSpi>, slot: SettingsSlot) -> Option<(Displ
 fn read_bond(flash: &mut Xt25f32<FlashSpi>) -> Option<StoredBond> {
     let mut record = [0_u8; BOND_RECORD_LEN];
     flash.read(BOND_ADDRESS, &mut record).ok()?;
-    parse_bond(&record)
+    let stored = parse_bond(&record)?;
+
+    // The record is intact; the question is whether its bytes still mean what
+    // this build would read them to mean. Installing keys decoded under the
+    // wrong layout would leave the phone believing in a bond the watch cannot
+    // honour, which is worse than pairing again.
+    match stored.schema {
+        Some(schema) if bond_schema_tag(BOND_SCHEMA) == Some(schema) => Some(stored.payload),
+        None if BOND_SCHEMA == UNTAGGED_BOND_SCHEMA => Some(stored.payload),
+        _ => {
+            warn!("Stored bond was written for another BLE layout; re-pairing");
+            None
+        }
+    }
 }
 
 /// Maps a low-level flash error to the on-screen DFU failure reason,
@@ -278,7 +303,9 @@ pub async fn run(spi: FlashSpi, watchdog: BootloaderWatchdog) {
                 if !writable {
                     continue;
                 }
-                let Some(record) = frame_bond(&payload) else {
+                let Some(record) =
+                    bond_schema_tag(BOND_SCHEMA).and_then(|schema| frame_bond(schema, &payload))
+                else {
                     warn!("Bond payload too large to persist");
                     continue;
                 };
