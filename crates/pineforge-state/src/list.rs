@@ -228,6 +228,13 @@ impl<const N: usize> ListSlots<N> {
         match event {
             AppEvent::Swipe(direction) => self.turn_page(direction),
             AppEvent::Touch { pressed, .. } => self.touch(event, pressed),
+            AppEvent::TouchCancelled => {
+                if self.pressed.is_none() {
+                    return ListOutcome::None;
+                }
+                self.release();
+                ListOutcome::Redraw
+            }
             _ => ListOutcome::None,
         }
     }
@@ -524,6 +531,27 @@ mod tests {
                 y: SLOT_HEIGHT + 2,
                 pressed: false,
             }),
+            ListOutcome::None
+        );
+    }
+
+    #[test]
+    fn a_gesture_takes_its_touch_with_it() {
+        let mut slots = ListSlots::new(rows(), PageAxis::Vertical, 6);
+        let [press, release] = tap(1);
+        let _ = slots.handle_event(press);
+
+        // The swipe was recognised while the finger was still inside slot 1, and
+        // the minimum swipe distance fits inside a row - so without the cancel
+        // the release below would choose entry 1.
+        assert_eq!(
+            slots.handle_event(AppEvent::TouchCancelled),
+            ListOutcome::Redraw
+        );
+        assert_eq!(slots.slot_state(1), Some(ButtonState::Idle));
+        assert_eq!(slots.handle_event(release), ListOutcome::None);
+        assert_eq!(
+            slots.handle_event(AppEvent::TouchCancelled),
             ListOutcome::None
         );
     }

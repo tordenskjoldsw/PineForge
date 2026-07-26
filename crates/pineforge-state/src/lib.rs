@@ -491,6 +491,14 @@ pub enum AppEvent {
         pressed: bool,
     },
     Swipe(SwipeDirection),
+    /// The touch in flight turned out to be a gesture, so whoever was tracking
+    /// it must drop it without acting on it.
+    ///
+    /// A swipe of the minimum distance still fits inside one menu row, so the
+    /// release that ends the gesture would otherwise land inside the control the
+    /// finger started on and activate it. The gesture consumes its own touch,
+    /// the same way a modal consumes the input that dismisses it.
+    TouchCancelled,
     /// The user asked to leave the active screen.
     ///
     /// The side button raises this, but nothing about it is a button: the back
@@ -784,6 +792,15 @@ impl Button {
     }
 
     pub fn handle_event(&mut self, event: AppEvent) -> ButtonOutcome {
+        if event == AppEvent::TouchCancelled {
+            // Not an activation: the press is abandoned exactly as if the finger
+            // had been dragged out of the button.
+            if self.state != ButtonState::Pressed {
+                return ButtonOutcome::None;
+            }
+            self.state = ButtonState::Idle;
+            return ButtonOutcome::Redraw;
+        }
         let AppEvent::Touch { x, y, pressed } = event else {
             return ButtonOutcome::None;
         };
@@ -1430,6 +1447,37 @@ mod tests {
             ButtonOutcome::Redraw
         );
         assert_eq!(button.state(), ButtonState::Idle);
+    }
+
+    #[test]
+    fn a_cancelled_touch_abandons_the_press_without_activating() {
+        let mut button = Button::new(ButtonBounds::new(10, 20, 100, 40));
+        let _ = button.handle_event(AppEvent::Touch {
+            x: 20,
+            y: 30,
+            pressed: true,
+        });
+
+        assert_eq!(
+            button.handle_event(AppEvent::TouchCancelled),
+            ButtonOutcome::Redraw
+        );
+        assert_eq!(button.state(), ButtonState::Idle);
+        // The release that ends the gesture arrives inside the button and must
+        // find nothing left to activate.
+        assert_eq!(
+            button.handle_event(AppEvent::Touch {
+                x: 20,
+                y: 30,
+                pressed: false,
+            }),
+            ButtonOutcome::None
+        );
+        // A cancel with no press in flight is not a redraw either.
+        assert_eq!(
+            button.handle_event(AppEvent::TouchCancelled),
+            ButtonOutcome::None
+        );
     }
 
     #[test]
