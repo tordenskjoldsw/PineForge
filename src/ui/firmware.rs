@@ -73,7 +73,7 @@ impl Paint for FirmwareScreen {
         canvas: &mut Canvas<'_>,
         keep_alive: &mut dyn FnMut(),
     ) -> Result<(), CanvasError> {
-        menu::draw(&MENU, &self.values(), canvas, keep_alive)
+        menu::draw(&MENU, self.menu.list(), &self.values(), canvas, keep_alive)
     }
 }
 
@@ -92,7 +92,7 @@ impl Screen for FirmwareScreen {
         keep_alive: &mut dyn FnMut(),
     ) -> Result<(), CanvasError> {
         if self.menu.is_dirty() {
-            menu::draw_rows(&MENU, &self.values(), canvas, keep_alive)?;
+            menu::draw_rows(&MENU, self.menu.list(), &self.values(), canvas, keep_alive)?;
         }
         Ok(())
     }

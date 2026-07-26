@@ -88,7 +88,13 @@ impl Paint for DisplaySettingsScreen {
         keep_alive: &mut dyn FnMut(),
     ) -> Result<(), CanvasError> {
         let formatted = self.formatted();
-        menu::draw(&MENU, &self.values(&formatted), canvas, keep_alive)
+        menu::draw(
+            &MENU,
+            self.menu.list(),
+            &self.values(&formatted),
+            canvas,
+            keep_alive,
+        )
     }
 }
 
@@ -132,7 +138,13 @@ impl Screen for DisplaySettingsScreen {
     ) -> Result<(), CanvasError> {
         if self.menu.is_dirty() {
             let formatted = self.formatted();
-            menu::draw_rows(&MENU, &self.values(&formatted), canvas, keep_alive)?;
+            menu::draw_rows(
+                &MENU,
+                self.menu.list(),
+                &self.values(&formatted),
+                canvas,
+                keep_alive,
+            )?;
         }
         Ok(())
     }
