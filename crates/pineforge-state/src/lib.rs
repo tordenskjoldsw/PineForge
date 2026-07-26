@@ -36,8 +36,10 @@ pub use notification::{
 
 mod settings;
 pub use settings::{
-    BRIGHTNESS_LEVELS, DIM_TIMEOUTS_MILLIS, DecodeError, DisplaySettings, OFF_TIMEOUTS_MILLIS,
-    SETTINGS_RECORD_LEN, SettingsError, SettingsSlot, SlotDecision, crc32, select_slot,
+    BRIGHTNESS_LEVELS, BRIGHTNESS_NAMES, DIM_TIMEOUT_NAMES, DIM_TIMEOUTS_MILLIS, DecodeError,
+    DisplaySettings, HEART_RATE_ENABLED_NAMES, HEART_RATE_INTERVAL_NAMES,
+    HEART_RATE_INTERVALS_SECONDS, OFF_TIMEOUT_NAMES, OFF_TIMEOUTS_MILLIS, SETTINGS_RECORD_LEN,
+    SettingsError, SettingsSlot, SlotDecision, crc32, select_slot,
 };
 mod watch;
 pub use watch::{WatchField, WatchFields, WatchState};
@@ -507,7 +509,13 @@ pub enum ScreenId {
     /// The application launcher: tiles opening the screens below the root.
     Launcher,
     DisplaySettings,
-    /// Picks the watchface, reached from the display settings.
+    /// Settings leaves, each offering the presets of one setting.
+    Brightness,
+    DimTimeout,
+    OffTimeout,
+    HeartRate,
+    HeartRateInterval,
+    /// Picks the watchface, reached from the settings root.
     WatchfaceSelect,
     /// Firmware confirmation and a software reboot.
     Firmware,

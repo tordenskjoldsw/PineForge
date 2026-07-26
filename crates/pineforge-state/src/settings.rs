@@ -48,6 +48,18 @@ pub const DIM_TIMEOUTS_MILLIS: [u32; 4] = [5_000, 10_000, 20_000, 30_000];
 pub const OFF_TIMEOUTS_MILLIS: [u32; 4] = [10_000, 20_000, 30_000, 60_000];
 pub const HEART_RATE_INTERVALS_SECONDS: [u32; 4] = [60, 300, 900, 1_800];
 
+// What a picker calls each preset. The arrays are as long as the presets they
+// name, so adding a value without naming it does not compile - which is the
+// whole reason the names live beside the values rather than in the screen that
+// happens to show them first.
+pub const BRIGHTNESS_NAMES: [&str; BRIGHTNESS_LEVELS.len()] = ["LOW", "MED", "FULL"];
+pub const DIM_TIMEOUT_NAMES: [&str; DIM_TIMEOUTS_MILLIS.len()] = ["5 s", "10 s", "20 s", "30 s"];
+pub const OFF_TIMEOUT_NAMES: [&str; OFF_TIMEOUTS_MILLIS.len()] = ["10 s", "20 s", "30 s", "60 s"];
+pub const HEART_RATE_INTERVAL_NAMES: [&str; HEART_RATE_INTERVALS_SECONDS.len()] =
+    ["1 min", "5 min", "15 min", "30 min"];
+/// A toggle is a picker of two, so it is named like every other preset.
+pub const HEART_RATE_ENABLED_NAMES: [&str; 2] = ["OFF", "ON"];
+
 const MIN_BRIGHTNESS: u8 = 1;
 const MAX_BRIGHTNESS: u8 = 7;
 
@@ -204,6 +216,73 @@ impl DisplaySettings {
         }
         Self {
             off_after_millis,
+            ..self
+        }
+    }
+
+    /// Sets brightness to a preset, ignoring a level that is not one.
+    ///
+    /// Refusing an unknown value rather than storing it keeps the encoded
+    /// record inside what `decode` will accept back.
+    #[must_use]
+    pub fn with_brightness(self, brightness: u8) -> Self {
+        if BRIGHTNESS_LEVELS.contains(&brightness) {
+            Self { brightness, ..self }
+        } else {
+            self
+        }
+    }
+
+    /// Sets the dim timeout, pushing the off timeout out if it would no longer
+    /// be strictly later - the same invariant `cycle_dim_timeout` maintains.
+    #[must_use]
+    pub fn with_dim_timeout(self, dim_after_millis: u32) -> Self {
+        if !DIM_TIMEOUTS_MILLIS.contains(&dim_after_millis) {
+            return self;
+        }
+        let off_after_millis = if self.off_after_millis > dim_after_millis {
+            self.off_after_millis
+        } else {
+            smallest_preset_above(&OFF_TIMEOUTS_MILLIS, dim_after_millis)
+        };
+        Self {
+            dim_after_millis,
+            off_after_millis,
+            ..self
+        }
+    }
+
+    /// Sets the off timeout, refusing one that is not strictly later than
+    /// dimming: the screen would go dark before it dimmed.
+    #[must_use]
+    pub fn with_off_timeout(self, off_after_millis: u32) -> Self {
+        if !OFF_TIMEOUTS_MILLIS.contains(&off_after_millis)
+            || off_after_millis <= self.dim_after_millis
+        {
+            return self;
+        }
+        Self {
+            off_after_millis,
+            ..self
+        }
+    }
+
+    #[must_use]
+    pub fn with_heart_rate_interval(self, heart_rate_interval_seconds: u32) -> Self {
+        if HEART_RATE_INTERVALS_SECONDS.contains(&heart_rate_interval_seconds) {
+            Self {
+                heart_rate_interval_seconds,
+                ..self
+            }
+        } else {
+            self
+        }
+    }
+
+    #[must_use]
+    pub const fn with_heart_rate_enabled(self, heart_rate_enabled: bool) -> Self {
+        Self {
+            heart_rate_enabled,
             ..self
         }
     }
@@ -387,6 +466,75 @@ pub const fn select_slot(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_preset_without_a_name_would_not_compile() {
+        // The assertions are the array lengths themselves; this only pins the
+        // pairing, which the lengths cannot check.
+        assert_eq!(BRIGHTNESS_NAMES[0], "LOW");
+        assert_eq!(DIM_TIMEOUT_NAMES.len(), DIM_TIMEOUTS_MILLIS.len());
+        assert_eq!(OFF_TIMEOUT_NAMES.len(), OFF_TIMEOUTS_MILLIS.len());
+        assert_eq!(
+            HEART_RATE_INTERVAL_NAMES.len(),
+            HEART_RATE_INTERVALS_SECONDS.len()
+        );
+    }
+
+    #[test]
+    fn setting_a_value_that_is_not_a_preset_changes_nothing() {
+        let settings = DisplaySettings::DEFAULT;
+
+        assert_eq!(settings.with_brightness(2), settings);
+        assert_eq!(settings.with_dim_timeout(7_000), settings);
+        assert_eq!(settings.with_off_timeout(7_000), settings);
+        assert_eq!(settings.with_heart_rate_interval(42), settings);
+    }
+
+    #[test]
+    fn dimming_later_than_the_screen_turns_off_pushes_the_off_timeout_out() {
+        let settings = DisplaySettings::DEFAULT
+            .with_dim_timeout(5_000)
+            .with_off_timeout(10_000);
+        assert_eq!(settings.dim_after_millis(), 5_000);
+        assert_eq!(settings.off_after_millis(), 10_000);
+
+        // Dimming at 30 s cannot stand with the screen off at 10 s.
+        let pushed = settings.with_dim_timeout(30_000);
+        assert_eq!(pushed.dim_after_millis(), 30_000);
+        assert!(pushed.off_after_millis() > 30_000);
+    }
+
+    #[test]
+    fn the_screen_cannot_be_set_to_turn_off_before_it_dims() {
+        let settings = DisplaySettings::DEFAULT.with_dim_timeout(30_000);
+        let dim = settings.dim_after_millis();
+
+        for off in OFF_TIMEOUTS_MILLIS {
+            let updated = settings.with_off_timeout(off);
+            assert!(
+                updated.off_after_millis() > dim,
+                "off {off} was accepted against dim {dim}"
+            );
+        }
+    }
+
+    #[test]
+    fn every_preset_survives_being_set_and_read_back() {
+        for level in BRIGHTNESS_LEVELS {
+            assert_eq!(
+                DisplaySettings::DEFAULT.with_brightness(level).brightness(),
+                level
+            );
+        }
+        for interval in HEART_RATE_INTERVALS_SECONDS {
+            assert_eq!(
+                DisplaySettings::DEFAULT
+                    .with_heart_rate_interval(interval)
+                    .heart_rate_interval_seconds(),
+                interval
+            );
+        }
+    }
     use crate::WATCHFACES;
 
     #[test]

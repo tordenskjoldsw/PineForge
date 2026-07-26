@@ -12,6 +12,7 @@ pub mod render;
 #[cfg(feature = "ui-animations")]
 pub mod scratch;
 pub mod screen;
+pub mod setting_picker;
 pub mod settings;
 pub mod status;
 #[cfg(feature = "diagnostics")]

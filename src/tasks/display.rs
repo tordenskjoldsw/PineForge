@@ -26,6 +26,7 @@ use crate::{
         launcher::LauncherScreen,
         pairing::draw_pairing,
         screen::{Paint, Screen},
+        setting_picker::{SETTINGS, Setting, SettingPickerScreen},
         settings::DisplaySettingsScreen,
         status::{StatusCorner, WithStatus, wears_status},
         watchface::WatchfaceScreen,
@@ -60,22 +61,56 @@ struct Screens {
     launcher: LauncherScreen,
     settings: DisplaySettingsScreen,
     watchface_select: WatchfaceSelectScreen,
+    /// One picker per setting, in `SETTINGS` order.
+    pickers: [SettingPickerScreen; SETTINGS.len()],
     firmware: FirmwareScreen,
     #[cfg(feature = "diagnostics")]
     touch_test: TestScreen,
 }
 
 impl Screens {
-    fn handle(&mut self, active: ScreenId, event: AppEvent) -> ScreenAction {
+    /// The screen the navigation state says is active.
+    ///
+    /// One place naming every screen, rather than one per operation. `Screen`
+    /// is object-safe since screens stopped being generic over their draw
+    /// target, so adding a screen is an arm here and an arm in the mutable
+    /// twin below - not an arm in every match that touches screens.
+    fn active(&self, active: ScreenId) -> &dyn Screen {
         match active {
-            ScreenId::Watchface => self.watchface.handle_event(event),
-            ScreenId::Launcher => self.launcher.handle_event(event),
-            ScreenId::DisplaySettings => self.settings.handle_event(event),
-            ScreenId::WatchfaceSelect => self.watchface_select.handle_event(event),
-            ScreenId::Firmware => self.firmware.handle_event(event),
+            ScreenId::Watchface => &self.watchface,
+            ScreenId::Launcher => &self.launcher,
+            ScreenId::DisplaySettings => &self.settings,
+            ScreenId::WatchfaceSelect => &self.watchface_select,
+            ScreenId::Firmware => &self.firmware,
+            ScreenId::Brightness => &self.pickers[Setting::Brightness.index()],
+            ScreenId::DimTimeout => &self.pickers[Setting::DimTimeout.index()],
+            ScreenId::OffTimeout => &self.pickers[Setting::OffTimeout.index()],
+            ScreenId::HeartRate => &self.pickers[Setting::HeartRate.index()],
+            ScreenId::HeartRateInterval => &self.pickers[Setting::HeartRateInterval.index()],
             #[cfg(feature = "diagnostics")]
-            ScreenId::TouchTest => self.touch_test.handle_event(event),
+            ScreenId::TouchTest => &self.touch_test,
         }
+    }
+
+    fn active_mut(&mut self, active: ScreenId) -> &mut dyn Screen {
+        match active {
+            ScreenId::Watchface => &mut self.watchface,
+            ScreenId::Launcher => &mut self.launcher,
+            ScreenId::DisplaySettings => &mut self.settings,
+            ScreenId::WatchfaceSelect => &mut self.watchface_select,
+            ScreenId::Firmware => &mut self.firmware,
+            ScreenId::Brightness => &mut self.pickers[Setting::Brightness.index()],
+            ScreenId::DimTimeout => &mut self.pickers[Setting::DimTimeout.index()],
+            ScreenId::OffTimeout => &mut self.pickers[Setting::OffTimeout.index()],
+            ScreenId::HeartRate => &mut self.pickers[Setting::HeartRate.index()],
+            ScreenId::HeartRateInterval => &mut self.pickers[Setting::HeartRateInterval.index()],
+            #[cfg(feature = "diagnostics")]
+            ScreenId::TouchTest => &mut self.touch_test,
+        }
+    }
+
+    fn handle(&mut self, active: ScreenId, event: AppEvent) -> ScreenAction {
+        self.active_mut(active).handle_event(event)
     }
 
     /// Paints a screen and, unless it is a watchface, the status corner over
@@ -88,24 +123,11 @@ impl Screens {
         canvas: &mut Canvas<'_>,
         keep_alive: &mut dyn FnMut(),
     ) -> Result<(), CanvasError> {
-        match active {
-            ScreenId::Watchface => self.watchface.draw_full(canvas, keep_alive),
-            ScreenId::Launcher => {
-                WithStatus::new(&self.launcher, status).draw_full(canvas, keep_alive)
-            }
-            ScreenId::DisplaySettings => {
-                WithStatus::new(&self.settings, status).draw_full(canvas, keep_alive)
-            }
-            ScreenId::WatchfaceSelect => {
-                WithStatus::new(&self.watchface_select, status).draw_full(canvas, keep_alive)
-            }
-            ScreenId::Firmware => {
-                WithStatus::new(&self.firmware, status).draw_full(canvas, keep_alive)
-            }
-            #[cfg(feature = "diagnostics")]
-            ScreenId::TouchTest => {
-                WithStatus::new(&self.touch_test, status).draw_full(canvas, keep_alive)
-            }
+        let screen = self.active(active);
+        if wears_status(active) {
+            WithStatus::new(screen, status).draw_full(canvas, keep_alive)
+        } else {
+            screen.draw_full(canvas, keep_alive)
         }
     }
 
@@ -115,15 +137,7 @@ impl Screens {
         canvas: &mut Canvas<'_>,
         keep_alive: &mut dyn FnMut(),
     ) -> Result<(), CanvasError> {
-        match active {
-            ScreenId::Watchface => self.watchface.draw_dirty(canvas, keep_alive),
-            ScreenId::Launcher => self.launcher.draw_dirty(canvas, keep_alive),
-            ScreenId::DisplaySettings => self.settings.draw_dirty(canvas, keep_alive),
-            ScreenId::WatchfaceSelect => self.watchface_select.draw_dirty(canvas, keep_alive),
-            ScreenId::Firmware => self.firmware.draw_dirty(canvas, keep_alive),
-            #[cfg(feature = "diagnostics")]
-            ScreenId::TouchTest => self.touch_test.draw_dirty(canvas, keep_alive),
-        }
+        self.active(active).draw_dirty(canvas, keep_alive)
     }
 }
 
@@ -185,6 +199,7 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
         launcher: LauncherScreen::default(),
         settings: DisplaySettingsScreen::default(),
         watchface_select: WatchfaceSelectScreen::default(),
+        pickers: SETTINGS.map(SettingPickerScreen::new),
         firmware: FirmwareScreen::default(),
         #[cfg(feature = "diagnostics")]
         touch_test: TestScreen::default(),
@@ -465,78 +480,46 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                 #[cfg(not(feature = "ui-animations"))]
                 let _ = navigation;
                 #[cfg(feature = "ui-animations")]
-                match app.active_screen() {
-                    ScreenId::Watchface => {
-                        let result = draw_slide_reveal(
-                            &screens.watchface,
-                            &mut display,
-                            ui_scratch,
-                            navigation,
-                            &mut || watchdog.pet(),
-                        );
-                        #[cfg(feature = "diagnostics")]
-                        if let Ok(metrics) = result {
-                            screens
-                                .touch_test
-                                .record_transition(navigation.direction, metrics);
+                {
+                    let active = app.active_screen();
+                    // The borrow ends with the block so the metrics below can
+                    // take the screens mutably.
+                    let result = {
+                        let screen = screens.active(active);
+                        if wears_status(active) {
+                            draw_slide_reveal(
+                                &WithStatus::new(screen, &status),
+                                &mut display,
+                                ui_scratch,
+                                navigation,
+                                &mut || watchdog.pet(),
+                            )
+                        } else {
+                            draw_slide_reveal(
+                                screen,
+                                &mut display,
+                                ui_scratch,
+                                navigation,
+                                &mut || watchdog.pet(),
+                            )
                         }
-                        #[cfg(not(feature = "diagnostics"))]
-                        let _ = result;
-                    }
-                    ScreenId::Launcher => {
-                        let _ = draw_slide_reveal(
-                            &WithStatus::new(&screens.launcher, &status),
-                            &mut display,
-                            ui_scratch,
-                            navigation,
-                            &mut || watchdog.pet(),
-                        );
-                    }
-                    ScreenId::DisplaySettings => {
-                        let _ = draw_slide_reveal(
-                            &WithStatus::new(&screens.settings, &status),
-                            &mut display,
-                            ui_scratch,
-                            navigation,
-                            &mut || watchdog.pet(),
-                        );
-                    }
-                    ScreenId::WatchfaceSelect => {
-                        let _ = draw_slide_reveal(
-                            &WithStatus::new(&screens.watchface_select, &status),
-                            &mut display,
-                            ui_scratch,
-                            navigation,
-                            &mut || watchdog.pet(),
-                        );
-                    }
-                    ScreenId::Firmware => {
-                        let _ = draw_slide_reveal(
-                            &WithStatus::new(&screens.firmware, &status),
-                            &mut display,
-                            ui_scratch,
-                            navigation,
-                            &mut || watchdog.pet(),
-                        );
-                    }
+                    };
                     #[cfg(feature = "diagnostics")]
-                    ScreenId::TouchTest => {
-                        if let Ok(metrics) = draw_slide_reveal(
-                            &WithStatus::new(&screens.touch_test, &status),
-                            &mut display,
-                            ui_scratch,
-                            navigation,
-                            &mut || watchdog.pet(),
-                        ) {
-                            screens
-                                .touch_test
-                                .record_transition(navigation.direction, metrics);
+                    if let Ok(metrics) = result {
+                        screens
+                            .touch_test
+                            .record_transition(navigation.direction, metrics);
+                        // The screen that shows the numbers is the one that has
+                        // to be told they changed.
+                        if active == ScreenId::TouchTest {
                             let _ = screens
                                 .touch_test
                                 .draw_metrics(&mut Canvas::new(&mut display));
                             watchdog.pet();
                         }
                     }
+                    #[cfg(not(feature = "diagnostics"))]
+                    let _ = result;
                 }
                 #[cfg(not(feature = "ui-animations"))]
                 let _ = screens.draw_full(

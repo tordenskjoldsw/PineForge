@@ -1,7 +1,11 @@
-use core::fmt::Write;
+//! The settings root: which setting to change, not what to change it to.
+//!
+//! Every row leads to a leaf that offers that setting's presets. Cycling a
+//! value in place was cheaper to build and worse to use - it named one value
+//! and hid the rest, so finding out what a setting could be meant pressing it
+//! until it came round again.
 
-use heapless::String;
-use pineforge_state::{AppEvent, DisplaySettings, ScreenAction, ScreenId};
+use pineforge_state::{AppEvent, ScreenAction, ScreenId};
 
 use crate::ui::canvas::{Canvas, CanvasError};
 use crate::ui::{
@@ -22,11 +26,26 @@ static MENU: Menu = Menu {
     first_row_y: STATUS_HEIGHT + 4,
     row_step: ROW_HEIGHT + 6,
     rows: &[
-        MenuRow::Value { label: "BRIGHT" },
-        MenuRow::Value { label: "DIM" },
-        MenuRow::Value { label: "OFF" },
-        MenuRow::Value { label: "HEART" },
-        MenuRow::Value { label: "HR INT" },
+        MenuRow::Navigate {
+            label: "BRIGHT",
+            target: ScreenId::Brightness,
+        },
+        MenuRow::Navigate {
+            label: "DIM",
+            target: ScreenId::DimTimeout,
+        },
+        MenuRow::Navigate {
+            label: "OFF",
+            target: ScreenId::OffTimeout,
+        },
+        MenuRow::Navigate {
+            label: "HEART",
+            target: ScreenId::HeartRate,
+        },
+        MenuRow::Navigate {
+            label: "HR INT",
+            target: ScreenId::HeartRateInterval,
+        },
         MenuRow::Navigate {
             label: "FACE",
             target: ScreenId::WatchfaceSelect,
@@ -35,63 +54,19 @@ static MENU: Menu = Menu {
     hint: "> back",
 };
 
-/// Rows whose value is formatted rather than picked from a fixed set.
+/// Lists the settings and opens the one that is chosen.
 ///
-/// Held together so the borrowed slice handed to the renderer outlives the
-/// strings it points at.
-#[derive(Default)]
-struct Formatted {
-    dim: String<16>,
-    off: String<16>,
-    interval: String<16>,
-}
-
-/// Adjusts display settings.
+/// It holds no settings of its own: the values live on the leaves that offer
+/// them, so this screen has nothing to redraw when one changes.
 pub struct DisplaySettingsScreen {
-    settings: DisplaySettings,
     menu: MenuState<ROWS_PER_PAGE>,
 }
 
 impl Default for DisplaySettingsScreen {
     fn default() -> Self {
         Self {
-            settings: DisplaySettings::DEFAULT,
             menu: MenuState::new(&MENU),
         }
-    }
-}
-
-impl DisplaySettingsScreen {
-    fn formatted(&self) -> Formatted {
-        let mut values = Formatted::default();
-        let _ = write!(values.dim, "{} s", self.settings.dim_after_millis() / 1_000);
-        let _ = write!(values.off, "{} s", self.settings.off_after_millis() / 1_000);
-        let _ = write!(
-            values.interval,
-            "{} min",
-            self.settings.heart_rate_interval_seconds() / 60
-        );
-        values
-    }
-
-    /// The right-hand column, in row order.
-    fn values<'a>(&self, formatted: &'a Formatted) -> [&'a str; 5] {
-        [
-            // The three cumulative backlight levels (see BRIGHTNESS_LEVELS).
-            match self.settings.brightness() {
-                1 => "LOW",
-                3 => "MED",
-                _ => "FULL",
-            },
-            &formatted.dim,
-            &formatted.off,
-            if self.settings.heart_rate_enabled() {
-                "ON"
-            } else {
-                "OFF"
-            },
-            &formatted.interval,
-        ]
     }
 }
 
@@ -101,11 +76,11 @@ impl Paint for DisplaySettingsScreen {
         canvas: &mut Canvas<'_>,
         keep_alive: &mut dyn FnMut(),
     ) -> Result<(), CanvasError> {
-        let formatted = self.formatted();
+        // Navigation rows carry their own marker, so nothing is supplied.
         menu::draw(
             &MENU,
             self.menu.page(),
-            MenuColumn::Values(&self.values(&formatted)),
+            MenuColumn::Values(&[]),
             canvas,
             keep_alive,
         )
@@ -114,39 +89,10 @@ impl Paint for DisplaySettingsScreen {
 
 impl Screen for DisplaySettingsScreen {
     fn handle_event(&mut self, event: AppEvent) -> ScreenAction {
-        // Handled before the settings branch because this is what clears the
-        // dirty flag: an update carrying unchanged values has to leave the
-        // screen clean, not inherit the previous event's repaint. Rows ignore
-        // anything that is not a touch, so feeding them costs nothing.
-        let chosen = self.menu.handle(&MENU, event);
-
-        if let AppEvent::DisplaySettingsUpdated(settings) = event {
-            if settings != self.settings {
-                self.settings = settings;
-                self.menu.mark_dirty();
-            }
-            return ScreenAction::None;
+        match self.menu.handle(&MENU, event) {
+            MenuOutcome::Navigate(target) => ScreenAction::Push(target),
+            MenuOutcome::Chose(_) | MenuOutcome::None => ScreenAction::None,
         }
-
-        // Row order is the menu's. A row added to the description without a
-        // case here simply does nothing, rather than inheriting its neighbour's
-        // effect the way a positional list of buttons would.
-        if let MenuOutcome::Navigate(target) = chosen {
-            return ScreenAction::Push(target);
-        }
-
-        let updated = match chosen {
-            MenuOutcome::Chose(0) => self.settings.cycle_brightness(),
-            MenuOutcome::Chose(1) => self.settings.cycle_dim_timeout(),
-            MenuOutcome::Chose(2) => self.settings.cycle_off_timeout(),
-            MenuOutcome::Chose(3) => self.settings.toggle_heart_rate(),
-            MenuOutcome::Chose(4) => self.settings.cycle_heart_rate_interval(),
-            _ => return ScreenAction::None,
-        };
-
-        self.settings = updated;
-        self.menu.mark_dirty();
-        ScreenAction::ApplySettings(updated)
     }
 
     fn draw_dirty(
@@ -155,11 +101,10 @@ impl Screen for DisplaySettingsScreen {
         keep_alive: &mut dyn FnMut(),
     ) -> Result<(), CanvasError> {
         if self.menu.is_dirty() {
-            let formatted = self.formatted();
             menu::draw_rows(
                 &MENU,
                 self.menu.page(),
-                MenuColumn::Values(&self.values(&formatted)),
+                MenuColumn::Values(&[]),
                 canvas,
                 keep_alive,
             )?;
