@@ -265,6 +265,34 @@ pub struct BatteryStatus {
     pub power_present: bool,
 }
 
+/// How urgent the battery is, for a status symbol to colour.
+///
+/// The thresholds are product policy and live here rather than in the drawing
+/// code, so the answer is the same wherever charge is shown and can be tested
+/// on a host.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ChargeLevel {
+    Good,
+    Low,
+    Critical,
+}
+
+impl BatteryStatus {
+    /// Charge urgency. Anything on the charger reads as healthy: the number is
+    /// climbing, so warning about it would be noise.
+    #[must_use]
+    pub const fn level(self) -> ChargeLevel {
+        if self.power_present {
+            return ChargeLevel::Good;
+        }
+        match self.percent {
+            0..20 => ChargeLevel::Critical,
+            20..=50 => ChargeLevel::Low,
+            _ => ChargeLevel::Good,
+        }
+    }
+}
+
 /// Directional capacity estimate based on `InfiniTime`'s battery policy.
 ///
 /// Charger terminal voltage must not make capacity fall while externally
@@ -989,6 +1017,28 @@ mod tests {
         assert_eq!(battery_percent(3_878), 64);
         assert_eq!(battery_percent(4_180), 100);
         assert_eq!(battery_percent(4_300), 100);
+    }
+
+    #[test]
+    fn charge_urgency_has_fixed_thresholds() {
+        let at = |percent, power_present| {
+            BatteryStatus {
+                millivolts: 3_800,
+                percent,
+                charging: power_present,
+                power_present,
+            }
+            .level()
+        };
+
+        assert_eq!(at(100, false), ChargeLevel::Good);
+        assert_eq!(at(51, false), ChargeLevel::Good);
+        assert_eq!(at(50, false), ChargeLevel::Low);
+        assert_eq!(at(20, false), ChargeLevel::Low);
+        assert_eq!(at(19, false), ChargeLevel::Critical);
+        assert_eq!(at(0, false), ChargeLevel::Critical);
+        // On the charger the number is climbing, so nothing is urgent.
+        assert_eq!(at(0, true), ChargeLevel::Good);
     }
 
     #[test]

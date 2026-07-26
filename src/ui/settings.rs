@@ -12,14 +12,18 @@ use pineforge_state::{
 
 use crate::ui::{
     render::{ROW_HEIGHT, ROW_WIDTH, ROW_X, draw_mono_text_visible, draw_row},
-    screen::Screen,
+    screen::{Paint, Screen},
+    status::STATUS_HEIGHT,
+    theme,
 };
 
-const BRIGHTNESS_ROW_Y: i32 = 2;
-const DIM_ROW_Y: i32 = 38;
-const OFF_ROW_Y: i32 = 74;
-const HEART_RATE_ROW_Y: i32 = 110;
-const HEART_RATE_INTERVAL_ROW_Y: i32 = 146;
+/// Rows start below the status corner, which every screen but a watchface
+/// carries.
+const BRIGHTNESS_ROW_Y: i32 = STATUS_HEIGHT + 2;
+const DIM_ROW_Y: i32 = BRIGHTNESS_ROW_Y + ROW_HEIGHT + 2;
+const OFF_ROW_Y: i32 = DIM_ROW_Y + ROW_HEIGHT + 2;
+const HEART_RATE_ROW_Y: i32 = OFF_ROW_Y + ROW_HEIGHT + 2;
+const HEART_RATE_INTERVAL_ROW_Y: i32 = HEART_RATE_ROW_Y + ROW_HEIGHT + 2;
 
 /// Adjusts display settings.
 pub struct DisplaySettingsScreen {
@@ -102,6 +106,24 @@ impl DisplaySettingsScreen {
     }
 }
 
+impl Paint for DisplaySettingsScreen {
+    fn draw_full<D>(&self, display: &mut D, mut keep_alive: impl FnMut()) -> Result<(), D::Error>
+    where
+        D: DrawTarget<Color = Rgb565>,
+    {
+        display.clear(theme::BACKGROUND)?;
+        keep_alive();
+        self.draw_rows(display)?;
+        keep_alive();
+        draw_mono_text_visible(
+            "^ swipe up",
+            Point::new(ROW_X, 232),
+            MonoTextStyle::new(&FONT_10X20, theme::TEXT),
+            display,
+        )
+    }
+}
+
 impl Screen for DisplaySettingsScreen {
     fn handle_event(&mut self, event: AppEvent) -> ScreenAction {
         self.dirty = false;
@@ -132,22 +154,6 @@ impl Screen for DisplaySettingsScreen {
             return ScreenAction::ApplySettings(settings);
         }
         ScreenAction::None
-    }
-
-    fn draw_full<D>(&self, display: &mut D, mut keep_alive: impl FnMut()) -> Result<(), D::Error>
-    where
-        D: DrawTarget<Color = Rgb565>,
-    {
-        display.clear(Rgb565::BLACK)?;
-        keep_alive();
-        self.draw_rows(display)?;
-        keep_alive();
-        draw_mono_text_visible(
-            "^ swipe up",
-            Point::new(20, 232),
-            MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE),
-            display,
-        )
     }
 
     fn draw_dirty<D>(&self, display: &mut D, mut keep_alive: impl FnMut()) -> Result<(), D::Error>

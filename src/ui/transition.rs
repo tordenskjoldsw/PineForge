@@ -11,7 +11,7 @@ use pineforge_state::{Navigation, SwipeDirection};
 #[cfg(feature = "diagnostics")]
 use super::metrics::RenderMetrics;
 use super::scratch::{STRIPE_THICKNESS, UiScratch};
-use super::screen::Screen;
+use super::screen::Paint;
 
 /// Reveals a screen in strips along the axis the navigation travelled.
 ///
@@ -29,7 +29,7 @@ pub fn draw_slide_reveal<S, D>(
     mut keep_alive: impl FnMut(),
 ) -> Result<TransitionOutput, D::Error>
 where
-    S: Screen,
+    S: Paint,
     D: DrawTarget<Color = Rgb565>,
 {
     #[cfg(feature = "diagnostics")]

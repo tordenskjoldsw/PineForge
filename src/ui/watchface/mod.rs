@@ -14,7 +14,7 @@ mod terminal;
 use embedded_graphics::{draw_target::DrawTarget, pixelcolor::Rgb565};
 use pineforge_state::{AppEvent, ScreenAction, WatchFields, WatchState, WatchfaceId};
 
-use crate::ui::screen::Screen;
+use crate::ui::screen::{Paint, Screen};
 #[cfg(feature = "diagnostics")]
 pub use diagnostics::DiagnosticsWatchface;
 pub use terminal::TerminalWatchface;
@@ -147,19 +147,21 @@ impl WatchfaceScreen {
     }
 }
 
+impl Paint for WatchfaceScreen {
+    fn draw_full<D>(&self, display: &mut D, keep_alive: impl FnMut()) -> Result<(), D::Error>
+    where
+        D: DrawTarget<Color = Rgb565>,
+    {
+        self.face.draw_full(&self.state, display, keep_alive)
+    }
+}
+
 impl Screen for WatchfaceScreen {
     fn handle_event(&mut self, event: AppEvent) -> ScreenAction {
         // Every event is a reading or it is not; where a gesture leads is the
         // navigation contract's business, so a face never returns an action.
         self.state.apply(event);
         ScreenAction::None
-    }
-
-    fn draw_full<D>(&self, display: &mut D, keep_alive: impl FnMut()) -> Result<(), D::Error>
-    where
-        D: DrawTarget<Color = Rgb565>,
-    {
-        self.face.draw_full(&self.state, display, keep_alive)
     }
 
     fn draw_dirty<D>(&self, display: &mut D, keep_alive: impl FnMut()) -> Result<(), D::Error>

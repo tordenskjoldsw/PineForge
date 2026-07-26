@@ -24,8 +24,9 @@ use crate::{
         dfu::{draw_dfu_failed, draw_dfu_progress, draw_storage_progress},
         firmware::FirmwareScreen,
         pairing::draw_pairing,
-        screen::Screen,
+        screen::{Paint, Screen},
         settings::DisplaySettingsScreen,
+        status::{StatusCorner, WithStatus, wears_status},
         watchface::WatchfaceScreen,
     },
 };
@@ -71,9 +72,13 @@ impl Screens {
         }
     }
 
+    /// Paints a screen and, unless it is a watchface, the status corner over
+    /// it. The two are drawn together so a transition composing this stripe by
+    /// stripe carries the corner with it instead of adding it afterwards.
     fn draw_full<D>(
         &self,
         active: ScreenId,
+        status: &StatusCorner,
         display: &mut D,
         keep_alive: impl FnMut(),
     ) -> Result<(), D::Error>
@@ -82,10 +87,16 @@ impl Screens {
     {
         match active {
             ScreenId::Watchface => self.watchface.draw_full(display, keep_alive),
-            ScreenId::DisplaySettings => self.settings.draw_full(display, keep_alive),
-            ScreenId::Firmware => self.firmware.draw_full(display, keep_alive),
+            ScreenId::DisplaySettings => {
+                WithStatus::new(&self.settings, status).draw_full(display, keep_alive)
+            }
+            ScreenId::Firmware => {
+                WithStatus::new(&self.firmware, status).draw_full(display, keep_alive)
+            }
             #[cfg(feature = "diagnostics")]
-            ScreenId::TouchTest => self.touch_test.draw_full(display, keep_alive),
+            ScreenId::TouchTest => {
+                WithStatus::new(&self.touch_test, status).draw_full(display, keep_alive)
+            }
         }
     }
 
@@ -177,13 +188,20 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
     // above the screen stack; this owns which one is up and which events may
     // still reach the screen behind it.
     let mut modals = ModalState::new();
+    // Bluetooth and charge arrive whatever screen is up, so the corner is fed
+    // from the event stream rather than by the active screen. It keeps its
+    // values while the watch sleeps, so the redraw on wake shows the state as
+    // it was last reported instead of an empty corner.
+    let mut status = StatusCorner::new();
     let mut power_receiver = system_power_receiver();
     let mut settings_receiver = display_settings_receiver();
     let mut wall_clock = wall_clock_receiver();
     let mut wall_clock_reference = None;
     let mut power = power_receiver.get().await;
     let mut ignore_input_until = started_at;
-    let _ = screens.draw_full(app.active_screen(), &mut display, || watchdog.pet());
+    let _ = screens.draw_full(app.active_screen(), &status, &mut display, || {
+        watchdog.pet();
+    });
     match power {
         SystemPowerState::Interactive => backlight.set_level(settings.brightness()),
         SystemPowerState::Idle => backlight.set_level(DIMMED_BRIGHTNESS),
@@ -276,8 +294,12 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                                     .map(|reference| reference.date_at(now.as_secs())),
                             };
                             let _ = screens.handle(app.active_screen(), tick);
-                            let _ = screens
-                                .draw_full(app.active_screen(), &mut display, || watchdog.pet());
+                            let _ = screens.draw_full(
+                                app.active_screen(),
+                                &status,
+                                &mut display,
+                                || watchdog.pet(),
+                            );
                         }
                         backlight.set_level(settings.brightness());
                         ignore_input_until = Instant::now() + WAKE_INPUT_GUARD;
@@ -294,6 +316,12 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
             }
         };
 
+        let status_changed = match event {
+            AppEvent::BatteryUpdated(reading) => status.set_battery(reading),
+            AppEvent::BleUpdated(state) => status.set_ble(state),
+            _ => false,
+        };
+
         if let AppEvent::DisplaySettingsUpdated(updated) = event {
             HEART_RATE_COMMANDS
                 .send(HeartRateCommand::Configure {
@@ -308,7 +336,9 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
             if screens.watchface.select(updated.watchface())
                 && app.active_screen() == ScreenId::Watchface
             {
-                let _ = screens.draw_full(ScreenId::Watchface, &mut display, || watchdog.pet());
+                let _ = screens.draw_full(ScreenId::Watchface, &status, &mut display, || {
+                    watchdog.pet();
+                });
             }
         }
         if matches!(event, AppEvent::HeartRateStateUpdated(_))
@@ -338,7 +368,9 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                 if deliver {
                     let _ = screens.handle(app.active_screen(), event);
                 }
-                let _ = screens.draw_full(app.active_screen(), &mut display, || watchdog.pet());
+                let _ = screens.draw_full(app.active_screen(), &status, &mut display, || {
+                    watchdog.pet();
+                });
                 continue;
             }
             ModalOutcome::None => {}
@@ -348,6 +380,13 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
             || (event.is_user_activity() && now < ignore_input_until)
         {
             continue;
+        }
+
+        // The corner redraws on its own, without the screen underneath: it
+        // paints its own background, and a battery reading is no reason to
+        // repaint a menu.
+        if status_changed && wears_status(app.active_screen()) {
+            let _ = status.draw(&mut display);
         }
 
         // Navigation resolves against the contract first. A swipe that leads
@@ -378,7 +417,9 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                 info!("Firmware confirmation requested; confirmed={}", confirmed);
                 screens.firmware.set_confirmed(confirmed);
                 let _ = VIBRATION_COMMANDS.try_send(VibrationPattern::Double);
-                let _ = screens.draw_full(app.active_screen(), &mut display, || watchdog.pet());
+                let _ = screens.draw_full(app.active_screen(), &status, &mut display, || {
+                    watchdog.pet();
+                });
             }
             AppEffect::Reboot | AppEffect::RequestRollback => {
                 info!("Restart requested from software");
@@ -413,7 +454,7 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                     }
                     ScreenId::DisplaySettings => {
                         let _ = draw_slide_reveal(
-                            &screens.settings,
+                            &WithStatus::new(&screens.settings, &status),
                             &mut display,
                             ui_scratch,
                             navigation,
@@ -422,7 +463,7 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                     }
                     ScreenId::Firmware => {
                         let _ = draw_slide_reveal(
-                            &screens.firmware,
+                            &WithStatus::new(&screens.firmware, &status),
                             &mut display,
                             ui_scratch,
                             navigation,
@@ -432,7 +473,7 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                     #[cfg(feature = "diagnostics")]
                     ScreenId::TouchTest => {
                         if let Ok(metrics) = draw_slide_reveal(
-                            &screens.touch_test,
+                            &WithStatus::new(&screens.touch_test, &status),
                             &mut display,
                             ui_scratch,
                             navigation,
@@ -447,7 +488,9 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                     }
                 }
                 #[cfg(not(feature = "ui-animations"))]
-                let _ = screens.draw_full(app.active_screen(), &mut display, || watchdog.pet());
+                let _ = screens.draw_full(app.active_screen(), &status, &mut display, || {
+                    watchdog.pet();
+                });
             }
             AppEffect::None => {
                 let _ = screens.draw_dirty(app.active_screen(), &mut display, || watchdog.pet());

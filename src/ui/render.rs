@@ -3,10 +3,12 @@ use embedded_graphics::{
     draw_target::DrawTarget,
     geometry::{Dimensions, Point, Size},
     mono_font::{MonoTextStyle, ascii::FONT_10X20},
-    pixelcolor::{PixelColor, Rgb565, RgbColor, WebColors},
+    pixelcolor::{PixelColor, Rgb565},
     primitives::{Primitive, PrimitiveStyleBuilder, Rectangle},
     text::Text,
 };
+
+use crate::ui::theme;
 
 /// Geometry of the framed label/value row every menu screen is built from.
 ///
@@ -21,7 +23,7 @@ const LABEL_X_OFFSET: i32 = 8;
 const VALUE_X_OFFSET: i32 = 110;
 const TEXT_BASELINE_OFFSET: i32 = 23;
 
-/// Draws one framed row: a white label on the left, a value in the right column.
+/// Draws one framed row: a label on the left, a value in the right column.
 pub fn draw_row<D>(display: &mut D, y: i32, label: &str, value: &str) -> Result<(), D::Error>
 where
     D: DrawTarget<Color = Rgb565>,
@@ -33,8 +35,8 @@ where
     bounds
         .into_styled(
             PrimitiveStyleBuilder::new()
-                .fill_color(Rgb565::BLACK)
-                .stroke_color(Rgb565::WHITE)
+                .fill_color(theme::BACKGROUND)
+                .stroke_color(theme::FRAME)
                 .stroke_width(1)
                 .build(),
         )
@@ -42,13 +44,13 @@ where
     draw_mono_text_visible(
         label,
         Point::new(ROW_X + LABEL_X_OFFSET, y + TEXT_BASELINE_OFFSET),
-        MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE),
+        MonoTextStyle::new(&FONT_10X20, theme::TEXT),
         display,
     )?;
     draw_mono_text_visible(
         value,
         Point::new(ROW_X + VALUE_X_OFFSET, y + TEXT_BASELINE_OFFSET),
-        MonoTextStyle::new(&FONT_10X20, Rgb565::CSS_ORANGE),
+        MonoTextStyle::new(&FONT_10X20, theme::ACCENT),
         display,
     )
 }

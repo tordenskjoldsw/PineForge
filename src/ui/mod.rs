@@ -8,8 +8,10 @@ pub mod render;
 pub mod scratch;
 pub mod screen;
 pub mod settings;
+pub mod status;
 #[cfg(feature = "diagnostics")]
 pub mod test_screen;
+pub mod theme;
 #[cfg(feature = "ui-animations")]
 pub mod transition;
 pub mod watchface;

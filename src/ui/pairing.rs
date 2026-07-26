@@ -9,10 +9,9 @@ use embedded_graphics::{
 };
 use heapless::String;
 
-use crate::ui::render::draw_visible;
+use crate::ui::{render::draw_visible, theme};
 
 const CODE_BOX: Rectangle = Rectangle::new(Point::new(20, 96), Size::new(200, 48));
-const ACCENT: Rgb565 = Rgb565::new(31, 20, 0);
 
 /// Draws a full-screen pairing prompt with the passkey the user enters on the
 /// phone, mirroring `InfiniTime`'s pairing screen.
@@ -24,12 +23,12 @@ pub fn draw_pairing<D>(
 where
     D: DrawTarget<Color = Rgb565>,
 {
-    display.clear(Rgb565::BLACK)?;
+    display.clear(theme::BACKGROUND)?;
     draw_visible(
         &Text::with_alignment(
             "BLUETOOTH PAIRING",
             Point::new(120, 50),
-            MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE),
+            MonoTextStyle::new(&FONT_10X20, theme::TEXT),
             Alignment::Center,
         ),
         display,
@@ -39,8 +38,8 @@ where
     CODE_BOX
         .into_styled(
             PrimitiveStyleBuilder::new()
-                .fill_color(Rgb565::BLACK)
-                .stroke_color(ACCENT)
+                .fill_color(theme::BACKGROUND)
+                .stroke_color(theme::ACCENT)
                 .stroke_width(2)
                 .build(),
         )
@@ -51,7 +50,7 @@ where
         &Text::with_alignment(
             &code,
             Point::new(120, 128),
-            MonoTextStyle::new(&FONT_10X20, ACCENT),
+            MonoTextStyle::new(&FONT_10X20, theme::ACCENT),
             Alignment::Center,
         ),
         display,
@@ -62,7 +61,7 @@ where
         &Text::with_alignment(
             "Enter this code on your phone",
             Point::new(120, 180),
-            MonoTextStyle::new(&FONT_6X10, Rgb565::WHITE),
+            MonoTextStyle::new(&FONT_6X10, theme::TEXT),
             Alignment::Center,
         ),
         display,

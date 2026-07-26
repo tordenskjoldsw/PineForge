@@ -12,7 +12,7 @@ use heapless::String;
 use crate::ui::{
     metrics::RenderMetrics,
     render::{draw_mono_text_visible, draw_visible},
-    screen::Screen,
+    screen::{Paint, Screen},
 };
 #[cfg(feature = "ui-animations")]
 use pineforge_state::NavigationDirection;
@@ -136,19 +136,7 @@ impl TestScreen {
     }
 }
 
-impl Screen for TestScreen {
-    fn handle_event(&mut self, event: AppEvent) -> ScreenAction {
-        let AppEvent::Touch { x, y, pressed } = event else {
-            return ScreenAction::None;
-        };
-        let point = Point::new(x, y);
-        self.previous_touch = self.last_touch;
-        self.last_touch = Some(point);
-        self.previous_touching = self.touching;
-        self.touching = pressed;
-        ScreenAction::None
-    }
-
+impl Paint for TestScreen {
     fn draw_full<D>(&self, display: &mut D, mut keep_alive: impl FnMut()) -> Result<(), D::Error>
     where
         D: DrawTarget<Color = Rgb565>,
@@ -200,6 +188,20 @@ impl Screen for TestScreen {
         keep_alive();
 
         Ok(())
+    }
+}
+
+impl Screen for TestScreen {
+    fn handle_event(&mut self, event: AppEvent) -> ScreenAction {
+        let AppEvent::Touch { x, y, pressed } = event else {
+            return ScreenAction::None;
+        };
+        let point = Point::new(x, y);
+        self.previous_touch = self.last_touch;
+        self.last_touch = Some(point);
+        self.previous_touching = self.touching;
+        self.touching = pressed;
+        ScreenAction::None
     }
 
     fn draw_dirty<D>(&self, display: &mut D, mut keep_alive: impl FnMut()) -> Result<(), D::Error>

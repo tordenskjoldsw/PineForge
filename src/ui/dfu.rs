@@ -10,11 +10,9 @@ use embedded_graphics::{
 use heapless::String;
 use pineforge_state::DfuFailReason;
 
-use crate::ui::render::draw_visible;
+use crate::ui::{render::draw_visible, theme};
 
 const BAR: Rectangle = Rectangle::new(Point::new(20, 128), Size::new(200, 24));
-const ACCENT: Rgb565 = Rgb565::new(31, 20, 0);
-const FAILED_ACCENT: Rgb565 = Rgb565::new(31, 0, 0);
 
 /// Draws a full-screen firmware-update progress screen, mirroring
 /// `InfiniTime`'s DFU screen: a title, a percentage, and a fill bar.
@@ -27,12 +25,12 @@ where
     D: DrawTarget<Color = Rgb565>,
 {
     let percent = percent.min(100);
-    display.clear(Rgb565::BLACK)?;
+    display.clear(theme::BACKGROUND)?;
     draw_visible(
         &Text::with_alignment(
             "FIRMWARE UPDATE",
             Point::new(120, 60),
-            MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE),
+            MonoTextStyle::new(&FONT_10X20, theme::TEXT),
             Alignment::Center,
         ),
         display,
@@ -45,7 +43,7 @@ where
         &Text::with_alignment(
             &label,
             Point::new(120, 108),
-            MonoTextStyle::new(&FONT_10X20, ACCENT),
+            MonoTextStyle::new(&FONT_10X20, theme::ACCENT),
             Alignment::Center,
         ),
         display,
@@ -55,8 +53,8 @@ where
     // Bar outline, then a fill proportional to the received bytes.
     BAR.into_styled(
         PrimitiveStyleBuilder::new()
-            .fill_color(Rgb565::BLACK)
-            .stroke_color(ACCENT)
+            .fill_color(theme::BACKGROUND)
+            .stroke_color(theme::ACCENT)
             .stroke_width(2)
             .build(),
     )
@@ -64,7 +62,11 @@ where
     let fill_width = u32::from(percent) * BAR.size.width / 100;
     if fill_width > 0 {
         Rectangle::new(BAR.top_left, Size::new(fill_width, BAR.size.height))
-            .into_styled(PrimitiveStyleBuilder::new().fill_color(ACCENT).build())
+            .into_styled(
+                PrimitiveStyleBuilder::new()
+                    .fill_color(theme::ACCENT)
+                    .build(),
+            )
             .draw(display)?;
     }
     keep_alive();
@@ -73,7 +75,7 @@ where
         &Text::with_alignment(
             "Keep the watch nearby",
             Point::new(120, 184),
-            MonoTextStyle::new(&FONT_6X10, Rgb565::WHITE),
+            MonoTextStyle::new(&FONT_6X10, theme::TEXT),
             Alignment::Center,
         ),
         display,
@@ -92,12 +94,12 @@ where
     D: DrawTarget<Color = Rgb565>,
 {
     let percent = percent.min(100);
-    display.clear(Rgb565::BLACK)?;
+    display.clear(theme::BACKGROUND)?;
     draw_visible(
         &Text::with_alignment(
             "PREPARING STORAGE",
             Point::new(120, 60),
-            MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE),
+            MonoTextStyle::new(&FONT_10X20, theme::TEXT),
             Alignment::Center,
         ),
         display,
@@ -110,15 +112,15 @@ where
         &Text::with_alignment(
             &label,
             Point::new(120, 108),
-            MonoTextStyle::new(&FONT_10X20, ACCENT),
+            MonoTextStyle::new(&FONT_10X20, theme::ACCENT),
             Alignment::Center,
         ),
         display,
     )?;
     BAR.into_styled(
         PrimitiveStyleBuilder::new()
-            .fill_color(Rgb565::BLACK)
-            .stroke_color(ACCENT)
+            .fill_color(theme::BACKGROUND)
+            .stroke_color(theme::ACCENT)
             .stroke_width(2)
             .build(),
     )
@@ -126,7 +128,11 @@ where
     let fill_width = u32::from(percent) * BAR.size.width / 100;
     if fill_width > 0 {
         Rectangle::new(BAR.top_left, Size::new(fill_width, BAR.size.height))
-            .into_styled(PrimitiveStyleBuilder::new().fill_color(ACCENT).build())
+            .into_styled(
+                PrimitiveStyleBuilder::new()
+                    .fill_color(theme::ACCENT)
+                    .build(),
+            )
             .draw(display)?;
     }
     keep_alive();
@@ -134,7 +140,7 @@ where
         &Text::with_alignment(
             "Safe to restart",
             Point::new(120, 184),
-            MonoTextStyle::new(&FONT_6X10, Rgb565::WHITE),
+            MonoTextStyle::new(&FONT_6X10, theme::TEXT),
             Alignment::Center,
         ),
         display,
@@ -157,12 +163,12 @@ pub fn draw_dfu_failed<D>(
 where
     D: DrawTarget<Color = Rgb565>,
 {
-    display.clear(Rgb565::BLACK)?;
+    display.clear(theme::BACKGROUND)?;
     draw_visible(
         &Text::with_alignment(
             "UPDATE FAILED",
             Point::new(120, 108),
-            MonoTextStyle::new(&FONT_10X20, FAILED_ACCENT),
+            MonoTextStyle::new(&FONT_10X20, theme::DANGER),
             Alignment::Center,
         ),
         display,
@@ -191,7 +197,7 @@ where
         &Text::with_alignment(
             &detail,
             Point::new(120, 145),
-            MonoTextStyle::new(&FONT_6X10, Rgb565::WHITE),
+            MonoTextStyle::new(&FONT_6X10, theme::TEXT),
             Alignment::Center,
         ),
         display,
@@ -202,7 +208,7 @@ where
         &Text::with_alignment(
             "Swipe to dismiss",
             Point::new(120, 190),
-            MonoTextStyle::new(&FONT_6X10, ACCENT),
+            MonoTextStyle::new(&FONT_6X10, theme::ACCENT),
             Alignment::Center,
         ),
         display,
