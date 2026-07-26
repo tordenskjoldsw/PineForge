@@ -22,6 +22,12 @@ Gadgetbridge-compatible OTA update. A complete PineForge-to-InfiniTime OTA
 transfer reached 100%, validated, rebooted, and returned to InfiniTime on real
 hardware.
 
+`v0.2.0` turns that bring-up into a platform: product policy moved into a
+host-tested state crate, the side button became the back button once a software
+restart existed to replace it as the recovery path, and BLE pairings survive
+reboots and updates. Its launcher and quick-settings screens are still
+outstanding — see [`docs/releases/v0.2.0.md`](docs/releases/v0.2.0.md).
+
 That successful test does **not** establish general safety across PineTime
 hardware revisions, bootloader versions, phones, or future images. Expect
 missing features, bugs, slow OTA transfers, resets, and possible recovery work.
