@@ -6,7 +6,7 @@
 use core::fmt::Write;
 
 use embedded_graphics::{
-    mono_font::{MonoTextStyleBuilder, ascii::FONT_10X20},
+    mono_font::{MonoTextStyle, ascii::FONT_10X20},
     pixelcolor::Rgb565,
     prelude::*,
     primitives::{PrimitiveStyle, Rectangle},
@@ -14,6 +14,7 @@ use embedded_graphics::{
 use heapless::String;
 use pineforge_state::{BleState, CalendarDate};
 
+use crate::ui::canvas::{Canvas, CanvasError};
 use crate::ui::render::draw_mono_text_visible;
 
 pub const ROW_HEIGHT: u32 = 25;
@@ -106,29 +107,18 @@ pub const fn ble_color(state: BleState) -> Rgb565 {
 /// it black for the duration of the SPI transfer. Only the span a longer
 /// previous value may have left behind is cleared, and that span is already
 /// black whenever the value did not shrink.
-pub fn draw<D>(
-    display: &mut D,
+pub fn draw(
+    canvas: &mut Canvas<'_>,
     area: Rectangle,
     label: &str,
     value: &str,
     value_color: Rgb565,
-) -> Result<(), D::Error>
-where
-    D: DrawTarget<Color = Rgb565>,
-{
+) -> Result<(), CanvasError> {
     let baseline = area.top_left.y + BASELINE_OFFSET;
-    let label_style = MonoTextStyleBuilder::new()
-        .font(&FONT_10X20)
-        .text_color(Rgb565::WHITE)
-        .background_color(Rgb565::BLACK)
-        .build();
-    let value_style = MonoTextStyleBuilder::new()
-        .font(&FONT_10X20)
-        .text_color(value_color)
-        .background_color(Rgb565::BLACK)
-        .build();
-    draw_mono_text_visible(label, Point::new(0, baseline), label_style, display)?;
-    draw_mono_text_visible(value, Point::new(VALUE_X, baseline), value_style, display)?;
+    let label_style = MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE);
+    let value_style = MonoTextStyle::new(&FONT_10X20, value_color);
+    draw_mono_text_visible(label, Point::new(0, baseline), label_style, canvas)?;
+    draw_mono_text_visible(value, Point::new(VALUE_X, baseline), value_style, canvas)?;
 
     let value_end = VALUE_X + i32::try_from(value.len()).unwrap_or(0) * GLYPH_WIDTH;
     let right_edge = area.top_left.x + i32::try_from(area.size.width).unwrap_or(0);
@@ -138,21 +128,18 @@ where
         Size::new(tail, area.size.height),
     )
     .into_styled(PrimitiveStyle::with_fill(Rgb565::BLACK))
-    .draw(display)
+    .draw(canvas)
 }
 
 /// Redraws a row's value from the first character that differs, which for a
 /// ticking clock is usually a single digit.
-pub fn draw_changed_value<D>(
-    display: &mut D,
+pub fn draw_changed_value(
+    canvas: &mut Canvas<'_>,
     area: Rectangle,
     old: &str,
     new: &str,
     color: Rgb565,
-) -> Result<(), D::Error>
-where
-    D: DrawTarget<Color = Rgb565>,
-{
+) -> Result<(), CanvasError> {
     let first_changed = old
         .bytes()
         .zip(new.bytes())
@@ -162,16 +149,12 @@ where
         return Ok(());
     }
 
-    let style = MonoTextStyleBuilder::new()
-        .font(&FONT_10X20)
-        .text_color(color)
-        .background_color(Rgb565::BLACK)
-        .build();
+    let style = MonoTextStyle::new(&FONT_10X20, color);
     let x = VALUE_X + i32::try_from(first_changed).unwrap_or(0) * GLYPH_WIDTH;
     draw_mono_text_visible(
         &new[first_changed..],
         Point::new(x, area.top_left.y + BASELINE_OFFSET),
         style,
-        display,
+        canvas,
     )
 }

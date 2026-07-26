@@ -1,5 +1,8 @@
+pub mod canvas;
 pub mod dfu;
 pub mod firmware;
+pub mod icons;
+pub mod launcher;
 #[cfg(feature = "diagnostics")]
 pub mod metrics;
 pub mod pairing;

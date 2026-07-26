@@ -2,7 +2,6 @@ use defmt::info;
 use embassy_futures::select::{Either3, Either4, select3, select4};
 use embassy_nrf::gpio::{Level, Output, OutputDrive};
 use embassy_time::{Delay, Duration, Instant, Timer};
-use embedded_graphics::{draw_target::DrawTarget, pixelcolor::Rgb565};
 use mipidsi::interface::SpiInterface;
 use mipidsi::options::{ColorInversion, Orientation};
 use static_cell::StaticCell;
@@ -21,8 +20,10 @@ use crate::{
         display_settings_receiver, system_power_receiver, wall_clock_receiver,
     },
     ui::{
+        canvas::{Canvas, CanvasError},
         dfu::{draw_dfu_failed, draw_dfu_progress, draw_storage_progress},
         firmware::FirmwareScreen,
+        launcher::LauncherScreen,
         pairing::draw_pairing,
         screen::{Paint, Screen},
         settings::DisplaySettingsScreen,
@@ -55,6 +56,7 @@ enum DisplayEvent {
 /// navigation and sleep; only the active one receives events and draws.
 struct Screens {
     watchface: WatchfaceScreen,
+    launcher: LauncherScreen,
     settings: DisplaySettingsScreen,
     firmware: FirmwareScreen,
     #[cfg(feature = "diagnostics")]
@@ -65,6 +67,7 @@ impl Screens {
     fn handle(&mut self, active: ScreenId, event: AppEvent) -> ScreenAction {
         match active {
             ScreenId::Watchface => self.watchface.handle_event(event),
+            ScreenId::Launcher => self.launcher.handle_event(event),
             ScreenId::DisplaySettings => self.settings.handle_event(event),
             ScreenId::Firmware => self.firmware.handle_event(event),
             #[cfg(feature = "diagnostics")]
@@ -75,60 +78,59 @@ impl Screens {
     /// Paints a screen and, unless it is a watchface, the status corner over
     /// it. The two are drawn together so a transition composing this stripe by
     /// stripe carries the corner with it instead of adding it afterwards.
-    fn draw_full<D>(
+    fn draw_full(
         &self,
         active: ScreenId,
         status: &StatusCorner,
-        display: &mut D,
-        keep_alive: impl FnMut(),
-    ) -> Result<(), D::Error>
-    where
-        D: DrawTarget<Color = Rgb565>,
-    {
+        canvas: &mut Canvas<'_>,
+        keep_alive: &mut dyn FnMut(),
+    ) -> Result<(), CanvasError> {
         match active {
-            ScreenId::Watchface => self.watchface.draw_full(display, keep_alive),
+            ScreenId::Watchface => self.watchface.draw_full(canvas, keep_alive),
+            ScreenId::Launcher => {
+                WithStatus::new(&self.launcher, status).draw_full(canvas, keep_alive)
+            }
             ScreenId::DisplaySettings => {
-                WithStatus::new(&self.settings, status).draw_full(display, keep_alive)
+                WithStatus::new(&self.settings, status).draw_full(canvas, keep_alive)
             }
             ScreenId::Firmware => {
-                WithStatus::new(&self.firmware, status).draw_full(display, keep_alive)
+                WithStatus::new(&self.firmware, status).draw_full(canvas, keep_alive)
             }
             #[cfg(feature = "diagnostics")]
             ScreenId::TouchTest => {
-                WithStatus::new(&self.touch_test, status).draw_full(display, keep_alive)
+                WithStatus::new(&self.touch_test, status).draw_full(canvas, keep_alive)
             }
         }
     }
 
-    fn draw_dirty<D>(
+    fn draw_dirty(
         &self,
         active: ScreenId,
-        display: &mut D,
-        keep_alive: impl FnMut(),
-    ) -> Result<(), D::Error>
-    where
-        D: DrawTarget<Color = Rgb565>,
-    {
+        canvas: &mut Canvas<'_>,
+        keep_alive: &mut dyn FnMut(),
+    ) -> Result<(), CanvasError> {
         match active {
-            ScreenId::Watchface => self.watchface.draw_dirty(display, keep_alive),
-            ScreenId::DisplaySettings => self.settings.draw_dirty(display, keep_alive),
-            ScreenId::Firmware => self.firmware.draw_dirty(display, keep_alive),
+            ScreenId::Watchface => self.watchface.draw_dirty(canvas, keep_alive),
+            ScreenId::Launcher => self.launcher.draw_dirty(canvas, keep_alive),
+            ScreenId::DisplaySettings => self.settings.draw_dirty(canvas, keep_alive),
+            ScreenId::Firmware => self.firmware.draw_dirty(canvas, keep_alive),
             #[cfg(feature = "diagnostics")]
-            ScreenId::TouchTest => self.touch_test.draw_dirty(display, keep_alive),
+            ScreenId::TouchTest => self.touch_test.draw_dirty(canvas, keep_alive),
         }
     }
 }
 
 /// Draws the system modal that owns the screen.
-fn draw_modal<D>(display: &mut D, modal: Modal, keep_alive: impl FnMut()) -> Result<(), D::Error>
-where
-    D: DrawTarget<Color = Rgb565>,
-{
+fn draw_modal(
+    canvas: &mut Canvas<'_>,
+    modal: Modal,
+    keep_alive: &mut dyn FnMut(),
+) -> Result<(), CanvasError> {
     match modal {
-        Modal::StorageFormat(percent) => draw_storage_progress(display, percent, keep_alive),
-        Modal::Pairing(passkey) => draw_pairing(display, passkey, keep_alive),
-        Modal::DfuProgress(percent) => draw_dfu_progress(display, percent, keep_alive),
-        Modal::DfuFailed(reason) => draw_dfu_failed(display, reason, keep_alive),
+        Modal::StorageFormat(percent) => draw_storage_progress(canvas, percent, keep_alive),
+        Modal::Pairing(passkey) => draw_pairing(canvas, passkey, keep_alive),
+        Modal::DfuProgress(percent) => draw_dfu_progress(canvas, percent, keep_alive),
+        Modal::DfuFailed(reason) => draw_dfu_failed(canvas, reason, keep_alive),
     }
 }
 
@@ -173,6 +175,7 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
     let mut next_tick = started_at + Duration::from_secs(1);
     let mut screens = Screens {
         watchface: WatchfaceScreen::default(),
+        launcher: LauncherScreen::default(),
         settings: DisplaySettingsScreen::default(),
         firmware: FirmwareScreen::default(),
         #[cfg(feature = "diagnostics")]
@@ -199,9 +202,12 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
     let mut wall_clock_reference = None;
     let mut power = power_receiver.get().await;
     let mut ignore_input_until = started_at;
-    let _ = screens.draw_full(app.active_screen(), &status, &mut display, || {
-        watchdog.pet();
-    });
+    let _ = screens.draw_full(
+        app.active_screen(),
+        &status,
+        &mut Canvas::new(&mut display),
+        &mut || watchdog.pet(),
+    );
     match power {
         SystemPowerState::Interactive => backlight.set_level(settings.brightness()),
         SystemPowerState::Idle => backlight.set_level(DIMMED_BRIGHTNESS),
@@ -280,7 +286,9 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                         let _ = display.wake(&mut delay);
                         // A modal outlives sleep and still owns the screen.
                         if let Some(modal) = modals.current() {
-                            let _ = draw_modal(&mut display, modal, || watchdog.pet());
+                            let _ = draw_modal(&mut Canvas::new(&mut display), modal, &mut || {
+                                watchdog.pet();
+                            });
                         } else {
                             if let Some(reference) = wall_clock.try_changed() {
                                 wall_clock_reference = Some(reference);
@@ -297,8 +305,8 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                             let _ = screens.draw_full(
                                 app.active_screen(),
                                 &status,
-                                &mut display,
-                                || watchdog.pet(),
+                                &mut Canvas::new(&mut display),
+                                &mut || watchdog.pet(),
                             );
                         }
                         backlight.set_level(settings.brightness());
@@ -336,9 +344,12 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
             if screens.watchface.select(updated.watchface())
                 && app.active_screen() == ScreenId::Watchface
             {
-                let _ = screens.draw_full(ScreenId::Watchface, &status, &mut display, || {
-                    watchdog.pet();
-                });
+                let _ = screens.draw_full(
+                    ScreenId::Watchface,
+                    &status,
+                    &mut Canvas::new(&mut display),
+                    &mut || watchdog.pet(),
+                );
             }
         }
         if matches!(event, AppEvent::HeartRateStateUpdated(_))
@@ -356,7 +367,9 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                 if renews_activity(modal) {
                     POWER_COMMANDS.send(PowerCommand::UserActivity).await;
                 }
-                let _ = draw_modal(&mut display, modal, || watchdog.pet());
+                let _ = draw_modal(&mut Canvas::new(&mut display), modal, &mut || {
+                    watchdog.pet();
+                });
                 continue;
             }
             ModalOutcome::Suppressed => continue,
@@ -368,9 +381,12 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                 if deliver {
                     let _ = screens.handle(app.active_screen(), event);
                 }
-                let _ = screens.draw_full(app.active_screen(), &status, &mut display, || {
-                    watchdog.pet();
-                });
+                let _ = screens.draw_full(
+                    app.active_screen(),
+                    &status,
+                    &mut Canvas::new(&mut display),
+                    &mut || watchdog.pet(),
+                );
                 continue;
             }
             ModalOutcome::None => {}
@@ -386,7 +402,7 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
         // paints its own background, and a battery reading is no reason to
         // repaint a menu.
         if status_changed && wears_status(app.active_screen()) {
-            let _ = status.draw(&mut display);
+            let _ = status.draw(&mut Canvas::new(&mut display));
         }
 
         // Navigation resolves against the contract first. A swipe that leads
@@ -408,7 +424,11 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                 // drops the tick rather than stalling rendering.
                 let _ = VIBRATION_COMMANDS.try_send(VibrationPattern::Tap);
                 SETTINGS_COMMANDS.send(updated).await;
-                let _ = screens.draw_dirty(app.active_screen(), &mut display, || watchdog.pet());
+                let _ = screens.draw_dirty(
+                    app.active_screen(),
+                    &mut Canvas::new(&mut display),
+                    &mut || watchdog.pet(),
+                );
             }
             AppEffect::ConfirmFirmware => {
                 // Making the image permanent takes effect immediately; a reset
@@ -417,9 +437,12 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                 info!("Firmware confirmation requested; confirmed={}", confirmed);
                 screens.firmware.set_confirmed(confirmed);
                 let _ = VIBRATION_COMMANDS.try_send(VibrationPattern::Double);
-                let _ = screens.draw_full(app.active_screen(), &status, &mut display, || {
-                    watchdog.pet();
-                });
+                let _ = screens.draw_full(
+                    app.active_screen(),
+                    &status,
+                    &mut Canvas::new(&mut display),
+                    &mut || watchdog.pet(),
+                );
             }
             AppEffect::Reboot | AppEffect::RequestRollback => {
                 info!("Restart requested from software");
@@ -441,7 +464,7 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                             &mut display,
                             ui_scratch,
                             navigation,
-                            || watchdog.pet(),
+                            &mut || watchdog.pet(),
                         );
                         #[cfg(feature = "diagnostics")]
                         if let Ok(metrics) = result {
@@ -452,13 +475,22 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                         #[cfg(not(feature = "diagnostics"))]
                         let _ = result;
                     }
+                    ScreenId::Launcher => {
+                        let _ = draw_slide_reveal(
+                            &WithStatus::new(&screens.launcher, &status),
+                            &mut display,
+                            ui_scratch,
+                            navigation,
+                            &mut || watchdog.pet(),
+                        );
+                    }
                     ScreenId::DisplaySettings => {
                         let _ = draw_slide_reveal(
                             &WithStatus::new(&screens.settings, &status),
                             &mut display,
                             ui_scratch,
                             navigation,
-                            || watchdog.pet(),
+                            &mut || watchdog.pet(),
                         );
                     }
                     ScreenId::Firmware => {
@@ -467,7 +499,7 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                             &mut display,
                             ui_scratch,
                             navigation,
-                            || watchdog.pet(),
+                            &mut || watchdog.pet(),
                         );
                     }
                     #[cfg(feature = "diagnostics")]
@@ -477,23 +509,32 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                             &mut display,
                             ui_scratch,
                             navigation,
-                            || watchdog.pet(),
+                            &mut || watchdog.pet(),
                         ) {
                             screens
                                 .touch_test
                                 .record_transition(navigation.direction, metrics);
-                            let _ = screens.touch_test.draw_metrics(&mut display);
+                            let _ = screens
+                                .touch_test
+                                .draw_metrics(&mut Canvas::new(&mut display));
                             watchdog.pet();
                         }
                     }
                 }
                 #[cfg(not(feature = "ui-animations"))]
-                let _ = screens.draw_full(app.active_screen(), &status, &mut display, || {
-                    watchdog.pet();
-                });
+                let _ = screens.draw_full(
+                    app.active_screen(),
+                    &status,
+                    &mut Canvas::new(&mut display),
+                    &mut || watchdog.pet(),
+                );
             }
             AppEffect::None => {
-                let _ = screens.draw_dirty(app.active_screen(), &mut display, || watchdog.pet());
+                let _ = screens.draw_dirty(
+                    app.active_screen(),
+                    &mut Canvas::new(&mut display),
+                    &mut || watchdog.pet(),
+                );
             }
         }
     }

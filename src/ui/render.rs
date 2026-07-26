@@ -1,14 +1,16 @@
 use embedded_graphics::{
     Drawable,
-    draw_target::DrawTarget,
     geometry::{Dimensions, Point, Size},
     mono_font::{MonoTextStyle, ascii::FONT_10X20},
-    pixelcolor::{PixelColor, Rgb565},
+    pixelcolor::Rgb565,
     primitives::{Primitive, PrimitiveStyleBuilder, Rectangle},
     text::Text,
 };
 
-use crate::ui::theme;
+use crate::ui::{
+    canvas::{Canvas, CanvasError},
+    theme,
+};
 
 /// Geometry of the framed label/value row every menu screen is built from.
 ///
@@ -24,10 +26,12 @@ const VALUE_X_OFFSET: i32 = 110;
 const TEXT_BASELINE_OFFSET: i32 = 23;
 
 /// Draws one framed row: a label on the left, a value in the right column.
-pub fn draw_row<D>(display: &mut D, y: i32, label: &str, value: &str) -> Result<(), D::Error>
-where
-    D: DrawTarget<Color = Rgb565>,
-{
+pub fn draw_row(
+    canvas: &mut Canvas<'_>,
+    y: i32,
+    label: &str,
+    value: &str,
+) -> Result<(), CanvasError> {
     let bounds = Rectangle::new(
         Point::new(ROW_X, y),
         Size::new(ROW_WIDTH as u32, ROW_HEIGHT as u32),
@@ -35,23 +39,23 @@ where
     bounds
         .into_styled(
             PrimitiveStyleBuilder::new()
-                .fill_color(theme::BACKGROUND)
+                .fill_color(theme::SURFACE)
                 .stroke_color(theme::FRAME)
                 .stroke_width(1)
                 .build(),
         )
-        .draw(display)?;
+        .draw(canvas)?;
     draw_mono_text_visible(
         label,
         Point::new(ROW_X + LABEL_X_OFFSET, y + TEXT_BASELINE_OFFSET),
         MonoTextStyle::new(&FONT_10X20, theme::TEXT),
-        display,
+        canvas,
     )?;
     draw_mono_text_visible(
         value,
         Point::new(ROW_X + VALUE_X_OFFSET, y + TEXT_BASELINE_OFFSET),
         MonoTextStyle::new(&FONT_10X20, theme::ACCENT),
-        display,
+        canvas,
     )
 }
 
@@ -59,10 +63,9 @@ where
 ///
 /// This is effectively free for a full display target and prevents needless
 /// rasterization when rendering into a clipped transition tile.
-pub fn draw_visible<T, D>(drawable: &T, target: &mut D) -> Result<(), D::Error>
+pub fn draw_visible<T>(drawable: &T, target: &mut Canvas<'_>) -> Result<(), CanvasError>
 where
-    D: DrawTarget,
-    T: Drawable<Color = D::Color> + Dimensions,
+    T: Drawable<Color = Rgb565> + Dimensions,
 {
     if drawable
         .bounding_box()
@@ -80,16 +83,12 @@ where
 ///
 /// A character on either side of the calculated range is retained to preserve
 /// partially clipped glyphs and character spacing at tile boundaries.
-pub fn draw_mono_text_visible<C, D>(
+pub fn draw_mono_text_visible(
     text: &str,
     position: Point,
-    style: MonoTextStyle<'_, C>,
-    target: &mut D,
-) -> Result<(), D::Error>
-where
-    C: PixelColor,
-    D: DrawTarget<Color = C>,
-{
+    style: MonoTextStyle<'_, Rgb565>,
+    target: &mut Canvas<'_>,
+) -> Result<(), CanvasError> {
     if !text.is_ascii() {
         return draw_visible(&Text::new(text, position, style), target);
     }

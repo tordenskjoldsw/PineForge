@@ -18,6 +18,7 @@ use pineforge_state::{
     WatchFields, WatchState,
 };
 
+use crate::ui::canvas::{Canvas, CanvasError};
 use crate::ui::{
     render::draw_mono_text_visible,
     watchface::{
@@ -40,37 +41,25 @@ const HEART_RATE_ROW: Rectangle = row_at(150);
 pub struct DiagnosticsWatchface;
 
 impl DiagnosticsWatchface {
-    fn draw_date<D>(state: &WatchState, display: &mut D) -> Result<(), D::Error>
-    where
-        D: DrawTarget<Color = Rgb565>,
-    {
+    fn draw_date(state: &WatchState, canvas: &mut Canvas<'_>) -> Result<(), CanvasError> {
         let date = row::format_date(state.date().unwrap_or(UNSYNCHRONIZED_DATE));
-        row::draw(display, DATE_ROW, "[DATE]", &date, TERMINAL_GREEN)
+        row::draw(canvas, DATE_ROW, "[DATE]", &date, TERMINAL_GREEN)
     }
 
-    fn draw_time<D>(state: &WatchState, display: &mut D) -> Result<(), D::Error>
-    where
-        D: DrawTarget<Color = Rgb565>,
-    {
+    fn draw_time(state: &WatchState, canvas: &mut Canvas<'_>) -> Result<(), CanvasError> {
         let clock = row::format_clock(state.clock_seconds());
-        row::draw(display, TIME_ROW, "[TIME]", &clock, TERMINAL_GREEN)
+        row::draw(canvas, TIME_ROW, "[TIME]", &clock, TERMINAL_GREEN)
     }
 
-    fn update_clock<D>(state: &WatchState, display: &mut D) -> Result<(), D::Error>
-    where
-        D: DrawTarget<Color = Rgb565>,
-    {
+    fn update_clock(state: &WatchState, canvas: &mut Canvas<'_>) -> Result<(), CanvasError> {
         let old_clock = row::format_clock(state.previous_clock_seconds());
         let new_clock = row::format_clock(state.clock_seconds());
-        row::draw_changed_value(display, TIME_ROW, &old_clock, &new_clock, TERMINAL_GREEN)
+        row::draw_changed_value(canvas, TIME_ROW, &old_clock, &new_clock, TERMINAL_GREEN)
     }
 
     /// Terminal voltage as well as the estimate derived from it, so a suspect
     /// capacity curve can be checked against the raw reading.
-    fn draw_battery<D>(state: &WatchState, display: &mut D) -> Result<(), D::Error>
-    where
-        D: DrawTarget<Color = Rgb565>,
-    {
+    fn draw_battery(state: &WatchState, canvas: &mut Canvas<'_>) -> Result<(), CanvasError> {
         let mut value: String<16> = String::new();
         if let Some(status) = state.battery() {
             let power = if status.charging {
@@ -84,13 +73,10 @@ impl DiagnosticsWatchface {
         } else {
             let _ = value.push_str("---");
         }
-        row::draw(display, BATTERY_ROW, "[BATT]", &value, TERMINAL_RED)
+        row::draw(canvas, BATTERY_ROW, "[BATT]", &value, TERMINAL_RED)
     }
 
-    fn draw_accelerometer<D>(state: &WatchState, display: &mut D) -> Result<(), D::Error>
-    where
-        D: DrawTarget<Color = Rgb565>,
-    {
+    fn draw_accelerometer(state: &WatchState, canvas: &mut Canvas<'_>) -> Result<(), CanvasError> {
         let mut value: String<20> = String::new();
         if state.feature_engine() == Some(FeatureEngineStatus::Failed) {
             let _ = value.push_str("FEATURE ERROR");
@@ -120,20 +106,17 @@ impl DiagnosticsWatchface {
         } else {
             "[IMU ]"
         };
-        row::draw(display, MOTION_ROW, label, &value, TERMINAL_ORANGE)
+        row::draw(canvas, MOTION_ROW, label, &value, TERMINAL_ORANGE)
     }
 
-    fn draw_steps<D>(state: &WatchState, display: &mut D) -> Result<(), D::Error>
-    where
-        D: DrawTarget<Color = Rgb565>,
-    {
+    fn draw_steps(state: &WatchState, canvas: &mut Canvas<'_>) -> Result<(), CanvasError> {
         let mut value: String<16> = String::new();
         if let Some(steps) = state.steps() {
             let _ = write!(value, "{steps}");
         } else {
             let _ = value.push_str("---");
         }
-        row::draw(display, STEP_ROW, "[STEP]", &value, TERMINAL_ORANGE)
+        row::draw(canvas, STEP_ROW, "[STEP]", &value, TERMINAL_ORANGE)
     }
 
     /// Falls back through the analysis, the raw counts, and finally the sensor
@@ -176,12 +159,9 @@ impl DiagnosticsWatchface {
         value
     }
 
-    fn draw_heart_rate<D>(state: &WatchState, display: &mut D) -> Result<(), D::Error>
-    where
-        D: DrawTarget<Color = Rgb565>,
-    {
+    fn draw_heart_rate(state: &WatchState, canvas: &mut Canvas<'_>) -> Result<(), CanvasError> {
         row::draw(
-            display,
+            canvas,
             HEART_RATE_ROW,
             "[HRS ]",
             &Self::format_heart_rate(state),
@@ -189,12 +169,9 @@ impl DiagnosticsWatchface {
         )
     }
 
-    fn draw_status<D>(state: &WatchState, display: &mut D) -> Result<(), D::Error>
-    where
-        D: DrawTarget<Color = Rgb565>,
-    {
+    fn draw_status(state: &WatchState, canvas: &mut Canvas<'_>) -> Result<(), CanvasError> {
         row::draw(
-            display,
+            canvas,
             STATUS_ROW,
             "[BLE ]",
             &row::format_ble(state.ble()),
@@ -204,83 +181,77 @@ impl DiagnosticsWatchface {
 }
 
 impl Watchface for DiagnosticsWatchface {
-    fn draw_full<D>(
+    fn draw_full(
         &self,
         state: &WatchState,
-        display: &mut D,
-        mut keep_alive: impl FnMut(),
-    ) -> Result<(), D::Error>
-    where
-        D: DrawTarget<Color = Rgb565>,
-    {
+        canvas: &mut Canvas<'_>,
+        keep_alive: &mut dyn FnMut(),
+    ) -> Result<(), CanvasError> {
         SCREEN_AREA
             .into_styled(PrimitiveStyle::with_fill(Rgb565::BLACK))
-            .draw(display)?;
+            .draw(canvas)?;
         let prompt = MonoTextStyle::new(&FONT_10X20, LIGHT_GRAY);
-        draw_mono_text_visible("user@watch:~ $ now", Point::new(0, 20), prompt, display)?;
+        draw_mono_text_visible("user@watch:~ $ now", Point::new(0, 20), prompt, canvas)?;
         keep_alive();
 
-        Self::draw_date(state, display)?;
+        Self::draw_date(state, canvas)?;
         keep_alive();
-        Self::draw_time(state, display)?;
+        Self::draw_time(state, canvas)?;
         keep_alive();
-        Self::draw_battery(state, display)?;
+        Self::draw_battery(state, canvas)?;
         keep_alive();
-        Self::draw_accelerometer(state, display)?;
+        Self::draw_accelerometer(state, canvas)?;
         keep_alive();
-        Self::draw_steps(state, display)?;
+        Self::draw_steps(state, canvas)?;
         keep_alive();
-        Self::draw_heart_rate(state, display)?;
+        Self::draw_heart_rate(state, canvas)?;
         keep_alive();
-        Self::draw_status(state, display)?;
+        Self::draw_status(state, canvas)?;
         keep_alive();
 
         draw_mono_text_visible(
             "swipe >",
             Point::new(0, 226),
             MonoTextStyle::new(&FONT_10X20, TERMINAL_GREEN),
-            display,
+            canvas,
         )?;
         keep_alive();
         Ok(())
     }
 
-    fn draw_changed<D>(
+    fn draw_changed(
         &self,
         state: &WatchState,
         changed: WatchFields,
-        display: &mut D,
-        mut keep_alive: impl FnMut(),
-    ) -> Result<(), D::Error>
-    where
-        D: DrawTarget<Color = Rgb565>,
-    {
+        canvas: &mut Canvas<'_>,
+        keep_alive: &mut dyn FnMut(),
+    ) -> Result<(), CanvasError> {
         if changed.contains(WatchField::Date) {
-            Self::draw_date(state, display)?;
+            Self::draw_date(state, canvas)?;
             keep_alive();
         }
         if changed.contains(WatchField::Clock) {
-            Self::update_clock(state, display)?;
+            Self::update_clock(state, canvas)?;
             keep_alive();
         }
         if changed.contains(WatchField::Battery) {
-            Self::draw_battery(state, display)?;
+            Self::draw_battery(state, canvas)?;
             keep_alive();
         }
         if changed.contains(WatchField::Motion) {
-            Self::draw_accelerometer(state, display)?;
+            Self::draw_accelerometer(state, canvas)?;
             keep_alive();
         }
         if changed.contains(WatchField::Steps) {
-            Self::draw_steps(state, display)?;
+            Self::draw_steps(state, canvas)?;
             keep_alive();
         }
         if changed.contains(WatchField::HeartRate) {
-            Self::draw_heart_rate(state, display)?;
+            Self::draw_heart_rate(state, canvas)?;
             keep_alive();
         }
         if changed.contains(WatchField::Ble) {
-            Self::draw_status(state, display)?;
+            Self::draw_status(state, canvas)?;
             keep_alive();
         }
         Ok(())

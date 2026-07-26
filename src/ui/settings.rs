@@ -1,15 +1,13 @@
 use core::fmt::Write;
 
-use embedded_graphics::{
-    mono_font::{MonoTextStyle, ascii::FONT_10X20},
-    pixelcolor::Rgb565,
-    prelude::*,
-};
+use embedded_graphics::mono_font::{MonoTextStyle, ascii::FONT_10X20};
+use embedded_graphics::prelude::*;
 use heapless::String;
 use pineforge_state::{
     AppEvent, Button, ButtonBounds, ButtonOutcome, DisplaySettings, ScreenAction,
 };
 
+use crate::ui::canvas::{Canvas, CanvasError};
 use crate::ui::{
     render::{ROW_HEIGHT, ROW_WIDTH, ROW_X, draw_mono_text_visible, draw_row},
     screen::{Paint, Screen},
@@ -66,28 +64,25 @@ impl Default for DisplaySettingsScreen {
 }
 
 impl DisplaySettingsScreen {
-    fn draw_rows<D>(&self, display: &mut D) -> Result<(), D::Error>
-    where
-        D: DrawTarget<Color = Rgb565>,
-    {
+    fn draw_rows(&self, canvas: &mut Canvas<'_>) -> Result<(), CanvasError> {
         // The three cumulative backlight levels (see BRIGHTNESS_LEVELS).
         let brightness = match self.settings.brightness() {
             1 => "LOW",
             3 => "MED",
             _ => "FULL",
         };
-        draw_row(display, BRIGHTNESS_ROW_Y, "BRIGHT", brightness)?;
+        draw_row(canvas, BRIGHTNESS_ROW_Y, "BRIGHT", brightness)?;
 
         let mut value: String<16> = String::new();
         let _ = write!(value, "{} s", self.settings.dim_after_millis() / 1_000);
-        draw_row(display, DIM_ROW_Y, "DIM", &value)?;
+        draw_row(canvas, DIM_ROW_Y, "DIM", &value)?;
 
         value.clear();
         let _ = write!(value, "{} s", self.settings.off_after_millis() / 1_000);
-        draw_row(display, OFF_ROW_Y, "OFF", &value)?;
+        draw_row(canvas, OFF_ROW_Y, "OFF", &value)?;
 
         draw_row(
-            display,
+            canvas,
             HEART_RATE_ROW_Y,
             "HEART",
             if self.settings.heart_rate_enabled() {
@@ -102,24 +97,25 @@ impl DisplaySettingsScreen {
             "{} min",
             self.settings.heart_rate_interval_seconds() / 60
         );
-        draw_row(display, HEART_RATE_INTERVAL_ROW_Y, "HR INT", &value)
+        draw_row(canvas, HEART_RATE_INTERVAL_ROW_Y, "HR INT", &value)
     }
 }
 
 impl Paint for DisplaySettingsScreen {
-    fn draw_full<D>(&self, display: &mut D, mut keep_alive: impl FnMut()) -> Result<(), D::Error>
-    where
-        D: DrawTarget<Color = Rgb565>,
-    {
-        display.clear(theme::BACKGROUND)?;
+    fn draw_full(
+        &self,
+        canvas: &mut Canvas<'_>,
+        keep_alive: &mut dyn FnMut(),
+    ) -> Result<(), CanvasError> {
+        canvas.clear(theme::BACKGROUND)?;
         keep_alive();
-        self.draw_rows(display)?;
+        self.draw_rows(canvas)?;
         keep_alive();
         draw_mono_text_visible(
-            "^ swipe up",
+            "> back",
             Point::new(ROW_X, 232),
             MonoTextStyle::new(&FONT_10X20, theme::TEXT),
-            display,
+            canvas,
         )
     }
 }
@@ -156,12 +152,13 @@ impl Screen for DisplaySettingsScreen {
         ScreenAction::None
     }
 
-    fn draw_dirty<D>(&self, display: &mut D, mut keep_alive: impl FnMut()) -> Result<(), D::Error>
-    where
-        D: DrawTarget<Color = Rgb565>,
-    {
+    fn draw_dirty(
+        &self,
+        canvas: &mut Canvas<'_>,
+        keep_alive: &mut dyn FnMut(),
+    ) -> Result<(), CanvasError> {
         if self.dirty {
-            self.draw_rows(display)?;
+            self.draw_rows(canvas)?;
             keep_alive();
         }
         Ok(())

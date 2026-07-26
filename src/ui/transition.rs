@@ -8,6 +8,7 @@ use embedded_graphics::{
 };
 use pineforge_state::{Navigation, SwipeDirection};
 
+use super::canvas::Canvas;
 #[cfg(feature = "diagnostics")]
 use super::metrics::RenderMetrics;
 use super::scratch::{STRIPE_THICKNESS, UiScratch};
@@ -21,15 +22,18 @@ use super::screen::Paint;
 ///
 /// The incoming screen is revealed from the edge it enters through, which is
 /// the edge the gesture came from, so the motion follows the finger.
-pub fn draw_slide_reveal<S, D>(
-    screen: &S,
+/// The screen arrives as `&dyn Paint` so this function exists once rather than
+/// once per screen that can slide. The display stays a type parameter: the
+/// stripe blit below is the hot path of the animation and is kept on the
+/// concrete target, where it neither pays for a vtable nor loses its iterator.
+pub fn draw_slide_reveal<D>(
+    screen: &dyn Paint,
     display: &mut D,
     scratch: &mut UiScratch,
     navigation: Navigation,
-    mut keep_alive: impl FnMut(),
+    keep_alive: &mut dyn FnMut(),
 ) -> Result<TransitionOutput, D::Error>
 where
-    S: Paint,
     D: DrawTarget<Color = Rgb565>,
 {
     #[cfg(feature = "diagnostics")]
@@ -73,10 +77,11 @@ where
         scratch.prepare_stripe(area);
         #[cfg(feature = "diagnostics")]
         let compose_started = Instant::now();
-        match screen.draw_full(scratch, &mut keep_alive) {
-            Ok(()) => {}
-            Err(error) => match error {},
-        }
+        // The scratch buffer cannot fail a write, but the canvas that carries
+        // it erases that guarantee along with the backend's error type. There
+        // is nothing to recover from either way: a stripe that failed to
+        // compose still has to be sent, or the animation would stall.
+        let _ = screen.draw_full(&mut Canvas::new(scratch), keep_alive);
         #[cfg(feature = "diagnostics")]
         {
             metrics.compose_us += compose_started.elapsed().as_micros();

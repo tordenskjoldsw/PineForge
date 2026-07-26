@@ -19,8 +19,18 @@ pub const BACKGROUND: Rgb565 = Rgb565::new(0, 0, 0);
 pub const TEXT: Rgb565 = Rgb565::new(31, 63, 31);
 /// Borders of rows and tiles.
 pub const FRAME: Rgb565 = Rgb565::new(8, 16, 8);
-/// Values, and the fill of a pressed or selected component.
-pub const ACCENT: Rgb565 = Rgb565::new(31, 41, 0);
+/// The face of a raised component - a launcher tile - against the background.
+///
+/// Dark enough to keep the display mostly black, which is what the panel is
+/// good at, but far enough above it that a tile reads as a surface rather than
+/// as an outline.
+pub const SURFACE: Rgb565 = Rgb565::new(4, 9, 5);
+/// Values, icons, and the fill of a pressed or selected component.
+///
+/// Indigo rather than the amber this started with: it is the one hue no status
+/// colour uses, so nothing interactive can be mistaken for a warning, and both
+/// its channels are bright enough to survive the lowest backlight level.
+pub const ACCENT: Rgb565 = Rgb565::new(15, 23, 31);
 /// Rollback, DFU failure, critical charge. Reserved for state that deserves
 /// attention; never decoration.
 pub const DANGER: Rgb565 = Rgb565::new(31, 0, 0);

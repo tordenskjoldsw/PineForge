@@ -1,13 +1,11 @@
 use core::fmt::Write;
 
-use embedded_graphics::{
-    mono_font::{MonoTextStyle, ascii::FONT_10X20},
-    pixelcolor::Rgb565,
-    prelude::*,
-};
+use embedded_graphics::mono_font::{MonoTextStyle, ascii::FONT_10X20};
+use embedded_graphics::prelude::*;
 use heapless::String;
 use pineforge_state::{AppEvent, Button, ButtonBounds, ButtonOutcome, ScreenAction};
 
+use crate::ui::canvas::{Canvas, CanvasError};
 use crate::ui::{
     render::{ROW_HEIGHT, ROW_WIDTH, ROW_X, draw_mono_text_visible, draw_row},
     screen::{Paint, Screen},
@@ -74,15 +72,12 @@ impl FirmwareScreen {
         value
     }
 
-    fn draw_rows<D>(&self, display: &mut D) -> Result<(), D::Error>
-    where
-        D: DrawTarget<Color = Rgb565>,
-    {
-        draw_row(display, CONFIRM_ROW_Y, "FW", &self.confirm_value())?;
+    fn draw_rows(&self, canvas: &mut Canvas<'_>) -> Result<(), CanvasError> {
+        draw_row(canvas, CONFIRM_ROW_Y, "FW", &self.confirm_value())?;
         // An unconfirmed image does not survive a reset: MCUBoot restores the
         // image this one replaced.
         draw_row(
-            display,
+            canvas,
             RESTART_ROW_Y,
             "RESTART",
             if self.confirmed { "REBOOT" } else { "ROLLBACK" },
@@ -91,11 +86,12 @@ impl FirmwareScreen {
 }
 
 impl Paint for FirmwareScreen {
-    fn draw_full<D>(&self, display: &mut D, mut keep_alive: impl FnMut()) -> Result<(), D::Error>
-    where
-        D: DrawTarget<Color = Rgb565>,
-    {
-        display.clear(theme::BACKGROUND)?;
+    fn draw_full(
+        &self,
+        canvas: &mut Canvas<'_>,
+        keep_alive: &mut dyn FnMut(),
+    ) -> Result<(), CanvasError> {
+        canvas.clear(theme::BACKGROUND)?;
         keep_alive();
 
         let mut title: String<24> = String::new();
@@ -104,17 +100,17 @@ impl Paint for FirmwareScreen {
             &title,
             Point::new(ROW_X, TITLE_BASELINE_Y),
             MonoTextStyle::new(&FONT_10X20, theme::TEXT),
-            display,
+            canvas,
         )?;
         keep_alive();
 
-        self.draw_rows(display)?;
+        self.draw_rows(canvas)?;
         keep_alive();
         draw_mono_text_visible(
-            "< swipe left",
+            "> back",
             Point::new(ROW_X, HINT_BASELINE_Y),
             MonoTextStyle::new(&FONT_10X20, theme::TEXT),
-            display,
+            canvas,
         )
     }
 }
@@ -132,12 +128,13 @@ impl Screen for FirmwareScreen {
         ScreenAction::None
     }
 
-    fn draw_dirty<D>(&self, display: &mut D, mut keep_alive: impl FnMut()) -> Result<(), D::Error>
-    where
-        D: DrawTarget<Color = Rgb565>,
-    {
+    fn draw_dirty(
+        &self,
+        canvas: &mut Canvas<'_>,
+        keep_alive: &mut dyn FnMut(),
+    ) -> Result<(), CanvasError> {
         if self.dirty {
-            self.draw_rows(display)?;
+            self.draw_rows(canvas)?;
             keep_alive();
         }
         Ok(())

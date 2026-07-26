@@ -11,9 +11,9 @@ mod diagnostics;
 mod row;
 mod terminal;
 
-use embedded_graphics::{draw_target::DrawTarget, pixelcolor::Rgb565};
 use pineforge_state::{AppEvent, ScreenAction, WatchFields, WatchState, WatchfaceId};
 
+use crate::ui::canvas::{Canvas, CanvasError};
 use crate::ui::screen::{Paint, Screen};
 #[cfg(feature = "diagnostics")]
 pub use diagnostics::DiagnosticsWatchface;
@@ -27,25 +27,21 @@ pub use terminal::TerminalWatchface;
 pub trait Watchface {
     /// Paints the whole face. Must be opaque: the slide transition composes it
     /// stripe by stripe and never clears behind it.
-    fn draw_full<D>(
+    fn draw_full(
         &self,
         state: &WatchState,
-        display: &mut D,
-        keep_alive: impl FnMut(),
-    ) -> Result<(), D::Error>
-    where
-        D: DrawTarget<Color = Rgb565>;
+        canvas: &mut Canvas<'_>,
+        keep_alive: &mut dyn FnMut(),
+    ) -> Result<(), CanvasError>;
 
     /// Repaints only the parts of the layout that `changed` touches.
-    fn draw_changed<D>(
+    fn draw_changed(
         &self,
         state: &WatchState,
         changed: WatchFields,
-        display: &mut D,
-        keep_alive: impl FnMut(),
-    ) -> Result<(), D::Error>
-    where
-        D: DrawTarget<Color = Rgb565>;
+        canvas: &mut Canvas<'_>,
+        keep_alive: &mut dyn FnMut(),
+    ) -> Result<(), CanvasError>;
 }
 
 /// A face this build can show, with its state.
@@ -81,36 +77,30 @@ impl ActiveWatchface {
 }
 
 impl Watchface for ActiveWatchface {
-    fn draw_full<D>(
+    fn draw_full(
         &self,
         state: &WatchState,
-        display: &mut D,
-        keep_alive: impl FnMut(),
-    ) -> Result<(), D::Error>
-    where
-        D: DrawTarget<Color = Rgb565>,
-    {
+        canvas: &mut Canvas<'_>,
+        keep_alive: &mut dyn FnMut(),
+    ) -> Result<(), CanvasError> {
         match self {
-            Self::Terminal(face) => face.draw_full(state, display, keep_alive),
+            Self::Terminal(face) => face.draw_full(state, canvas, keep_alive),
             #[cfg(feature = "diagnostics")]
-            Self::Diagnostics(face) => face.draw_full(state, display, keep_alive),
+            Self::Diagnostics(face) => face.draw_full(state, canvas, keep_alive),
         }
     }
 
-    fn draw_changed<D>(
+    fn draw_changed(
         &self,
         state: &WatchState,
         changed: WatchFields,
-        display: &mut D,
-        keep_alive: impl FnMut(),
-    ) -> Result<(), D::Error>
-    where
-        D: DrawTarget<Color = Rgb565>,
-    {
+        canvas: &mut Canvas<'_>,
+        keep_alive: &mut dyn FnMut(),
+    ) -> Result<(), CanvasError> {
         match self {
-            Self::Terminal(face) => face.draw_changed(state, changed, display, keep_alive),
+            Self::Terminal(face) => face.draw_changed(state, changed, canvas, keep_alive),
             #[cfg(feature = "diagnostics")]
-            Self::Diagnostics(face) => face.draw_changed(state, changed, display, keep_alive),
+            Self::Diagnostics(face) => face.draw_changed(state, changed, canvas, keep_alive),
         }
     }
 }
@@ -148,11 +138,12 @@ impl WatchfaceScreen {
 }
 
 impl Paint for WatchfaceScreen {
-    fn draw_full<D>(&self, display: &mut D, keep_alive: impl FnMut()) -> Result<(), D::Error>
-    where
-        D: DrawTarget<Color = Rgb565>,
-    {
-        self.face.draw_full(&self.state, display, keep_alive)
+    fn draw_full(
+        &self,
+        canvas: &mut Canvas<'_>,
+        keep_alive: &mut dyn FnMut(),
+    ) -> Result<(), CanvasError> {
+        self.face.draw_full(&self.state, canvas, keep_alive)
     }
 }
 
@@ -164,11 +155,12 @@ impl Screen for WatchfaceScreen {
         ScreenAction::None
     }
 
-    fn draw_dirty<D>(&self, display: &mut D, keep_alive: impl FnMut()) -> Result<(), D::Error>
-    where
-        D: DrawTarget<Color = Rgb565>,
-    {
+    fn draw_dirty(
+        &self,
+        canvas: &mut Canvas<'_>,
+        keep_alive: &mut dyn FnMut(),
+    ) -> Result<(), CanvasError> {
         self.face
-            .draw_changed(&self.state, self.state.changed(), display, keep_alive)
+            .draw_changed(&self.state, self.state.changed(), canvas, keep_alive)
     }
 }

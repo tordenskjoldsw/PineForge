@@ -9,14 +9,18 @@
 //! cost no flash, and a stripe can compose them without reading anything.
 
 use embedded_graphics::{
-    draw_target::DrawTarget,
     pixelcolor::Rgb565,
     prelude::*,
     primitives::{Line, PrimitiveStyle, PrimitiveStyleBuilder, Rectangle},
 };
 use pineforge_state::{BatteryStatus, BleState};
 
-use crate::ui::{render::draw_visible, screen::Paint, theme};
+use crate::ui::{
+    canvas::{Canvas, CanvasError},
+    render::draw_visible,
+    screen::Paint,
+    theme,
+};
 
 /// Height of the strip the corner lives in. Screen content starts below it.
 pub const STATUS_HEIGHT: i32 = 16;
@@ -75,34 +79,28 @@ impl StatusCorner {
 
     /// Draws the corner over its own background, so it can be refreshed without
     /// touching the screen underneath.
-    pub fn draw<D>(&self, display: &mut D) -> Result<(), D::Error>
-    where
-        D: DrawTarget<Color = Rgb565>,
-    {
+    pub fn draw(&self, canvas: &mut Canvas<'_>) -> Result<(), CanvasError> {
         draw_visible(
             &Rectangle::new(
                 Point::new(RUNE_X - 2, 0),
                 Size::new((SCREEN_WIDTH - RUNE_X + 2) as u32, STATUS_HEIGHT as u32),
             )
             .into_styled(PrimitiveStyle::with_fill(theme::BACKGROUND)),
-            display,
+            canvas,
         )?;
 
         if let Some(state) = self.ble {
-            self.draw_rune(display, theme::bluetooth(state))?;
+            self.draw_rune(canvas, theme::bluetooth(state))?;
         }
         if let Some(status) = self.battery {
-            self.draw_battery(display, status)?;
+            self.draw_battery(canvas, status)?;
         }
         Ok(())
     }
 
     /// The Bluetooth rune: a stem crossed by two triangles, the shape everyone
     /// recognises without a legend.
-    fn draw_rune<D>(&self, display: &mut D, color: Rgb565) -> Result<(), D::Error>
-    where
-        D: DrawTarget<Color = Rgb565>,
-    {
+    fn draw_rune(&self, canvas: &mut Canvas<'_>, color: Rgb565) -> Result<(), CanvasError> {
         let _ = self;
         let style = PrimitiveStyle::with_stroke(color, 1);
         let top = Point::new(RUNE_X + RUNE_WIDTH / 2, RUNE_Y);
@@ -119,17 +117,18 @@ impl StatusCorner {
             (bottom, lower_right),
             (lower_right, upper_left),
         ] {
-            draw_visible(&Line::new(from, to).into_styled(style), display)?;
+            draw_visible(&Line::new(from, to).into_styled(style), canvas)?;
         }
         Ok(())
     }
 
     /// A battery outline with a terminal, filled in proportion to charge and
     /// coloured by urgency.
-    fn draw_battery<D>(&self, display: &mut D, status: BatteryStatus) -> Result<(), D::Error>
-    where
-        D: DrawTarget<Color = Rgb565>,
-    {
+    fn draw_battery(
+        &self,
+        canvas: &mut Canvas<'_>,
+        status: BatteryStatus,
+    ) -> Result<(), CanvasError> {
         let _ = self;
         let color = theme::battery(status.level());
         draw_visible(
@@ -144,7 +143,7 @@ impl StatusCorner {
                     .stroke_width(1)
                     .build(),
             ),
-            display,
+            canvas,
         )?;
         draw_visible(
             &Rectangle::new(
@@ -155,7 +154,7 @@ impl StatusCorner {
                 Size::new(TERMINAL_WIDTH as u32, TERMINAL_HEIGHT as u32),
             )
             .into_styled(PrimitiveStyle::with_fill(color)),
-            display,
+            canvas,
         )?;
 
         let fill = fill_width(status);
@@ -168,7 +167,7 @@ impl StatusCorner {
                 Size::new(fill, u32::try_from(BATTERY_HEIGHT - 4).unwrap_or(0)),
             )
             .into_styled(PrimitiveStyle::with_fill(color)),
-            display,
+            canvas,
         )
     }
 }
@@ -183,26 +182,29 @@ fn fill_width(status: BatteryStatus) -> u32 {
 ///
 /// Transitions compose whatever they are given once per stripe, so the corner
 /// has to be part of that composition rather than something drawn afterwards.
-pub struct WithStatus<'a, S> {
-    screen: &'a S,
+/// Holds the screen as `&dyn Paint` rather than by type parameter, so the
+/// composition below is compiled once instead of once per screen it wraps.
+pub struct WithStatus<'a> {
+    screen: &'a dyn Paint,
     status: &'a StatusCorner,
 }
 
-impl<'a, S> WithStatus<'a, S> {
+impl<'a> WithStatus<'a> {
     #[must_use]
-    pub const fn new(screen: &'a S, status: &'a StatusCorner) -> Self {
+    pub const fn new(screen: &'a dyn Paint, status: &'a StatusCorner) -> Self {
         Self { screen, status }
     }
 }
 
-impl<S: Paint> Paint for WithStatus<'_, S> {
-    fn draw_full<D>(&self, display: &mut D, mut keep_alive: impl FnMut()) -> Result<(), D::Error>
-    where
-        D: DrawTarget<Color = Rgb565>,
-    {
-        self.screen.draw_full(display, &mut keep_alive)?;
+impl Paint for WithStatus<'_> {
+    fn draw_full(
+        &self,
+        canvas: &mut Canvas<'_>,
+        keep_alive: &mut dyn FnMut(),
+    ) -> Result<(), CanvasError> {
+        self.screen.draw_full(canvas, keep_alive)?;
         keep_alive();
-        self.status.draw(display)
+        self.status.draw(canvas)
     }
 }
 

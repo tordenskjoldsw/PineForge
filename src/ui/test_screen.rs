@@ -9,6 +9,7 @@ use embedded_graphics::{
 };
 use heapless::String;
 
+use crate::ui::canvas::{Canvas, CanvasError};
 use crate::ui::{
     metrics::RenderMetrics,
     render::{draw_mono_text_visible, draw_visible},
@@ -46,18 +47,15 @@ impl TestScreen {
         }
     }
 
-    pub fn draw_metrics<D>(&self, display: &mut D) -> Result<(), D::Error>
-    where
-        D: DrawTarget<Color = Rgb565>,
-    {
+    pub fn draw_metrics(&self, canvas: &mut Canvas<'_>) -> Result<(), CanvasError> {
         METRICS_AREA
             .into_styled(PrimitiveStyle::with_fill(Rgb565::BLACK))
-            .draw(display)?;
+            .draw(canvas)?;
         let style = MonoTextStyle::new(&FONT_6X10, Rgb565::WHITE);
-        Self::draw_metric_line(display, "F", self.forward_metrics, 154, style)?;
-        Self::draw_metric_line(display, "B", self.backward_metrics, 170, style)?;
+        Self::draw_metric_line(canvas, "F", self.forward_metrics, 154, style)?;
+        Self::draw_metric_line(canvas, "B", self.backward_metrics, 170, style)?;
         Self::draw_max_line(
-            display,
+            canvas,
             self.forward_metrics,
             self.backward_metrics,
             190,
@@ -69,18 +67,15 @@ impl TestScreen {
             .map_or(0, |metrics| metrics.stripe_count);
         let mut tile_line = String::<24>::new();
         let _ = write!(tile_line, "TILES {tiles}");
-        draw_mono_text_visible(&tile_line, Point::new(0, 206), style, display)?;
+        draw_mono_text_visible(&tile_line, Point::new(0, 206), style, canvas)?;
         Ok(())
     }
 
     /// Touch contact state, relocated here from the watchface status row.
-    fn draw_touch_state<D>(&self, display: &mut D) -> Result<(), D::Error>
-    where
-        D: DrawTarget<Color = Rgb565>,
-    {
+    fn draw_touch_state(&self, canvas: &mut Canvas<'_>) -> Result<(), CanvasError> {
         Rectangle::new(Point::new(0, 214), Size::new(50, 26))
             .into_styled(PrimitiveStyle::with_fill(Rgb565::BLACK))
-            .draw(display)?;
+            .draw(canvas)?;
         let style = MonoTextStyle::new(
             &FONT_6X10,
             if self.touching {
@@ -90,19 +85,16 @@ impl TestScreen {
             },
         );
         let state = if self.touching { "AKTIV" } else { "BEREIT" };
-        draw_mono_text_visible(state, Point::new(2, 232), style, display)
+        draw_mono_text_visible(state, Point::new(2, 232), style, canvas)
     }
 
-    fn draw_metric_line<D>(
-        display: &mut D,
+    fn draw_metric_line(
+        canvas: &mut Canvas<'_>,
         label: &str,
         metrics: Option<RenderMetrics>,
         baseline: i32,
         style: MonoTextStyle<'_, Rgb565>,
-    ) -> Result<(), D::Error>
-    where
-        D: DrawTarget<Color = Rgb565>,
-    {
+    ) -> Result<(), CanvasError> {
         let mut line = String::<24>::new();
         if let Some(metrics) = metrics {
             let _ = write!(
@@ -115,35 +107,33 @@ impl TestScreen {
         } else {
             let _ = write!(line, "{label} ---");
         }
-        draw_mono_text_visible(&line, Point::new(0, baseline), style, display)
+        draw_mono_text_visible(&line, Point::new(0, baseline), style, canvas)
     }
 
-    fn draw_max_line<D>(
-        display: &mut D,
+    fn draw_max_line(
+        canvas: &mut Canvas<'_>,
         forward: Option<RenderMetrics>,
         backward: Option<RenderMetrics>,
         baseline: i32,
         style: MonoTextStyle<'_, Rgb565>,
-    ) -> Result<(), D::Error>
-    where
-        D: DrawTarget<Color = Rgb565>,
-    {
+    ) -> Result<(), CanvasError> {
         let mut line = String::<24>::new();
         let forward_max = forward.map_or(0, |metrics| metrics.max_stripe_us / 1_000);
         let backward_max = backward.map_or(0, |metrics| metrics.max_stripe_us / 1_000);
         let _ = write!(line, "MAX F{forward_max} B{backward_max}");
-        draw_mono_text_visible(&line, Point::new(0, baseline), style, display)
+        draw_mono_text_visible(&line, Point::new(0, baseline), style, canvas)
     }
 }
 
 impl Paint for TestScreen {
-    fn draw_full<D>(&self, display: &mut D, mut keep_alive: impl FnMut()) -> Result<(), D::Error>
-    where
-        D: DrawTarget<Color = Rgb565>,
-    {
+    fn draw_full(
+        &self,
+        canvas: &mut Canvas<'_>,
+        keep_alive: &mut dyn FnMut(),
+    ) -> Result<(), CanvasError> {
         Rectangle::new(Point::new(0, 0), Size::new(240, 64))
             .into_styled(PrimitiveStyle::with_fill(Rgb565::BLUE))
-            .draw(display)?;
+            .draw(canvas)?;
         keep_alive();
 
         let heading = MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE);
@@ -154,26 +144,26 @@ impl Paint for TestScreen {
                 heading,
                 Alignment::Center,
             ),
-            display,
+            canvas,
         )?;
         keep_alive();
 
         TOUCH_AREA
             .into_styled(PrimitiveStyle::with_fill(Rgb565::BLACK))
-            .draw(display)?;
+            .draw(canvas)?;
         if let Some(point) = self.last_touch.filter(|point| TOUCH_AREA.contains(*point)) {
             Rectangle::new(Point::new(point.x - 6, point.y - 6), TOUCH_MARKER_SIZE)
                 .into_styled(PrimitiveStyle::with_fill(Rgb565::YELLOW))
-                .draw(display)?;
+                .draw(canvas)?;
         }
         keep_alive();
 
-        self.draw_metrics(display)?;
+        self.draw_metrics(canvas)?;
         keep_alive();
 
         FOOTER_AREA
             .into_styled(PrimitiveStyle::with_fill(Rgb565::BLACK))
-            .draw(display)?;
+            .draw(canvas)?;
         let hint = MonoTextStyle::new(&FONT_6X10, Rgb565::WHITE);
         draw_visible(
             &Text::with_alignment(
@@ -182,9 +172,9 @@ impl Paint for TestScreen {
                 hint,
                 Alignment::Center,
             ),
-            display,
+            canvas,
         )?;
-        self.draw_touch_state(display)?;
+        self.draw_touch_state(canvas)?;
         keep_alive();
 
         Ok(())
@@ -204,29 +194,30 @@ impl Screen for TestScreen {
         ScreenAction::None
     }
 
-    fn draw_dirty<D>(&self, display: &mut D, mut keep_alive: impl FnMut()) -> Result<(), D::Error>
-    where
-        D: DrawTarget<Color = Rgb565>,
-    {
+    fn draw_dirty(
+        &self,
+        canvas: &mut Canvas<'_>,
+        keep_alive: &mut dyn FnMut(),
+    ) -> Result<(), CanvasError> {
         if let Some(point) = self
             .previous_touch
             .filter(|point| TOUCH_AREA.contains(*point))
         {
             Rectangle::new(Point::new(point.x - 6, point.y - 6), TOUCH_MARKER_SIZE)
                 .into_styled(PrimitiveStyle::with_fill(Rgb565::BLACK))
-                .draw(display)?;
+                .draw(canvas)?;
             keep_alive();
         }
 
         if let Some(point) = self.last_touch.filter(|point| TOUCH_AREA.contains(*point)) {
             Rectangle::new(Point::new(point.x - 6, point.y - 6), TOUCH_MARKER_SIZE)
                 .into_styled(PrimitiveStyle::with_fill(Rgb565::YELLOW))
-                .draw(display)?;
+                .draw(canvas)?;
             keep_alive();
         }
 
         if self.touching != self.previous_touching {
-            self.draw_touch_state(display)?;
+            self.draw_touch_state(canvas)?;
             keep_alive();
         }
 

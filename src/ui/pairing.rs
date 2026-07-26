@@ -2,28 +2,25 @@ use core::fmt::Write;
 
 use embedded_graphics::{
     mono_font::{MonoTextStyle, ascii::FONT_6X10, ascii::FONT_10X20},
-    pixelcolor::Rgb565,
     prelude::*,
     primitives::{PrimitiveStyleBuilder, Rectangle},
     text::{Alignment, Text},
 };
 use heapless::String;
 
+use crate::ui::canvas::{Canvas, CanvasError};
 use crate::ui::{render::draw_visible, theme};
 
 const CODE_BOX: Rectangle = Rectangle::new(Point::new(20, 96), Size::new(200, 48));
 
 /// Draws a full-screen pairing prompt with the passkey the user enters on the
 /// phone, mirroring `InfiniTime`'s pairing screen.
-pub fn draw_pairing<D>(
-    display: &mut D,
+pub fn draw_pairing(
+    canvas: &mut Canvas<'_>,
     passkey: u32,
-    mut keep_alive: impl FnMut(),
-) -> Result<(), D::Error>
-where
-    D: DrawTarget<Color = Rgb565>,
-{
-    display.clear(theme::BACKGROUND)?;
+    keep_alive: &mut dyn FnMut(),
+) -> Result<(), CanvasError> {
+    canvas.clear(theme::BACKGROUND)?;
     draw_visible(
         &Text::with_alignment(
             "BLUETOOTH PAIRING",
@@ -31,7 +28,7 @@ where
             MonoTextStyle::new(&FONT_10X20, theme::TEXT),
             Alignment::Center,
         ),
-        display,
+        canvas,
     )?;
     keep_alive();
 
@@ -43,7 +40,7 @@ where
                 .stroke_width(2)
                 .build(),
         )
-        .draw(display)?;
+        .draw(canvas)?;
     let mut code: String<8> = String::new();
     let _ = write!(code, "{passkey:06}");
     draw_visible(
@@ -53,7 +50,7 @@ where
             MonoTextStyle::new(&FONT_10X20, theme::ACCENT),
             Alignment::Center,
         ),
-        display,
+        canvas,
     )?;
     keep_alive();
 
@@ -64,7 +61,7 @@ where
             MonoTextStyle::new(&FONT_6X10, theme::TEXT),
             Alignment::Center,
         ),
-        display,
+        canvas,
     )?;
     keep_alive();
     Ok(())

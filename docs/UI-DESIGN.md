@@ -36,18 +36,25 @@ live in `src/ui/theme.rs` and nowhere else — a screen never names a colour.
 | `BACKGROUND` | `0x0000` | black | every screen's ground |
 | `TEXT` | `0xFFFF` | white | labels, titles |
 | `TEXT_MUTED` | `0x8410` | 50% grey | disabled entries, secondary lines |
-| `FRAME` | `0x4208` | 25% grey | borders of rows and tiles |
-| `ACCENT` | `0xFD20` | orange | values, selection fill |
+| `FRAME` | `0x4208` | 25% grey | borders of rows |
+| `SURFACE` | `0x2125` | near-black grey | the face of a tile or a row |
+| `ACCENT` | `0x7AFF` | indigo | values, icons, selection fill |
 | `LINK` | `0x451F` | azure | Bluetooth connected |
 | `OK` | `0x07E0` | green | battery healthy |
 | `WARN` | `0xFFE0` | yellow | battery low |
 | `DANGER` | `0xF800` | red | battery critical, disconnected, rollback, DFU failure |
 
-Orange stays the accent because the terminal look is the decided default and
-that is its colour. The four semantic colours exist because status has to be
-readable at a glance rather than deciphered: they are for state, never for
-decoration. Azure rather than pure blue (`0x001F`) because pure blue is the
-first colour to vanish when the backlight dims.
+Indigo is the accent because it is the one hue no status colour uses: nothing
+interactive can be mistaken for a warning, and both of its channels stay bright
+enough at the lowest backlight level. The four semantic colours exist because
+status has to be readable at a glance rather than deciphered: they are for
+state, never for decoration. Azure rather than pure blue (`0x001F`) because pure
+blue is the first colour to vanish when the backlight dims.
+
+Components sit on `SURFACE` rather than on the background. Keeping the panel
+mostly black is what it is good at, but a tile that is only an outline reads as
+a frame around nothing; a face one step above the background reads as an object
+that can be pressed.
 
 ## Type
 
@@ -70,10 +77,15 @@ Every touchable component has four, and they are drawn the same way everywhere:
 
 | State | Drawing |
 |---|---|
-| normal | `FRAME` border, `TEXT` label, `ACCENT` value |
-| pressed | filled `ACCENT`, label and value in `BACKGROUND` |
-| disabled | `FRAME` border, `TEXT_MUTED` label and value |
+| normal | `SURFACE` face, `TEXT` label, `ACCENT` value or icon |
+| pressed | filled `ACCENT`, label and icon in `BACKGROUND` |
+| disabled | `SURFACE` face, `TEXT_MUTED` label and value |
 | selected | filled `ACCENT` like pressed, but held until the choice changes |
+
+Tiles have rounded corners, rows do not — a tile is an object, a row is a line
+in a list. The rounding is five inset fills per corner rather than a rounded
+rectangle primitive, because that primitive is a rasteriser the firmware needs
+nowhere else and flash is the scarcer budget.
 
 Pressed inverts rather than merely recolouring because inversion is the only
 treatment that survives the lowest backlight level, and because a filled area
@@ -121,10 +133,21 @@ Four tiles per page, two by two, below the status strip:
 +-------------------------------------+
 ```
 
-Tiles are 120 x 112 with a two-pixel gap, which leaves a comfortable target and
-room for a 24 x 24 icon above a label. The launcher is opened by swiping up, so
-navigation owns the vertical axis and **pages turn horizontally** — the page
-indicator sits at the bottom, one dot per page, the current one filled.
+Tiles are 115 x 106 with a two-pixel gap and a four-pixel margin, leaving room
+under the second row for the page indicator. The launcher is opened by swiping
+up, so navigation owns the vertical axis and **pages turn horizontally** — the
+indicator sits at the bottom, one mark per page, the current one in `ACCENT` and
+the rest in `FRAME`. It is absent while there is only one page, because there is
+nothing to indicate.
+
+The marks are four-pixel squares rather than dots: a circle is a rasteriser the
+firmware otherwise never needs, and at that size the shapes are
+indistinguishable.
+
+A tile carries a 24 x 24 icon above a centred label. Icons are one-bit bitmaps,
+four bytes per row, tinted at draw time so one bitmap serves both the normal and
+the pressed colour. Drawing them as geometry would cost more than storing them:
+a gear built from arcs needs a rasteriser, while its bitmap costs 96 bytes.
 
 ## Menus
 
