@@ -1,23 +1,29 @@
-use core::fmt::Write;
-
-use embedded_graphics::prelude::*;
-use heapless::String;
-use pineforge_state::{AppEvent, Button, ButtonBounds, ButtonOutcome, ScreenAction};
+use pineforge_state::{AppEvent, ScreenAction};
 
 use crate::ui::canvas::{Canvas, CanvasError};
-use crate::ui::font::ui_text;
 use crate::ui::{
-    render::{ROW_HEIGHT, ROW_WIDTH, ROW_X, draw_mono_text_visible, draw_row},
+    menu::{self, Menu, MenuState, MenuTitle},
+    render::ROW_HEIGHT,
     screen::{Paint, Screen},
     status::STATUS_HEIGHT,
-    theme,
 };
 
 /// The title clears the status corner; the rows follow below it.
 const TITLE_BASELINE_Y: i32 = STATUS_HEIGHT + 20;
-const CONFIRM_ROW_Y: i32 = TITLE_BASELINE_Y + 16;
-const RESTART_ROW_Y: i32 = CONFIRM_ROW_Y + ROW_HEIGHT + 16;
-const HINT_BASELINE_Y: i32 = 232;
+
+static MENU: Menu = Menu {
+    title: Some(MenuTitle {
+        // Built at compile time rather than formatted per paint: the version is
+        // known then, and a runtime `write!` would cost a buffer and the
+        // formatting machinery for a string that never changes.
+        text: concat!("PINEFORGE ", env!("CARGO_PKG_VERSION")),
+        baseline_y: TITLE_BASELINE_Y,
+    }),
+    first_row_y: TITLE_BASELINE_Y + 16,
+    row_step: ROW_HEIGHT + 16,
+    labels: &["FW", "RESTART"],
+    hint: "> back",
+};
 
 /// Firmware confirmation and a software restart.
 ///
@@ -28,28 +34,14 @@ const HINT_BASELINE_Y: i32 = 232;
 /// value column names the consequence rather than the action.
 pub struct FirmwareScreen {
     confirmed: bool,
-    confirm_row: Button,
-    restart_row: Button,
-    dirty: bool,
+    menu: MenuState<2>,
 }
 
 impl Default for FirmwareScreen {
     fn default() -> Self {
         Self {
             confirmed: false,
-            confirm_row: Button::new(ButtonBounds::new(
-                ROW_X,
-                CONFIRM_ROW_Y,
-                ROW_WIDTH,
-                ROW_HEIGHT,
-            )),
-            restart_row: Button::new(ButtonBounds::new(
-                ROW_X,
-                RESTART_ROW_Y,
-                ROW_WIDTH,
-                ROW_HEIGHT,
-            )),
-            dirty: false,
+            menu: MenuState::new(&MENU),
         }
     }
 }
@@ -59,29 +51,19 @@ impl FirmwareScreen {
     /// successful confirmation.
     pub const fn set_confirmed(&mut self, confirmed: bool) {
         self.confirmed = confirmed;
-        self.dirty = true;
+        self.menu.mark_dirty();
     }
 
-    fn confirm_value(&self) -> String<16> {
-        let mut value = String::new();
+    /// The right-hand column, in row order.
+    ///
+    /// An unconfirmed image does not survive a reset: `MCUBoot` restores the
+    /// image this one replaced.
+    const fn values(&self) -> [&'static str; 2] {
         if self.confirmed {
-            let _ = value.push_str("OK");
+            ["OK", "REBOOT"]
         } else {
-            let _ = value.push_str("CONFIRM");
+            ["CONFIRM", "ROLLBACK"]
         }
-        value
-    }
-
-    fn draw_rows(&self, canvas: &mut Canvas<'_>) -> Result<(), CanvasError> {
-        draw_row(canvas, CONFIRM_ROW_Y, "FW", &self.confirm_value())?;
-        // An unconfirmed image does not survive a reset: MCUBoot restores the
-        // image this one replaced.
-        draw_row(
-            canvas,
-            RESTART_ROW_Y,
-            "RESTART",
-            if self.confirmed { "REBOOT" } else { "ROLLBACK" },
-        )
     }
 }
 
@@ -91,41 +73,17 @@ impl Paint for FirmwareScreen {
         canvas: &mut Canvas<'_>,
         keep_alive: &mut dyn FnMut(),
     ) -> Result<(), CanvasError> {
-        canvas.clear(theme::BACKGROUND)?;
-        keep_alive();
-
-        let mut title: String<24> = String::new();
-        let _ = write!(title, "PINEFORGE {}", env!("CARGO_PKG_VERSION"));
-        draw_mono_text_visible(
-            &title,
-            Point::new(ROW_X, TITLE_BASELINE_Y),
-            ui_text(theme::TEXT, theme::BACKGROUND),
-            canvas,
-        )?;
-        keep_alive();
-
-        self.draw_rows(canvas)?;
-        keep_alive();
-        draw_mono_text_visible(
-            "> back",
-            Point::new(ROW_X, HINT_BASELINE_Y),
-            ui_text(theme::TEXT, theme::BACKGROUND),
-            canvas,
-        )
+        menu::draw(&MENU, &self.values(), canvas, keep_alive)
     }
 }
 
 impl Screen for FirmwareScreen {
     fn handle_event(&mut self, event: AppEvent) -> ScreenAction {
-        self.dirty = false;
-
-        if self.confirm_row.handle_event(event) == ButtonOutcome::Activated && !self.confirmed {
-            return ScreenAction::ConfirmFirmware;
+        match self.menu.handle(event) {
+            Some(0) if !self.confirmed => ScreenAction::ConfirmFirmware,
+            Some(1) => ScreenAction::Reboot,
+            _ => ScreenAction::None,
         }
-        if self.restart_row.handle_event(event) == ButtonOutcome::Activated {
-            return ScreenAction::Reboot;
-        }
-        ScreenAction::None
     }
 
     fn draw_dirty(
@@ -133,9 +91,8 @@ impl Screen for FirmwareScreen {
         canvas: &mut Canvas<'_>,
         keep_alive: &mut dyn FnMut(),
     ) -> Result<(), CanvasError> {
-        if self.dirty {
-            self.draw_rows(canvas)?;
-            keep_alive();
+        if self.menu.is_dirty() {
+            menu::draw_rows(&MENU, &self.values(), canvas, keep_alive)?;
         }
         Ok(())
     }

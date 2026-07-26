@@ -1,103 +1,83 @@
 use core::fmt::Write;
 
-use embedded_graphics::prelude::*;
 use heapless::String;
-use pineforge_state::{
-    AppEvent, Button, ButtonBounds, ButtonOutcome, DisplaySettings, ScreenAction,
-};
+use pineforge_state::{AppEvent, DisplaySettings, ScreenAction};
 
 use crate::ui::canvas::{Canvas, CanvasError};
-use crate::ui::font::ui_text;
 use crate::ui::{
-    render::{ROW_HEIGHT, ROW_WIDTH, ROW_X, draw_mono_text_visible, draw_row},
+    menu::{self, Menu, MenuState},
+    render::ROW_HEIGHT,
     screen::{Paint, Screen},
     status::STATUS_HEIGHT,
-    theme,
 };
 
 /// Rows start below the status corner, which every screen but a watchface
 /// carries.
-const BRIGHTNESS_ROW_Y: i32 = STATUS_HEIGHT + 2;
-const DIM_ROW_Y: i32 = BRIGHTNESS_ROW_Y + ROW_HEIGHT + 2;
-const OFF_ROW_Y: i32 = DIM_ROW_Y + ROW_HEIGHT + 2;
-const HEART_RATE_ROW_Y: i32 = OFF_ROW_Y + ROW_HEIGHT + 2;
-const HEART_RATE_INTERVAL_ROW_Y: i32 = HEART_RATE_ROW_Y + ROW_HEIGHT + 2;
+static MENU: Menu = Menu {
+    title: None,
+    first_row_y: STATUS_HEIGHT + 2,
+    row_step: ROW_HEIGHT + 2,
+    labels: &["BRIGHT", "DIM", "OFF", "HEART", "HR INT"],
+    hint: "> back",
+};
+
+/// Rows whose value is formatted rather than picked from a fixed set.
+///
+/// Held together so the borrowed slice handed to the renderer outlives the
+/// strings it points at.
+#[derive(Default)]
+struct Formatted {
+    dim: String<16>,
+    off: String<16>,
+    interval: String<16>,
+}
 
 /// Adjusts display settings.
 pub struct DisplaySettingsScreen {
     settings: DisplaySettings,
-    brightness_row: Button,
-    dim_row: Button,
-    off_row: Button,
-    heart_rate_row: Button,
-    heart_rate_interval_row: Button,
-    dirty: bool,
+    menu: MenuState<5>,
 }
 
 impl Default for DisplaySettingsScreen {
     fn default() -> Self {
         Self {
             settings: DisplaySettings::DEFAULT,
-            brightness_row: Button::new(ButtonBounds::new(
-                ROW_X,
-                BRIGHTNESS_ROW_Y,
-                ROW_WIDTH,
-                ROW_HEIGHT,
-            )),
-            dim_row: Button::new(ButtonBounds::new(ROW_X, DIM_ROW_Y, ROW_WIDTH, ROW_HEIGHT)),
-            off_row: Button::new(ButtonBounds::new(ROW_X, OFF_ROW_Y, ROW_WIDTH, ROW_HEIGHT)),
-            heart_rate_row: Button::new(ButtonBounds::new(
-                ROW_X,
-                HEART_RATE_ROW_Y,
-                ROW_WIDTH,
-                ROW_HEIGHT,
-            )),
-            heart_rate_interval_row: Button::new(ButtonBounds::new(
-                ROW_X,
-                HEART_RATE_INTERVAL_ROW_Y,
-                ROW_WIDTH,
-                ROW_HEIGHT,
-            )),
-            dirty: false,
+            menu: MenuState::new(&MENU),
         }
     }
 }
 
 impl DisplaySettingsScreen {
-    fn draw_rows(&self, canvas: &mut Canvas<'_>) -> Result<(), CanvasError> {
-        // The three cumulative backlight levels (see BRIGHTNESS_LEVELS).
-        let brightness = match self.settings.brightness() {
-            1 => "LOW",
-            3 => "MED",
-            _ => "FULL",
-        };
-        draw_row(canvas, BRIGHTNESS_ROW_Y, "BRIGHT", brightness)?;
+    fn formatted(&self) -> Formatted {
+        let mut values = Formatted::default();
+        let _ = write!(values.dim, "{} s", self.settings.dim_after_millis() / 1_000);
+        let _ = write!(values.off, "{} s", self.settings.off_after_millis() / 1_000);
+        let _ = write!(
+            values.interval,
+            "{} min",
+            self.settings.heart_rate_interval_seconds() / 60
+        );
+        values
+    }
 
-        let mut value: String<16> = String::new();
-        let _ = write!(value, "{} s", self.settings.dim_after_millis() / 1_000);
-        draw_row(canvas, DIM_ROW_Y, "DIM", &value)?;
-
-        value.clear();
-        let _ = write!(value, "{} s", self.settings.off_after_millis() / 1_000);
-        draw_row(canvas, OFF_ROW_Y, "OFF", &value)?;
-
-        draw_row(
-            canvas,
-            HEART_RATE_ROW_Y,
-            "HEART",
+    /// The right-hand column, in row order.
+    fn values<'a>(&self, formatted: &'a Formatted) -> [&'a str; 5] {
+        [
+            // The three cumulative backlight levels (see BRIGHTNESS_LEVELS).
+            match self.settings.brightness() {
+                1 => "LOW",
+                3 => "MED",
+                _ => "FULL",
+            },
+            &formatted.dim,
+            &formatted.off,
             if self.settings.heart_rate_enabled() {
                 "ON"
             } else {
                 "OFF"
             },
-        )?;
-        value.clear();
-        let _ = write!(
-            value,
-            "{} min",
-            self.settings.heart_rate_interval_seconds() / 60
-        );
-        draw_row(canvas, HEART_RATE_INTERVAL_ROW_Y, "HR INT", &value)
+            &formatted.interval,
+        ]
     }
 }
 
@@ -107,49 +87,42 @@ impl Paint for DisplaySettingsScreen {
         canvas: &mut Canvas<'_>,
         keep_alive: &mut dyn FnMut(),
     ) -> Result<(), CanvasError> {
-        canvas.clear(theme::BACKGROUND)?;
-        keep_alive();
-        self.draw_rows(canvas)?;
-        keep_alive();
-        draw_mono_text_visible(
-            "> back",
-            Point::new(ROW_X, 232),
-            ui_text(theme::TEXT, theme::BACKGROUND),
-            canvas,
-        )
+        let formatted = self.formatted();
+        menu::draw(&MENU, &self.values(&formatted), canvas, keep_alive)
     }
 }
 
 impl Screen for DisplaySettingsScreen {
     fn handle_event(&mut self, event: AppEvent) -> ScreenAction {
-        self.dirty = false;
+        // Handled before the settings branch because this is what clears the
+        // dirty flag: an update carrying unchanged values has to leave the
+        // screen clean, not inherit the previous event's repaint. Rows ignore
+        // anything that is not a touch, so feeding them costs nothing.
+        let activated = self.menu.handle(event);
+
         if let AppEvent::DisplaySettingsUpdated(settings) = event {
             if settings != self.settings {
                 self.settings = settings;
-                self.dirty = true;
+                self.menu.mark_dirty();
             }
             return ScreenAction::None;
         }
 
-        let mut updated = None;
-        if self.brightness_row.handle_event(event) == ButtonOutcome::Activated {
-            updated = Some(self.settings.cycle_brightness());
-        } else if self.dim_row.handle_event(event) == ButtonOutcome::Activated {
-            updated = Some(self.settings.cycle_dim_timeout());
-        } else if self.off_row.handle_event(event) == ButtonOutcome::Activated {
-            updated = Some(self.settings.cycle_off_timeout());
-        } else if self.heart_rate_row.handle_event(event) == ButtonOutcome::Activated {
-            updated = Some(self.settings.toggle_heart_rate());
-        } else if self.heart_rate_interval_row.handle_event(event) == ButtonOutcome::Activated {
-            updated = Some(self.settings.cycle_heart_rate_interval());
-        }
+        // Row order is the menu's. A row added to the description without a
+        // case here simply does nothing, rather than inheriting its neighbour's
+        // effect the way a positional list of buttons would.
+        let updated = match activated {
+            Some(0) => self.settings.cycle_brightness(),
+            Some(1) => self.settings.cycle_dim_timeout(),
+            Some(2) => self.settings.cycle_off_timeout(),
+            Some(3) => self.settings.toggle_heart_rate(),
+            Some(4) => self.settings.cycle_heart_rate_interval(),
+            _ => return ScreenAction::None,
+        };
 
-        if let Some(settings) = updated {
-            self.settings = settings;
-            self.dirty = true;
-            return ScreenAction::ApplySettings(settings);
-        }
-        ScreenAction::None
+        self.settings = updated;
+        self.menu.mark_dirty();
+        ScreenAction::ApplySettings(updated)
     }
 
     fn draw_dirty(
@@ -157,9 +130,9 @@ impl Screen for DisplaySettingsScreen {
         canvas: &mut Canvas<'_>,
         keep_alive: &mut dyn FnMut(),
     ) -> Result<(), CanvasError> {
-        if self.dirty {
-            self.draw_rows(canvas)?;
-            keep_alive();
+        if self.menu.is_dirty() {
+            let formatted = self.formatted();
+            menu::draw_rows(&MENU, &self.values(&formatted), canvas, keep_alive)?;
         }
         Ok(())
     }

@@ -4,6 +4,7 @@ pub mod firmware;
 pub mod font;
 pub mod icons;
 pub mod launcher;
+pub mod menu;
 #[cfg(feature = "diagnostics")]
 pub mod metrics;
 pub mod pairing;
