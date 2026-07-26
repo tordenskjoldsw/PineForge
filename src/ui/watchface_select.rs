@@ -20,10 +20,11 @@ use crate::ui::{
     status::STATUS_HEIGHT,
 };
 
-/// Rows the picker shows on one page. `WATCHFACES` is shorter than this in
-/// every build today; a build that carries more faces pages rather than
-/// hiding them.
-const ROWS_PER_PAGE: usize = 4;
+/// Rows the picker shows on one page. A titled screen fits three where an
+/// untitled one fits four; a fourth would run off the bottom. `WATCHFACES` is
+/// shorter than this in every build today, and a build carrying more faces
+/// pages rather than hiding them.
+const ROWS_PER_PAGE: usize = 3;
 
 const TITLE_BASELINE_Y: i32 = STATUS_HEIGHT + 20;
 
@@ -52,7 +53,7 @@ static MENU: Menu = Menu {
         baseline_y: TITLE_BASELINE_Y,
     }),
     first_row_y: TITLE_BASELINE_Y + 16,
-    row_step: ROW_HEIGHT + 2,
+    row_step: ROW_HEIGHT + 6,
     rows: &ROWS,
     hint: "> back",
 };
@@ -98,7 +99,7 @@ impl Paint for WatchfaceSelectScreen {
     ) -> Result<(), CanvasError> {
         menu::draw(
             &MENU,
-            self.menu.list(),
+            self.menu.page(),
             MenuColumn::Selected(self.selected()),
             canvas,
             keep_alive,
@@ -144,7 +145,7 @@ impl Screen for WatchfaceSelectScreen {
         if self.menu.is_dirty() {
             menu::draw_rows(
                 &MENU,
-                self.menu.list(),
+                self.menu.page(),
                 MenuColumn::Selected(self.selected()),
                 canvas,
                 keep_alive,

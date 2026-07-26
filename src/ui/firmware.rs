@@ -78,7 +78,7 @@ impl Paint for FirmwareScreen {
     ) -> Result<(), CanvasError> {
         menu::draw(
             &MENU,
-            self.menu.list(),
+            self.menu.page(),
             MenuColumn::Values(&self.values()),
             canvas,
             keep_alive,
@@ -103,7 +103,7 @@ impl Screen for FirmwareScreen {
         if self.menu.is_dirty() {
             menu::draw_rows(
                 &MENU,
-                self.menu.list(),
+                self.menu.page(),
                 MenuColumn::Values(&self.values()),
                 canvas,
                 keep_alive,

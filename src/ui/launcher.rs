@@ -17,7 +17,7 @@ use crate::ui::canvas::{Canvas, CanvasError};
 use crate::ui::font::{JETBRAINS_MONO_10X22, ui_text};
 use crate::ui::{
     icons::{self, ICON_SIZE, Icon, draw_icon},
-    render::{draw_mono_text_visible, draw_visible},
+    render::{draw_mono_text_visible, draw_visible, round_corners},
     screen::{Paint, Screen},
     status::STATUS_HEIGHT,
     theme,
@@ -68,13 +68,6 @@ const CHARACTER_WIDTH: i32 = JETBRAINS_MONO_10X22.cell.width.cast_signed();
 const ICON_TOP_OFFSET: i32 = 24;
 const LABEL_BASELINE_OFFSET: i32 = 78;
 
-/// How far a filled corner is inset on each of its first rows, which rounds it.
-///
-/// A rounded rectangle primitive would rasterise this properly and cost a
-/// rasteriser the firmware needs nowhere else; eight numbers and two fills per
-/// row give the same silhouette at this size.
-const CORNER_INSET: [i32; 5] = [5, 3, 2, 1, 1];
-
 /// Where a slot sits on the page. Slot 0 is top-left, then across and down.
 const fn tile_bounds(slot: usize) -> ButtonBounds {
     let column = layout_index(slot % 2);
@@ -117,30 +110,6 @@ impl Default for LauncherScreen {
             dirty: false,
         }
     }
-}
-
-/// Paints the background back over the corners of a filled tile, which rounds
-/// it without a rounded-rectangle rasteriser.
-fn round_corners(area: &Rectangle, canvas: &mut Canvas<'_>) -> Result<(), CanvasError> {
-    let width = i32::try_from(area.size.width).unwrap_or(0);
-    let height = i32::try_from(area.size.height).unwrap_or(0);
-    for (row, inset) in CORNER_INSET.into_iter().enumerate() {
-        let offset = layout_index(row);
-        let size = Size::new(u32::try_from(inset).unwrap_or(0), 1);
-        for y in [
-            area.top_left.y + offset,
-            area.top_left.y + height - 1 - offset,
-        ] {
-            for x in [area.top_left.x, area.top_left.x + width - inset] {
-                draw_visible(
-                    &Rectangle::new(Point::new(x, y), size)
-                        .into_styled(PrimitiveStyle::with_fill(theme::BACKGROUND)),
-                    canvas,
-                )?;
-            }
-        }
-    }
-    Ok(())
 }
 
 impl LauncherScreen {

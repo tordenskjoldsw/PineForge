@@ -20,7 +20,7 @@
 
 use embedded_graphics::{geometry::Point, prelude::*, primitives::Rectangle};
 use pineforge_state::{
-    AppEvent, ButtonBounds, ListOutcome, ListSlots, PageAxis, PagedList, ScreenId,
+    AppEvent, ButtonBounds, ButtonState, ListOutcome, ListSlots, PageAxis, PagedList, ScreenId,
 };
 
 use crate::ui::{
@@ -89,6 +89,18 @@ pub enum MenuColumn<'a> {
     Selected(usize),
 }
 
+/// What drawing needs to know about the showing page.
+///
+/// A concrete type rather than the row count generic `MenuState` carries, so
+/// the drawing below is compiled once however many menus of however many rows
+/// the firmware grows.
+#[derive(Clone, Copy)]
+pub struct MenuPage<'a> {
+    pub list: &'a PagedList,
+    /// The slot under a finger, if any.
+    pub pressed: Option<usize>,
+}
+
 /// What an event did to a menu.
 pub enum MenuOutcome {
     None,
@@ -137,7 +149,7 @@ impl Menu {
 /// [`Paint::draw_full`]: crate::ui::screen::Paint::draw_full
 pub fn draw(
     menu: &Menu,
-    list: &PagedList,
+    page: MenuPage<'_>,
     column: MenuColumn<'_>,
     canvas: &mut Canvas<'_>,
     keep_alive: &mut dyn FnMut(),
@@ -150,7 +162,7 @@ pub fn draw(
         keep_alive();
     }
 
-    draw_rows(menu, list, column, canvas, keep_alive)?;
+    draw_rows(menu, page, column, canvas, keep_alive)?;
     draw_text(menu.hint, HINT_BASELINE_Y, canvas)
 }
 
@@ -162,18 +174,25 @@ pub fn draw(
 /// standing under it.
 pub fn draw_rows(
     menu: &Menu,
-    list: &PagedList,
+    page: MenuPage<'_>,
     column: MenuColumn<'_>,
     canvas: &mut Canvas<'_>,
     keep_alive: &mut dyn FnMut(),
 ) -> Result<(), CanvasError> {
-    for slot in 0..list.per_page() {
+    for slot in 0..page.list.per_page() {
         let y = menu.slot_y(slot);
-        match list
+        match page
+            .list
             .entry_at(slot)
             .and_then(|entry| menu.rows.get(entry).map(|row| (entry, row)))
         {
-            Some((entry, row)) => draw_row(canvas, y, row.label(), column_of(row, entry, column))?,
+            Some((entry, row)) => draw_row(
+                canvas,
+                y,
+                row.label(),
+                column_of(row, entry, column),
+                page.pressed == Some(slot),
+            )?,
             None => clear_slot(y, canvas)?,
         }
         keep_alive();
@@ -246,10 +265,13 @@ impl<const N: usize> MenuState<N> {
         }
     }
 
-    /// Which page is showing and what it holds, for drawing.
+    /// Which page is showing, what it holds, and what is under a finger.
     #[must_use]
-    pub const fn list(&self) -> &PagedList {
-        self.slots.list()
+    pub fn page(&self) -> MenuPage<'_> {
+        MenuPage {
+            list: self.slots.list(),
+            pressed: (0..N).find(|&slot| self.slots.slot_state(slot) == Some(ButtonState::Pressed)),
+        }
     }
 
     /// Feeds an event to the page, reporting what the chosen row means.
@@ -268,14 +290,14 @@ impl<const N: usize> MenuState<N> {
                     None => MenuOutcome::None,
                 }
             }
-            ListOutcome::Paged => {
+            // A new page obviously needs painting, and so does a press: a row
+            // carries a pressed fill, so the finger going down changes what the
+            // rows look like even though nothing was chosen.
+            ListOutcome::Paged | ListOutcome::Redraw => {
                 self.dirty = true;
                 MenuOutcome::None
             }
-            // A row has no pressed appearance yet, so a press that only changes
-            // slot state has nothing to repaint. Giving rows the launcher's
-            // pressed fill is what would turn this arm into a redraw.
-            ListOutcome::Redraw | ListOutcome::None => {
+            ListOutcome::None => {
                 self.dirty = false;
                 MenuOutcome::None
             }

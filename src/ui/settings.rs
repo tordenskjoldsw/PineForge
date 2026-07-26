@@ -11,12 +11,16 @@ use crate::ui::{
     status::STATUS_HEIGHT,
 };
 
+/// Rows a page shows. Four of them fill the space between the status corner and
+/// the hint at the foot; a fifth would run into it.
+const ROWS_PER_PAGE: usize = 4;
+
 /// Rows start below the status corner, which every screen but a watchface
 /// carries.
 static MENU: Menu = Menu {
     title: None,
-    first_row_y: STATUS_HEIGHT + 2,
-    row_step: ROW_HEIGHT + 2,
+    first_row_y: STATUS_HEIGHT + 4,
+    row_step: ROW_HEIGHT + 6,
     rows: &[
         MenuRow::Value { label: "BRIGHT" },
         MenuRow::Value { label: "DIM" },
@@ -45,7 +49,7 @@ struct Formatted {
 /// Adjusts display settings.
 pub struct DisplaySettingsScreen {
     settings: DisplaySettings,
-    menu: MenuState<5>,
+    menu: MenuState<ROWS_PER_PAGE>,
 }
 
 impl Default for DisplaySettingsScreen {
@@ -100,7 +104,7 @@ impl Paint for DisplaySettingsScreen {
         let formatted = self.formatted();
         menu::draw(
             &MENU,
-            self.menu.list(),
+            self.menu.page(),
             MenuColumn::Values(&self.values(&formatted)),
             canvas,
             keep_alive,
@@ -154,7 +158,7 @@ impl Screen for DisplaySettingsScreen {
             let formatted = self.formatted();
             menu::draw_rows(
                 &MENU,
-                self.menu.list(),
+                self.menu.page(),
                 MenuColumn::Values(&self.values(&formatted)),
                 canvas,
                 keep_alive,
