@@ -22,6 +22,7 @@ use crate::{
     },
     ui::{
         dfu::{draw_dfu_failed, draw_dfu_progress, draw_storage_progress},
+        firmware::FirmwareScreen,
         pairing::draw_pairing,
         screen::Screen,
         settings::DisplaySettingsScreen,
@@ -54,6 +55,7 @@ enum DisplayEvent {
 struct Screens {
     watchface: WatchfaceScreen,
     settings: DisplaySettingsScreen,
+    firmware: FirmwareScreen,
     #[cfg(feature = "diagnostics")]
     touch_test: TestScreen,
 }
@@ -63,6 +65,7 @@ impl Screens {
         match active {
             ScreenId::Watchface => self.watchface.handle_event(event),
             ScreenId::DisplaySettings => self.settings.handle_event(event),
+            ScreenId::Firmware => self.firmware.handle_event(event),
             #[cfg(feature = "diagnostics")]
             ScreenId::TouchTest => self.touch_test.handle_event(event),
         }
@@ -80,6 +83,7 @@ impl Screens {
         match active {
             ScreenId::Watchface => self.watchface.draw_full(display, keep_alive),
             ScreenId::DisplaySettings => self.settings.draw_full(display, keep_alive),
+            ScreenId::Firmware => self.firmware.draw_full(display, keep_alive),
             #[cfg(feature = "diagnostics")]
             ScreenId::TouchTest => self.touch_test.draw_full(display, keep_alive),
         }
@@ -97,6 +101,7 @@ impl Screens {
         match active {
             ScreenId::Watchface => self.watchface.draw_dirty(display, keep_alive),
             ScreenId::DisplaySettings => self.settings.draw_dirty(display, keep_alive),
+            ScreenId::Firmware => self.firmware.draw_dirty(display, keep_alive),
             #[cfg(feature = "diagnostics")]
             ScreenId::TouchTest => self.touch_test.draw_dirty(display, keep_alive),
         }
@@ -158,12 +163,13 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
     let mut screens = Screens {
         watchface: WatchfaceScreen::default(),
         settings: DisplaySettingsScreen::default(),
+        firmware: FirmwareScreen::default(),
         #[cfg(feature = "diagnostics")]
         touch_test: TestScreen::default(),
     };
     screens
-        .settings
-        .set_firmware_confirmed(crate::boot::confirm::is_validated());
+        .firmware
+        .set_confirmed(crate::boot::confirm::is_validated());
     #[cfg(feature = "ui-animations")]
     let ui_scratch = UI_SCRATCH.init(UiScratch::new());
     let mut app = AppState::new(ScreenId::Watchface);
@@ -364,16 +370,20 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                 let _ = screens.draw_dirty(app.active_screen(), &mut display, || watchdog.pet());
             }
             AppEffect::ConfirmFirmware => {
-                // Making the image permanent takes effect immediately; the
-                // side button no longer rolls back afterwards.
+                // Making the image permanent takes effect immediately; a reset
+                // no longer rolls back afterwards.
                 let confirmed = crate::boot::confirm::confirm();
                 info!("Firmware confirmation requested; confirmed={}", confirmed);
-                screens.settings.set_firmware_confirmed(confirmed);
+                screens.firmware.set_confirmed(confirmed);
                 let _ = VIBRATION_COMMANDS.try_send(VibrationPattern::Double);
                 let _ = screens.draw_full(app.active_screen(), &mut display, || watchdog.pet());
             }
-            AppEffect::RequestRollback => {
-                info!("Rollback requested; resetting unconfirmed image");
+            AppEffect::Reboot | AppEffect::RequestRollback => {
+                info!("Restart requested from software");
+                // The haptic tick is the acknowledgement the user gets; the
+                // delay lets the motor and the RTT buffer finish before the
+                // core is reset out from under them.
+                let _ = VIBRATION_COMMANDS.try_send(VibrationPattern::Double);
                 Timer::after_millis(250).await;
                 cortex_m::peripheral::SCB::sys_reset();
             }
@@ -402,6 +412,15 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                     ScreenId::DisplaySettings => {
                         let _ = draw_slide_reveal(
                             &screens.settings,
+                            &mut display,
+                            ui_scratch,
+                            navigation,
+                            || watchdog.pet(),
+                        );
+                    }
+                    ScreenId::Firmware => {
+                        let _ = draw_slide_reveal(
+                            &screens.firmware,
                             &mut display,
                             ui_scratch,
                             navigation,

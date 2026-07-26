@@ -471,6 +471,8 @@ pub fn battery_percent(millivolts: u16) -> u8 {
 pub enum ScreenId {
     Watchface,
     DisplaySettings,
+    /// Firmware confirmation and a software reboot.
+    Firmware,
     #[cfg(feature = "diagnostics")]
     TouchTest,
 }
@@ -635,6 +637,9 @@ pub enum ScreenAction {
     RequestRollback,
     ApplySettings(DisplaySettings),
     ConfirmFirmware,
+    /// Restart the watch from software. On an unconfirmed image this is a
+    /// rollback; on a confirmed one it is a plain reboot.
+    Reboot,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -644,6 +649,7 @@ pub enum AppEffect {
     RequestRollback,
     ApplySettings(DisplaySettings),
     ConfirmFirmware,
+    Reboot,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -806,6 +812,10 @@ struct ScreenEntry {
 const fn route(from: ScreenId, swipe: SwipeDirection) -> Option<ScreenId> {
     match (from, swipe) {
         (ScreenId::Watchface, SwipeDirection::Down) => Some(ScreenId::DisplaySettings),
+        // Provisional: recovery lives on its own gesture while the side button
+        // is still the only reboot path. Once a software reboot is proven, the
+        // side button becomes the back button and this direction is free again.
+        (ScreenId::Watchface, SwipeDirection::Right) => Some(ScreenId::Firmware),
         #[cfg(feature = "diagnostics")]
         (ScreenId::Watchface, SwipeDirection::Left) => Some(ScreenId::TouchTest),
         _ => None,
@@ -873,6 +883,7 @@ impl AppState {
             ScreenAction::RequestRollback => AppEffect::RequestRollback,
             ScreenAction::ApplySettings(settings) => AppEffect::ApplySettings(settings),
             ScreenAction::ConfirmFirmware => AppEffect::ConfirmFirmware,
+            ScreenAction::Reboot => AppEffect::Reboot,
             ScreenAction::Back => self.pop(),
             ScreenAction::Push(screen) => self.push(screen, None),
         }
@@ -1155,10 +1166,34 @@ mod tests {
     fn the_root_ignores_gestures_that_route_nowhere() {
         let mut app = AppState::new(ScreenId::Watchface);
 
-        for swipe in [SwipeDirection::Up, SwipeDirection::Right] {
-            assert_eq!(app.navigate(swipe), AppEffect::None);
-            assert_eq!(app.active_screen(), ScreenId::Watchface);
-        }
+        assert_eq!(app.navigate(SwipeDirection::Up), AppEffect::None);
+        assert_eq!(app.active_screen(), ScreenId::Watchface);
+    }
+
+    #[test]
+    fn the_firmware_screen_is_reached_and_left_by_a_horizontal_gesture() {
+        let mut app = AppState::new(ScreenId::Watchface);
+
+        assert_eq!(
+            app.navigate(SwipeDirection::Right),
+            AppEffect::Navigate(Navigation::forward(SwipeDirection::Right))
+        );
+        assert_eq!(app.active_screen(), ScreenId::Firmware);
+        assert_eq!(
+            app.navigate(SwipeDirection::Left),
+            AppEffect::Navigate(Navigation::backward(SwipeDirection::Left))
+        );
+        assert_eq!(app.active_screen(), ScreenId::Watchface);
+    }
+
+    #[test]
+    fn a_reboot_is_an_explicit_effect() {
+        let mut app = AppState::new(ScreenId::Watchface);
+
+        assert_eq!(app.transition(ScreenAction::Reboot), AppEffect::Reboot);
+        // Restarting is a hardware effect, not a navigation: the stack is
+        // untouched so a refused reset leaves the user where they were.
+        assert_eq!(app.active_screen(), ScreenId::Watchface);
     }
 
     #[cfg(feature = "diagnostics")]

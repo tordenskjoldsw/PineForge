@@ -1,4 +1,5 @@
 pub mod dfu;
+pub mod firmware;
 #[cfg(feature = "diagnostics")]
 pub mod metrics;
 pub mod pairing;

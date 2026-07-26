@@ -2,10 +2,56 @@ use embedded_graphics::{
     Drawable,
     draw_target::DrawTarget,
     geometry::{Dimensions, Point, Size},
-    mono_font::MonoTextStyle,
-    pixelcolor::PixelColor,
+    mono_font::{MonoTextStyle, ascii::FONT_10X20},
+    pixelcolor::{PixelColor, Rgb565, RgbColor, WebColors},
+    primitives::{Primitive, PrimitiveStyleBuilder, Rectangle},
     text::Text,
 };
+
+/// Geometry of the framed label/value row every menu screen is built from.
+///
+/// The rows live here rather than in one screen because a second screen using a
+/// different frame or a different value column would read as a different
+/// product. The pagination model that eventually replaces the fixed rows starts
+/// from this one drawing.
+pub const ROW_X: i32 = 20;
+pub const ROW_WIDTH: i32 = 200;
+pub const ROW_HEIGHT: i32 = 34;
+const LABEL_X_OFFSET: i32 = 8;
+const VALUE_X_OFFSET: i32 = 110;
+const TEXT_BASELINE_OFFSET: i32 = 23;
+
+/// Draws one framed row: a white label on the left, a value in the right column.
+pub fn draw_row<D>(display: &mut D, y: i32, label: &str, value: &str) -> Result<(), D::Error>
+where
+    D: DrawTarget<Color = Rgb565>,
+{
+    let bounds = Rectangle::new(
+        Point::new(ROW_X, y),
+        Size::new(ROW_WIDTH as u32, ROW_HEIGHT as u32),
+    );
+    bounds
+        .into_styled(
+            PrimitiveStyleBuilder::new()
+                .fill_color(Rgb565::BLACK)
+                .stroke_color(Rgb565::WHITE)
+                .stroke_width(1)
+                .build(),
+        )
+        .draw(display)?;
+    draw_mono_text_visible(
+        label,
+        Point::new(ROW_X + LABEL_X_OFFSET, y + TEXT_BASELINE_OFFSET),
+        MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE),
+        display,
+    )?;
+    draw_mono_text_visible(
+        value,
+        Point::new(ROW_X + VALUE_X_OFFSET, y + TEXT_BASELINE_OFFSET),
+        MonoTextStyle::new(&FONT_10X20, Rgb565::CSS_ORANGE),
+        display,
+    )
+}
 
 /// Draws an object only when its bounds intersect the target's current region.
 ///

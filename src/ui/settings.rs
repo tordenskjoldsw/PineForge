@@ -4,35 +4,31 @@ use embedded_graphics::{
     mono_font::{MonoTextStyle, ascii::FONT_10X20},
     pixelcolor::Rgb565,
     prelude::*,
-    primitives::{PrimitiveStyleBuilder, Rectangle},
 };
 use heapless::String;
 use pineforge_state::{
     AppEvent, Button, ButtonBounds, ButtonOutcome, DisplaySettings, ScreenAction,
 };
 
-use crate::ui::{render::draw_mono_text_visible, screen::Screen};
+use crate::ui::{
+    render::{ROW_HEIGHT, ROW_WIDTH, ROW_X, draw_mono_text_visible, draw_row},
+    screen::Screen,
+};
 
-const ROW_HEIGHT: i32 = 34;
-const ROW_WIDTH: i32 = 200;
-const ROW_X: i32 = 20;
 const BRIGHTNESS_ROW_Y: i32 = 2;
 const DIM_ROW_Y: i32 = 38;
 const OFF_ROW_Y: i32 = 74;
 const HEART_RATE_ROW_Y: i32 = 110;
 const HEART_RATE_INTERVAL_ROW_Y: i32 = 146;
-const FIRMWARE_ROW_Y: i32 = 182;
 
-/// Adjusts display settings and confirms the firmware image.
+/// Adjusts display settings.
 pub struct DisplaySettingsScreen {
     settings: DisplaySettings,
-    firmware_confirmed: bool,
     brightness_row: Button,
     dim_row: Button,
     off_row: Button,
     heart_rate_row: Button,
     heart_rate_interval_row: Button,
-    firmware_row: Button,
     dirty: bool,
 }
 
@@ -40,7 +36,6 @@ impl Default for DisplaySettingsScreen {
     fn default() -> Self {
         Self {
             settings: DisplaySettings::DEFAULT,
-            firmware_confirmed: false,
             brightness_row: Button::new(ButtonBounds::new(
                 ROW_X,
                 BRIGHTNESS_ROW_Y,
@@ -61,65 +56,12 @@ impl Default for DisplaySettingsScreen {
                 ROW_WIDTH,
                 ROW_HEIGHT,
             )),
-            firmware_row: Button::new(ButtonBounds::new(
-                ROW_X,
-                FIRMWARE_ROW_Y,
-                ROW_WIDTH,
-                ROW_HEIGHT,
-            )),
             dirty: false,
         }
     }
 }
 
 impl DisplaySettingsScreen {
-    /// Reflects the confirmed/unconfirmed state read at boot or after a
-    /// successful confirmation.
-    pub const fn set_firmware_confirmed(&mut self, confirmed: bool) {
-        self.firmware_confirmed = confirmed;
-    }
-
-    fn draw_row<D>(display: &mut D, y: i32, label: &str, value: &str) -> Result<(), D::Error>
-    where
-        D: DrawTarget<Color = Rgb565>,
-    {
-        let bounds = Rectangle::new(
-            Point::new(ROW_X, y),
-            Size::new(ROW_WIDTH as u32, ROW_HEIGHT as u32),
-        );
-        bounds
-            .into_styled(
-                PrimitiveStyleBuilder::new()
-                    .fill_color(Rgb565::BLACK)
-                    .stroke_color(Rgb565::WHITE)
-                    .stroke_width(1)
-                    .build(),
-            )
-            .draw(display)?;
-        draw_mono_text_visible(
-            label,
-            Point::new(ROW_X + 8, y + 23),
-            MonoTextStyle::new(&FONT_10X20, Rgb565::WHITE),
-            display,
-        )?;
-        draw_mono_text_visible(
-            value,
-            Point::new(ROW_X + 110, y + 23),
-            MonoTextStyle::new(&FONT_10X20, Rgb565::CSS_ORANGE),
-            display,
-        )
-    }
-
-    fn firmware_value(&self) -> String<16> {
-        let mut value = String::new();
-        if self.firmware_confirmed {
-            let _ = write!(value, "OK {}", env!("CARGO_PKG_VERSION"));
-        } else {
-            let _ = value.push_str("CONFIRM");
-        }
-        value
-    }
-
     fn draw_rows<D>(&self, display: &mut D) -> Result<(), D::Error>
     where
         D: DrawTarget<Color = Rgb565>,
@@ -130,17 +72,17 @@ impl DisplaySettingsScreen {
             3 => "MED",
             _ => "FULL",
         };
-        Self::draw_row(display, BRIGHTNESS_ROW_Y, "BRIGHT", brightness)?;
+        draw_row(display, BRIGHTNESS_ROW_Y, "BRIGHT", brightness)?;
 
         let mut value: String<16> = String::new();
         let _ = write!(value, "{} s", self.settings.dim_after_millis() / 1_000);
-        Self::draw_row(display, DIM_ROW_Y, "DIM", &value)?;
+        draw_row(display, DIM_ROW_Y, "DIM", &value)?;
 
         value.clear();
         let _ = write!(value, "{} s", self.settings.off_after_millis() / 1_000);
-        Self::draw_row(display, OFF_ROW_Y, "OFF", &value)?;
+        draw_row(display, OFF_ROW_Y, "OFF", &value)?;
 
-        Self::draw_row(
+        draw_row(
             display,
             HEART_RATE_ROW_Y,
             "HEART",
@@ -156,9 +98,7 @@ impl DisplaySettingsScreen {
             "{} min",
             self.settings.heart_rate_interval_seconds() / 60
         );
-        Self::draw_row(display, HEART_RATE_INTERVAL_ROW_Y, "HR INT", &value)?;
-
-        Self::draw_row(display, FIRMWARE_ROW_Y, "FW", &self.firmware_value())
+        draw_row(display, HEART_RATE_INTERVAL_ROW_Y, "HR INT", &value)
     }
 }
 
@@ -184,10 +124,6 @@ impl Screen for DisplaySettingsScreen {
             updated = Some(self.settings.toggle_heart_rate());
         } else if self.heart_rate_interval_row.handle_event(event) == ButtonOutcome::Activated {
             updated = Some(self.settings.cycle_heart_rate_interval());
-        } else if self.firmware_row.handle_event(event) == ButtonOutcome::Activated
-            && !self.firmware_confirmed
-        {
-            return ScreenAction::ConfirmFirmware;
         }
 
         if let Some(settings) = updated {
