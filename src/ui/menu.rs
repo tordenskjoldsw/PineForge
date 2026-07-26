@@ -19,7 +19,9 @@
 //! lifted over.
 
 use embedded_graphics::{geometry::Point, prelude::*, primitives::Rectangle};
-use pineforge_state::{AppEvent, ButtonBounds, ListOutcome, ListSlots, PageAxis, PagedList};
+use pineforge_state::{
+    AppEvent, ButtonBounds, ListOutcome, ListSlots, PageAxis, PagedList, ScreenId,
+};
 
 use crate::ui::{
     canvas::{Canvas, CanvasError},
@@ -41,10 +43,65 @@ pub struct MenuTitle {
     pub baseline_y: i32,
 }
 
+/// Marker in the right-hand column of a row that leads somewhere.
+const LEADS_ON: &str = ">";
+/// Marker in the right-hand column of the chosen option.
+const CHOSEN: &str = "*";
+
+/// What a row is, which decides both what its right-hand column shows and what
+/// choosing it means.
+///
+/// A row naming its own consequence is what lets a screen drop the table that
+/// used to map a row's position onto an action - and a position-to-action table
+/// is exactly the thing that goes wrong when a row is inserted above it.
+#[derive(Clone, Copy)]
+pub enum MenuRow {
+    /// Opens another screen. The menu resolves this itself.
+    Navigate {
+        label: &'static str,
+        target: ScreenId,
+    },
+    /// Shows a value the screen supplies. Choosing it is the screen's business.
+    Value { label: &'static str },
+    /// One of the values a setting can take, marked when it is the current one.
+    Choice { label: &'static str },
+}
+
+impl MenuRow {
+    const fn label(&self) -> &'static str {
+        match self {
+            Self::Navigate { label, .. } | Self::Value { label } | Self::Choice { label } => label,
+        }
+    }
+}
+
+/// What a menu's right-hand column draws from.
+///
+/// One value for the whole menu rather than one per row, because a menu is
+/// homogeneous in practice: a root of navigation rows, a screen of values, a
+/// picker of choices. A mixed menu still works - each row reads what its own
+/// kind calls for and ignores the rest.
+#[derive(Clone, Copy)]
+pub enum MenuColumn<'a> {
+    /// The right-hand column of each entry, in entry order.
+    Values(&'a [&'a str]),
+    /// The entry that is currently chosen.
+    Selected(usize),
+}
+
+/// What an event did to a menu.
+pub enum MenuOutcome {
+    None,
+    /// A navigation row was chosen; its target came from the description.
+    Navigate(ScreenId),
+    /// A value or choice row was chosen, by entry index.
+    Chose(usize),
+}
+
 /// The fixed part of a menu: everything that does not depend on state.
 ///
 /// Held as a `'static` description so a screen costs a constant rather than a
-/// function. The values the rows show are supplied per draw; see [`draw`].
+/// function. What the rows show is supplied per draw; see [`draw`].
 pub struct Menu {
     /// Shown above the rows. `None` leaves the space to them.
     pub title: Option<MenuTitle>,
@@ -52,9 +109,8 @@ pub struct Menu {
     pub first_row_y: i32,
     /// Distance between the top edges of consecutive rows.
     pub row_step: i32,
-    /// The left-hand label of each entry, in order. Entries beyond one page are
-    /// reached by paging.
-    pub labels: &'static [&'static str],
+    /// The entries, in order. Entries beyond one page are reached by paging.
+    pub rows: &'static [MenuRow],
     /// Shown at the foot, usually naming the way back.
     pub hint: &'static str,
 }
@@ -82,7 +138,7 @@ impl Menu {
 pub fn draw(
     menu: &Menu,
     list: &PagedList,
-    values: &[&str],
+    column: MenuColumn<'_>,
     canvas: &mut Canvas<'_>,
     keep_alive: &mut dyn FnMut(),
 ) -> Result<(), CanvasError> {
@@ -94,7 +150,7 @@ pub fn draw(
         keep_alive();
     }
 
-    draw_rows(menu, list, values, canvas, keep_alive)?;
+    draw_rows(menu, list, column, canvas, keep_alive)?;
     draw_text(menu.hint, HINT_BASELINE_Y, canvas)
 }
 
@@ -107,24 +163,36 @@ pub fn draw(
 pub fn draw_rows(
     menu: &Menu,
     list: &PagedList,
-    values: &[&str],
+    column: MenuColumn<'_>,
     canvas: &mut Canvas<'_>,
     keep_alive: &mut dyn FnMut(),
 ) -> Result<(), CanvasError> {
     for slot in 0..list.per_page() {
         let y = menu.slot_y(slot);
-        match list.entry_at(slot) {
-            Some(entry) => draw_row(
-                canvas,
-                y,
-                menu.labels.get(entry).copied().unwrap_or(""),
-                values.get(entry).copied().unwrap_or(""),
-            )?,
+        match list
+            .entry_at(slot)
+            .and_then(|entry| menu.rows.get(entry).map(|row| (entry, row)))
+        {
+            Some((entry, row)) => draw_row(canvas, y, row.label(), column_of(row, entry, column))?,
             None => clear_slot(y, canvas)?,
         }
         keep_alive();
     }
     Ok(())
+}
+
+/// What a row's right-hand column reads, given what the screen supplied.
+fn column_of<'a>(row: &MenuRow, entry: usize, column: MenuColumn<'a>) -> &'a str {
+    match (row, column) {
+        (MenuRow::Navigate { .. }, _) => LEADS_ON,
+        (MenuRow::Value { .. }, MenuColumn::Values(values)) => {
+            values.get(entry).copied().unwrap_or("")
+        }
+        (MenuRow::Choice { .. }, MenuColumn::Selected(selected)) if entry == selected => CHOSEN,
+        // An unchosen option, and a row whose kind and column disagree, both
+        // draw an empty column rather than a wrong one.
+        _ => "",
+    }
 }
 
 fn clear_slot(y: i32, canvas: &mut Canvas<'_>) -> Result<(), CanvasError> {
@@ -172,7 +240,7 @@ impl<const N: usize> MenuState<N> {
                 // horizontal, so that axis belongs to navigation and paging has
                 // to take the other one.
                 PageAxis::Vertical,
-                menu.labels.len(),
+                menu.rows.len(),
             ),
             dirty: false,
         }
@@ -184,23 +252,32 @@ impl<const N: usize> MenuState<N> {
         self.slots.list()
     }
 
-    /// Feeds an event to the page, reporting the entry that was activated.
-    pub fn handle(&mut self, event: AppEvent) -> Option<usize> {
+    /// Feeds an event to the page, reporting what the chosen row means.
+    ///
+    /// A navigation row is resolved from the description here, so a screen only
+    /// hears about the rows whose effect is its own business.
+    pub fn handle(&mut self, menu: &Menu, event: AppEvent) -> MenuOutcome {
         match self.slots.handle_event(event) {
             ListOutcome::Activated(entry) => {
                 self.dirty = true;
-                Some(entry)
+                match menu.rows.get(entry) {
+                    Some(MenuRow::Navigate { target, .. }) => MenuOutcome::Navigate(*target),
+                    Some(MenuRow::Value { .. } | MenuRow::Choice { .. }) => {
+                        MenuOutcome::Chose(entry)
+                    }
+                    None => MenuOutcome::None,
+                }
             }
             ListOutcome::Paged => {
                 self.dirty = true;
-                None
+                MenuOutcome::None
             }
             // A row has no pressed appearance yet, so a press that only changes
             // slot state has nothing to repaint. Giving rows the launcher's
             // pressed fill is what would turn this arm into a redraw.
             ListOutcome::Redraw | ListOutcome::None => {
                 self.dirty = false;
-                None
+                MenuOutcome::None
             }
         }
     }

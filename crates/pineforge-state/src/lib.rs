@@ -507,6 +507,8 @@ pub enum ScreenId {
     /// The application launcher: tiles opening the screens below the root.
     Launcher,
     DisplaySettings,
+    /// Picks the watchface, reached from the display settings.
+    WatchfaceSelect,
     /// Firmware confirmation and a software reboot.
     Firmware,
     #[cfg(feature = "diagnostics")]

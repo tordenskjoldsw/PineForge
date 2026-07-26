@@ -2,7 +2,7 @@ use pineforge_state::{AppEvent, ScreenAction};
 
 use crate::ui::canvas::{Canvas, CanvasError};
 use crate::ui::{
-    menu::{self, Menu, MenuState, MenuTitle},
+    menu::{self, Menu, MenuColumn, MenuOutcome, MenuRow, MenuState, MenuTitle},
     render::ROW_HEIGHT,
     screen::{Paint, Screen},
     status::STATUS_HEIGHT,
@@ -21,7 +21,10 @@ static MENU: Menu = Menu {
     }),
     first_row_y: TITLE_BASELINE_Y + 16,
     row_step: ROW_HEIGHT + 16,
-    labels: &["FW", "RESTART"],
+    rows: &[
+        MenuRow::Value { label: "FW" },
+        MenuRow::Value { label: "RESTART" },
+    ],
     hint: "> back",
 };
 
@@ -73,15 +76,21 @@ impl Paint for FirmwareScreen {
         canvas: &mut Canvas<'_>,
         keep_alive: &mut dyn FnMut(),
     ) -> Result<(), CanvasError> {
-        menu::draw(&MENU, self.menu.list(), &self.values(), canvas, keep_alive)
+        menu::draw(
+            &MENU,
+            self.menu.list(),
+            MenuColumn::Values(&self.values()),
+            canvas,
+            keep_alive,
+        )
     }
 }
 
 impl Screen for FirmwareScreen {
     fn handle_event(&mut self, event: AppEvent) -> ScreenAction {
-        match self.menu.handle(event) {
-            Some(0) if !self.confirmed => ScreenAction::ConfirmFirmware,
-            Some(1) => ScreenAction::Reboot,
+        match self.menu.handle(&MENU, event) {
+            MenuOutcome::Chose(0) if !self.confirmed => ScreenAction::ConfirmFirmware,
+            MenuOutcome::Chose(1) => ScreenAction::Reboot,
             _ => ScreenAction::None,
         }
     }
@@ -92,7 +101,13 @@ impl Screen for FirmwareScreen {
         keep_alive: &mut dyn FnMut(),
     ) -> Result<(), CanvasError> {
         if self.menu.is_dirty() {
-            menu::draw_rows(&MENU, self.menu.list(), &self.values(), canvas, keep_alive)?;
+            menu::draw_rows(
+                &MENU,
+                self.menu.list(),
+                MenuColumn::Values(&self.values()),
+                canvas,
+                keep_alive,
+            )?;
         }
         Ok(())
     }

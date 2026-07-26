@@ -29,6 +29,7 @@ use crate::{
         settings::DisplaySettingsScreen,
         status::{StatusCorner, WithStatus, wears_status},
         watchface::WatchfaceScreen,
+        watchface_select::WatchfaceSelectScreen,
     },
 };
 use pineforge_state::{
@@ -58,6 +59,7 @@ struct Screens {
     watchface: WatchfaceScreen,
     launcher: LauncherScreen,
     settings: DisplaySettingsScreen,
+    watchface_select: WatchfaceSelectScreen,
     firmware: FirmwareScreen,
     #[cfg(feature = "diagnostics")]
     touch_test: TestScreen,
@@ -69,6 +71,7 @@ impl Screens {
             ScreenId::Watchface => self.watchface.handle_event(event),
             ScreenId::Launcher => self.launcher.handle_event(event),
             ScreenId::DisplaySettings => self.settings.handle_event(event),
+            ScreenId::WatchfaceSelect => self.watchface_select.handle_event(event),
             ScreenId::Firmware => self.firmware.handle_event(event),
             #[cfg(feature = "diagnostics")]
             ScreenId::TouchTest => self.touch_test.handle_event(event),
@@ -93,6 +96,9 @@ impl Screens {
             ScreenId::DisplaySettings => {
                 WithStatus::new(&self.settings, status).draw_full(canvas, keep_alive)
             }
+            ScreenId::WatchfaceSelect => {
+                WithStatus::new(&self.watchface_select, status).draw_full(canvas, keep_alive)
+            }
             ScreenId::Firmware => {
                 WithStatus::new(&self.firmware, status).draw_full(canvas, keep_alive)
             }
@@ -113,6 +119,7 @@ impl Screens {
             ScreenId::Watchface => self.watchface.draw_dirty(canvas, keep_alive),
             ScreenId::Launcher => self.launcher.draw_dirty(canvas, keep_alive),
             ScreenId::DisplaySettings => self.settings.draw_dirty(canvas, keep_alive),
+            ScreenId::WatchfaceSelect => self.watchface_select.draw_dirty(canvas, keep_alive),
             ScreenId::Firmware => self.firmware.draw_dirty(canvas, keep_alive),
             #[cfg(feature = "diagnostics")]
             ScreenId::TouchTest => self.touch_test.draw_dirty(canvas, keep_alive),
@@ -177,6 +184,7 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
         watchface: WatchfaceScreen::default(),
         launcher: LauncherScreen::default(),
         settings: DisplaySettingsScreen::default(),
+        watchface_select: WatchfaceSelectScreen::default(),
         firmware: FirmwareScreen::default(),
         #[cfg(feature = "diagnostics")]
         touch_test: TestScreen::default(),
@@ -487,6 +495,15 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                     ScreenId::DisplaySettings => {
                         let _ = draw_slide_reveal(
                             &WithStatus::new(&screens.settings, &status),
+                            &mut display,
+                            ui_scratch,
+                            navigation,
+                            &mut || watchdog.pet(),
+                        );
+                    }
+                    ScreenId::WatchfaceSelect => {
+                        let _ = draw_slide_reveal(
+                            &WithStatus::new(&screens.watchface_select, &status),
                             &mut display,
                             ui_scratch,
                             navigation,

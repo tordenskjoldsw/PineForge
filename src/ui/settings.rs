@@ -1,11 +1,11 @@
 use core::fmt::Write;
 
 use heapless::String;
-use pineforge_state::{AppEvent, DisplaySettings, ScreenAction};
+use pineforge_state::{AppEvent, DisplaySettings, ScreenAction, ScreenId};
 
 use crate::ui::canvas::{Canvas, CanvasError};
 use crate::ui::{
-    menu::{self, Menu, MenuState},
+    menu::{self, Menu, MenuColumn, MenuOutcome, MenuRow, MenuState},
     render::ROW_HEIGHT,
     screen::{Paint, Screen},
     status::STATUS_HEIGHT,
@@ -17,7 +17,17 @@ static MENU: Menu = Menu {
     title: None,
     first_row_y: STATUS_HEIGHT + 2,
     row_step: ROW_HEIGHT + 2,
-    labels: &["BRIGHT", "DIM", "OFF", "HEART", "HR INT"],
+    rows: &[
+        MenuRow::Value { label: "BRIGHT" },
+        MenuRow::Value { label: "DIM" },
+        MenuRow::Value { label: "OFF" },
+        MenuRow::Value { label: "HEART" },
+        MenuRow::Value { label: "HR INT" },
+        MenuRow::Navigate {
+            label: "FACE",
+            target: ScreenId::WatchfaceSelect,
+        },
+    ],
     hint: "> back",
 };
 
@@ -91,7 +101,7 @@ impl Paint for DisplaySettingsScreen {
         menu::draw(
             &MENU,
             self.menu.list(),
-            &self.values(&formatted),
+            MenuColumn::Values(&self.values(&formatted)),
             canvas,
             keep_alive,
         )
@@ -104,7 +114,7 @@ impl Screen for DisplaySettingsScreen {
         // dirty flag: an update carrying unchanged values has to leave the
         // screen clean, not inherit the previous event's repaint. Rows ignore
         // anything that is not a touch, so feeding them costs nothing.
-        let activated = self.menu.handle(event);
+        let chosen = self.menu.handle(&MENU, event);
 
         if let AppEvent::DisplaySettingsUpdated(settings) = event {
             if settings != self.settings {
@@ -117,12 +127,16 @@ impl Screen for DisplaySettingsScreen {
         // Row order is the menu's. A row added to the description without a
         // case here simply does nothing, rather than inheriting its neighbour's
         // effect the way a positional list of buttons would.
-        let updated = match activated {
-            Some(0) => self.settings.cycle_brightness(),
-            Some(1) => self.settings.cycle_dim_timeout(),
-            Some(2) => self.settings.cycle_off_timeout(),
-            Some(3) => self.settings.toggle_heart_rate(),
-            Some(4) => self.settings.cycle_heart_rate_interval(),
+        if let MenuOutcome::Navigate(target) = chosen {
+            return ScreenAction::Push(target);
+        }
+
+        let updated = match chosen {
+            MenuOutcome::Chose(0) => self.settings.cycle_brightness(),
+            MenuOutcome::Chose(1) => self.settings.cycle_dim_timeout(),
+            MenuOutcome::Chose(2) => self.settings.cycle_off_timeout(),
+            MenuOutcome::Chose(3) => self.settings.toggle_heart_rate(),
+            MenuOutcome::Chose(4) => self.settings.cycle_heart_rate_interval(),
             _ => return ScreenAction::None,
         };
 
@@ -141,7 +155,7 @@ impl Screen for DisplaySettingsScreen {
             menu::draw_rows(
                 &MENU,
                 self.menu.list(),
-                &self.values(&formatted),
+                MenuColumn::Values(&self.values(&formatted)),
                 canvas,
                 keep_alive,
             )?;
