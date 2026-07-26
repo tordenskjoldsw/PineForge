@@ -123,18 +123,28 @@ Screens implement the `Screen` trait. A screen receives hardware-independent `Ui
 - release builds use LTO and size optimization
 
 CI enforces capacity budgets rather than early-project baseline sizes.
-Production is limited to 384 KiB flash and 48 KiB static RAM; diagnostics is
-limited to 448 KiB flash and 56 KiB static RAM. These limits preserve flash
-headroom in the 475,104-byte MCUBoot application region and reserve RAM for
-runtime stack growth. Size changes remain visible in CI output even when they
-stay below the hard limits.
+Production is limited to 360 KiB flash and 44 KiB static RAM — the design
+targets, not the hard slot limits — leaving at least 20 KiB of the 65,528-byte
+RAM region for stack growth. Diagnostics is limited to 448 KiB flash and 56 KiB
+static RAM. Size changes remain visible in CI output even when they stay below
+the limits.
 
-For `v0.2.0`, the design target is stricter than the CI failure threshold:
-production should use no more than 44 KiB static RAM, leaving at least 20 KiB
-of the physical RAM region for runtime stack growth. The display-transition
-scratch buffer is capped at 8 KiB. BLE and DFU capacity reductions require a
-complete OTA hardware test because their previous undersizing caused an
-end-of-transfer deadlock.
+The display-transition scratch is capped at 8 KiB and currently uses 5.6 KiB;
+it is the one large allocation whose size trades purely against render time,
+because the screen is composed once per stripe. BLE and DFU capacity reductions
+require a complete OTA hardware test because their previous undersizing caused
+an end-of-transfer deadlock.
+
+The four largest static allocations are the BLE task future, the BLE packet
+pool, this scratch, and the Nordic controller memory; together they hold about
+70% of static RAM, while every screen in the firmware shares the display task's
+544-byte future. Measure with:
+
+```bash
+rust-nm --print-size --size-sort --radix=d \
+  target/thumbv7em-none-eabihf/release/pineforge |
+  awk '$3 ~ /^[bBdD]$/ {print $2, $3, $4}' | tail -20
+```
 
 ## Error policy
 

@@ -52,10 +52,13 @@ jobs:
         include:
           - name: production
             features: ""
-            # Leave about 80 KiB of the 475,104-byte app region unused.
-            flash: 393216
-            # Reserve 16 KiB of the 65,528-byte RAM region for stack growth.
-            ram: 49152
+            # The v0.2 design target rather than the hard slot limit: 360 KiB
+            # leaves about 104 KiB of the 475,104-byte app region unused.
+            flash: 368640
+            # 44 KiB, reserving 20 KiB of the 65,528-byte RAM region for stack
+            # growth. Enforcing the target and not just the ceiling is what
+            # keeps it from drifting back.
+            ram: 45056
           - name: diagnostics
             features: diagnostics
             # Diagnostics may grow closer to the slot, but retains 16 KiB.

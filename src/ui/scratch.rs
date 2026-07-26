@@ -16,11 +16,19 @@ use embedded_graphics::{
 };
 
 /// Thickness of a transition stripe, across whichever axis it spans.
-pub const STRIPE_THICKNESS: u32 = 16;
+///
+/// This is the whole cost of the slide animation, and it trades RAM against
+/// render time: the screen is composed once per stripe, so halving the
+/// thickness halves the buffer and doubles the number of clipped full draws a
+/// transition performs. 12 pixels divides the 240-pixel span evenly into 20
+/// stripes and leaves the static RAM budget with headroom for the screens still
+/// to come; 8 remains available if a later feature needs the space more than the
+/// animation needs the speed.
+pub const STRIPE_THICKNESS: u32 = 12;
 const MAX_SCREEN_EDGE: usize = 240;
 const SCRATCH_PIXELS: usize = STRIPE_THICKNESS as usize * MAX_SCREEN_EDGE;
 
-/// The display task's reusable 7.5 KiB rendering workspace.
+/// The display task's reusable 5.6 KiB rendering workspace.
 ///
 /// It currently acts as a clipped RGB565 target for slide transitions. Keeping
 /// the storage in this operation-neutral type makes its exclusivity explicit:
