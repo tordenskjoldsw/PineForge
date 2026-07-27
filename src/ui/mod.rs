@@ -21,4 +21,3 @@ pub mod theme;
 #[cfg(feature = "ui-animations")]
 pub mod transition;
 pub mod watchface;
-pub mod watchface_select;

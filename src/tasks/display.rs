@@ -26,11 +26,10 @@ use crate::{
         launcher::LauncherScreen,
         pairing::draw_pairing,
         screen::{Paint, Screen},
-        setting_picker::{SETTINGS, Setting, SettingPickerScreen},
+        setting_picker::{SettingPickerScreen, setting_of},
         settings::DisplaySettingsScreen,
         status::{StatusCorner, WithStatus, wears_status},
         watchface::WatchfaceScreen,
-        watchface_select::WatchfaceSelectScreen,
     },
 };
 use pineforge_state::{
@@ -60,9 +59,8 @@ struct Screens {
     watchface: WatchfaceScreen,
     launcher: LauncherScreen,
     settings: DisplaySettingsScreen,
-    watchface_select: WatchfaceSelectScreen,
-    /// One picker per setting, in `SETTINGS` order.
-    pickers: [SettingPickerScreen; SETTINGS.len()],
+    /// The one settings leaf, pointed at whichever setting is being edited.
+    picker: SettingPickerScreen,
     firmware: FirmwareScreen,
     #[cfg(feature = "diagnostics")]
     touch_test: TestScreen,
@@ -80,13 +78,15 @@ impl Screens {
             ScreenId::Watchface => &self.watchface,
             ScreenId::Launcher => &self.launcher,
             ScreenId::DisplaySettings => &self.settings,
-            ScreenId::WatchfaceSelect => &self.watchface_select,
             ScreenId::Firmware => &self.firmware,
-            ScreenId::Brightness => &self.pickers[Setting::Brightness.index()],
-            ScreenId::DimTimeout => &self.pickers[Setting::DimTimeout.index()],
-            ScreenId::OffTimeout => &self.pickers[Setting::OffTimeout.index()],
-            ScreenId::HeartRate => &self.pickers[Setting::HeartRate.index()],
-            ScreenId::HeartRateInterval => &self.pickers[Setting::HeartRateInterval.index()],
+            // Every leaf is the same screen; `enter` has pointed it at the one
+            // this id names before it can be drawn or touched.
+            ScreenId::Brightness
+            | ScreenId::DimTimeout
+            | ScreenId::OffTimeout
+            | ScreenId::HeartRate
+            | ScreenId::HeartRateInterval
+            | ScreenId::WatchfaceSelect => &self.picker,
             #[cfg(feature = "diagnostics")]
             ScreenId::TouchTest => &self.touch_test,
         }
@@ -97,13 +97,15 @@ impl Screens {
             ScreenId::Watchface => &mut self.watchface,
             ScreenId::Launcher => &mut self.launcher,
             ScreenId::DisplaySettings => &mut self.settings,
-            ScreenId::WatchfaceSelect => &mut self.watchface_select,
             ScreenId::Firmware => &mut self.firmware,
-            ScreenId::Brightness => &mut self.pickers[Setting::Brightness.index()],
-            ScreenId::DimTimeout => &mut self.pickers[Setting::DimTimeout.index()],
-            ScreenId::OffTimeout => &mut self.pickers[Setting::OffTimeout.index()],
-            ScreenId::HeartRate => &mut self.pickers[Setting::HeartRate.index()],
-            ScreenId::HeartRateInterval => &mut self.pickers[Setting::HeartRateInterval.index()],
+            // Every leaf is the same screen; `enter` has pointed it at the one
+            // this id names before it can be drawn or touched.
+            ScreenId::Brightness
+            | ScreenId::DimTimeout
+            | ScreenId::OffTimeout
+            | ScreenId::HeartRate
+            | ScreenId::HeartRateInterval
+            | ScreenId::WatchfaceSelect => &mut self.picker,
             #[cfg(feature = "diagnostics")]
             ScreenId::TouchTest => &mut self.touch_test,
         }
@@ -111,6 +113,17 @@ impl Screens {
 
     fn handle(&mut self, active: ScreenId, event: AppEvent) -> ScreenAction {
         self.active_mut(active).handle_event(event)
+    }
+
+    /// Hands the screen that is now on top whatever it needs to be correct.
+    ///
+    /// Only the settings leaf needs anything, and what it needs is the record
+    /// that is current rather than one it kept from an earlier visit. Called on
+    /// every navigation, so a leaf cannot be reached without it.
+    fn enter(&mut self, active: ScreenId, settings: DisplaySettings) {
+        if let Some(setting) = setting_of(active) {
+            self.picker.open(setting, settings);
+        }
     }
 
     /// Paints a screen and, unless it is a watchface, the status corner over
@@ -198,8 +211,7 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
         watchface: WatchfaceScreen::default(),
         launcher: LauncherScreen::default(),
         settings: DisplaySettingsScreen::default(),
-        watchface_select: WatchfaceSelectScreen::default(),
-        pickers: SETTINGS.map(SettingPickerScreen::new),
+        picker: SettingPickerScreen::default(),
         firmware: FirmwareScreen::default(),
         #[cfg(feature = "diagnostics")]
         touch_test: TestScreen::default(),
@@ -325,6 +337,7 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                                     .map(|reference| reference.date_at(now.as_secs())),
                             };
                             let _ = screens.handle(app.active_screen(), tick);
+                            screens.enter(app.active_screen(), settings);
                             let _ = screens.draw_full(
                                 app.active_screen(),
                                 &status,
@@ -404,6 +417,11 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                 if deliver {
                     let _ = screens.handle(app.active_screen(), event);
                 }
+                // The screen coming back may be a settings leaf that missed an
+                // update while the modal covered it. Re-entering costs nothing
+                // and keeps the leaf's record current by construction rather
+                // than by an argument about which events a modal can hide.
+                screens.enter(app.active_screen(), settings);
                 let _ = screens.draw_full(
                     app.active_screen(),
                     &status,
@@ -477,6 +495,10 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                 cortex_m::peripheral::SCB::sys_reset();
             }
             AppEffect::Navigate(navigation) => {
+                // Before anything paints: the screen now on top may be a
+                // settings leaf, and a leaf must edit the record that is
+                // current rather than one it kept from an earlier visit.
+                screens.enter(app.active_screen(), settings);
                 #[cfg(not(feature = "ui-animations"))]
                 let _ = navigation;
                 #[cfg(feature = "ui-animations")]

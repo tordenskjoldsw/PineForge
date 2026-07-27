@@ -35,12 +35,14 @@ pub use notification::{
 };
 
 mod settings;
+pub use setting::{Setting, WATCHFACE_NAMES};
 pub use settings::{
     BRIGHTNESS_LEVELS, BRIGHTNESS_NAMES, DIM_TIMEOUT_NAMES, DIM_TIMEOUTS_MILLIS, DecodeError,
     DisplaySettings, HEART_RATE_ENABLED_NAMES, HEART_RATE_INTERVAL_NAMES,
     HEART_RATE_INTERVALS_SECONDS, OFF_TIMEOUT_NAMES, OFF_TIMEOUTS_MILLIS, SETTINGS_RECORD_LEN,
     SettingsError, SettingsSlot, SlotDecision, crc32, select_slot,
 };
+mod setting;
 mod watch;
 pub use watch::{WatchField, WatchFields, WatchState};
 
