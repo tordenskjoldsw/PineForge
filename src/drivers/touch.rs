@@ -55,6 +55,9 @@ pub enum Error<I2cError, PinError> {
 pub struct Cst816s<I2C, RST> {
     i2c: I2C,
     reset: RST,
+    /// Where the finger last was while it was demonstrably on the panel, used
+    /// to stand in for the position of a report that ends a touch.
+    last_position: (u16, u16),
 }
 
 impl<I2C, RST> Cst816s<I2C, RST>
@@ -64,7 +67,11 @@ where
 {
     #[must_use]
     pub const fn new(i2c: I2C, reset: RST) -> Self {
-        Self { i2c, reset }
+        Self {
+            i2c,
+            reset,
+            last_position: (0, 0),
+        }
     }
 
     pub async fn setup(
@@ -102,14 +109,30 @@ where
 
         let x = (u16::from(data[2] & 0x0f) << 8) | u16::from(data[3]);
         let y = (u16::from(data[4] & 0x0f) << 8) | u16::from(data[5]);
-        if x >= 240 || y >= 240 {
-            return Err(Error::InvalidCoordinates);
+        let touching = data[1] & 0x0f != 0;
+        let on_panel = x < 240 && y < 240;
+
+        // A position only has to make sense while a finger is on the panel.
+        //
+        // The report that ends a touch carries whatever the controller left in
+        // its registers, which is not always a point on the screen - and
+        // rejecting the whole report for it threw away the only notice that the
+        // finger had lifted. A control held down by a press it never saw
+        // released stays down forever, which is a tile that lights up and then
+        // does nothing. So a released finger is reported where it last
+        // demonstrably was.
+        if touching {
+            if !on_panel {
+                return Err(Error::InvalidCoordinates);
+            }
+            self.last_position = (x, y);
         }
+        let (x, y) = if on_panel { (x, y) } else { self.last_position };
 
         Ok(TouchInfo {
             x,
             y,
-            touching: data[1] & 0x0f != 0,
+            touching,
             gesture: Gesture::from(data[0]),
         })
     }

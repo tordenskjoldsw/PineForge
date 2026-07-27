@@ -22,7 +22,7 @@ use pineforge_state::{
 };
 use pineforge_ui::{
     canvas::{Canvas, CanvasError},
-    dfu::{draw_dfu_failed, draw_dfu_progress, draw_storage_progress},
+    dfu::{draw_dfu_failed, draw_dfu_progress, draw_storage_progress, refresh_progress},
     pairing::draw_pairing,
     registry::Screens,
     screen::Screen,
@@ -68,6 +68,25 @@ fn draw_modal(
         Modal::Pairing(passkey) => draw_pairing(canvas, passkey, keep_alive),
         Modal::DfuProgress(percent) => draw_dfu_progress(canvas, percent, keep_alive),
         Modal::DfuFailed(reason) => draw_dfu_failed(canvas, reason, keep_alive),
+    }
+}
+
+/// Repaints the part of a showing modal that its new value moved.
+///
+/// A transfer reports about a hundred percentage steps, and a full repaint per
+/// step blanks the panel for the length of an SPI frame each time - which is
+/// the flicker. The two progress prompts have a partial path; the others have
+/// nothing that moves without the whole prompt changing, so they fall back.
+fn refresh_modal(
+    canvas: &mut Canvas<'_>,
+    modal: Modal,
+    keep_alive: &mut dyn FnMut(),
+) -> Result<(), CanvasError> {
+    match modal {
+        Modal::StorageFormat(percent) | Modal::DfuProgress(percent) => {
+            refresh_progress(canvas, percent, keep_alive)
+        }
+        Modal::Pairing(_) | Modal::DfuFailed(_) => draw_modal(canvas, modal, keep_alive),
     }
 }
 
@@ -342,16 +361,23 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
 
         // System modals rank above the screen stack, so they claim the event
         // first; only `None` leaves it to the active screen.
-        match modals.handle(event) {
-            ModalOutcome::Show(modal) => {
+        let modal_outcome = modals.handle(event);
+        match modal_outcome {
+            ModalOutcome::Show(modal) | ModalOutcome::Refresh(modal) => {
                 let _ = display.wake(&mut delay);
                 backlight.set_level(settings.brightness());
                 if renews_activity(modal) {
                     POWER_COMMANDS.send(PowerCommand::UserActivity).await;
                 }
-                let _ = draw_modal(&mut Canvas::new(&mut display), modal, &mut || {
-                    watchdog.pet();
-                });
+                // A value that moved repaints what moved; a prompt that is new
+                // on the panel is drawn whole.
+                let canvas = &mut Canvas::new(&mut display);
+                let keep_alive = &mut || watchdog.pet();
+                let _ = if matches!(modal_outcome, ModalOutcome::Refresh(_)) {
+                    refresh_modal(canvas, modal, keep_alive)
+                } else {
+                    draw_modal(canvas, modal, keep_alive)
+                };
                 continue;
             }
             ModalOutcome::Suppressed => continue,

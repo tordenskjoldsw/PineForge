@@ -13,6 +13,67 @@ use crate::font::{hint_text, ui_text};
 use crate::{render::draw_visible, theme};
 
 const BAR: Rectangle = Rectangle::new(Point::new(20, 128), Size::new(200, 24));
+const PERCENT_BASELINE: Point = Point::new(120, 108);
+/// The band the percentage can occupy at any width, cleared before it is
+/// redrawn. The text is centred, so it grows in both directions and a shorter
+/// number would otherwise leave the tail of a longer one standing beside it.
+const PERCENT_AREA: Rectangle = Rectangle::new(Point::new(94, 89), Size::new(52, 24));
+
+/// Repaints only what a percentage step changes: the number and the bar.
+///
+/// A transfer reports about a hundred steps, and repainting the whole screen
+/// for each is what makes the progress screen flicker - the clear leaves the
+/// panel blank for the length of an SPI frame, once per percent. The title and
+/// the hint do not move, so they are drawn once and left alone.
+pub fn refresh_progress(
+    canvas: &mut Canvas<'_>,
+    percent: u8,
+    keep_alive: &mut dyn FnMut(),
+) -> Result<(), CanvasError> {
+    let percent = percent.min(100);
+    canvas.fill_solid(&PERCENT_AREA, theme::BACKGROUND)?;
+    draw_percent(canvas, percent)?;
+    keep_alive();
+    fill_bar(canvas, percent)
+}
+
+fn draw_percent(canvas: &mut Canvas<'_>, percent: u8) -> Result<(), CanvasError> {
+    let mut label: String<8> = String::new();
+    let _ = write!(label, "{percent}%");
+    draw_visible(
+        &Text::with_alignment(
+            &label,
+            PERCENT_BASELINE,
+            ui_text(theme::ACCENT, theme::BACKGROUND),
+            Alignment::Center,
+        ),
+        canvas,
+    )
+}
+
+/// The bar's interior: filled up to `percent`, background beyond it.
+///
+/// Both halves are painted rather than only the filled one, so a bar that ever
+/// moves backwards - a transfer restarted - does not keep the fill it had.
+fn fill_bar(canvas: &mut Canvas<'_>, percent: u8) -> Result<(), CanvasError> {
+    let filled = u32::from(percent) * BAR.size.width / 100;
+    if filled > 0 {
+        canvas.fill_solid(
+            &Rectangle::new(BAR.top_left, Size::new(filled, BAR.size.height)),
+            theme::ACCENT,
+        )?;
+    }
+    if filled < BAR.size.width {
+        canvas.fill_solid(
+            &Rectangle::new(
+                Point::new(BAR.top_left.x + filled.cast_signed(), BAR.top_left.y),
+                Size::new(BAR.size.width - filled, BAR.size.height),
+            ),
+            theme::BACKGROUND,
+        )?;
+    }
+    Ok(())
+}
 
 /// Draws a full-screen firmware-update progress screen, mirroring
 /// `InfiniTime`'s DFU screen: a title, a percentage, and a fill bar.
@@ -34,17 +95,7 @@ pub fn draw_dfu_progress(
     )?;
     keep_alive();
 
-    let mut label: String<8> = String::new();
-    let _ = write!(label, "{percent}%");
-    draw_visible(
-        &Text::with_alignment(
-            &label,
-            Point::new(120, 108),
-            ui_text(theme::ACCENT, theme::BACKGROUND),
-            Alignment::Center,
-        ),
-        canvas,
-    )?;
+    draw_percent(canvas, percent)?;
     keep_alive();
 
     // Bar outline, then a fill proportional to the received bytes.
@@ -56,16 +107,7 @@ pub fn draw_dfu_progress(
             .build(),
     )
     .draw(canvas)?;
-    let fill_width = u32::from(percent) * BAR.size.width / 100;
-    if fill_width > 0 {
-        Rectangle::new(BAR.top_left, Size::new(fill_width, BAR.size.height))
-            .into_styled(
-                PrimitiveStyleBuilder::new()
-                    .fill_color(theme::ACCENT)
-                    .build(),
-            )
-            .draw(canvas)?;
-    }
+    fill_bar(canvas, percent)?;
     keep_alive();
 
     draw_visible(
@@ -100,17 +142,7 @@ pub fn draw_storage_progress(
     )?;
     keep_alive();
 
-    let mut label: String<8> = String::new();
-    let _ = write!(label, "{percent}%");
-    draw_visible(
-        &Text::with_alignment(
-            &label,
-            Point::new(120, 108),
-            ui_text(theme::ACCENT, theme::BACKGROUND),
-            Alignment::Center,
-        ),
-        canvas,
-    )?;
+    draw_percent(canvas, percent)?;
     BAR.into_styled(
         PrimitiveStyleBuilder::new()
             .fill_color(theme::BACKGROUND)
@@ -119,16 +151,7 @@ pub fn draw_storage_progress(
             .build(),
     )
     .draw(canvas)?;
-    let fill_width = u32::from(percent) * BAR.size.width / 100;
-    if fill_width > 0 {
-        Rectangle::new(BAR.top_left, Size::new(fill_width, BAR.size.height))
-            .into_styled(
-                PrimitiveStyleBuilder::new()
-                    .fill_color(theme::ACCENT)
-                    .build(),
-            )
-            .draw(canvas)?;
-    }
+    fill_bar(canvas, percent)?;
     keep_alive();
     draw_visible(
         &Text::with_alignment(

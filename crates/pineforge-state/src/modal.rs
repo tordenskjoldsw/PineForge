@@ -27,8 +27,15 @@ pub enum Modal {
 pub enum ModalOutcome {
     /// No modal is involved; the event belongs to the active screen.
     None,
-    /// Show or refresh this modal. The event does not reach the screen.
+    /// Put this modal up. The event does not reach the screen.
     Show(Modal),
+    /// The prompt already showing is the same one, with a new value in it - a
+    /// transfer that advanced a percent.
+    ///
+    /// Told apart from [`Self::Show`] because repainting a whole screen for a
+    /// number that moved is what makes a progress bar flicker, and a transfer
+    /// does it a hundred times. Only the part that changed has to be drawn.
+    Refresh(Modal),
     /// A modal is showing and this event is suppressed entirely, so nothing
     /// redraws over the prompt.
     Suppressed,
@@ -66,11 +73,28 @@ impl ModalState {
     pub const fn handle(&mut self, event: AppEvent) -> ModalOutcome {
         let outcome = self.outcome_for(event);
         match outcome {
-            ModalOutcome::Show(modal) => self.current = Some(modal),
+            ModalOutcome::Show(modal) | ModalOutcome::Refresh(modal) => self.current = Some(modal),
             ModalOutcome::Dismissed { .. } => self.current = None,
             ModalOutcome::None | ModalOutcome::Suppressed | ModalOutcome::UpdateBehind => {}
         }
         outcome
+    }
+
+    /// Raising a modal, as [`ModalOutcome::Refresh`] when the same prompt is
+    /// already up and only its value moved.
+    const fn raise(self, modal: Modal) -> ModalOutcome {
+        let same = matches!(
+            (self.current, modal),
+            (Some(Modal::StorageFormat(_)), Modal::StorageFormat(_))
+                | (Some(Modal::Pairing(_)), Modal::Pairing(_))
+                | (Some(Modal::DfuProgress(_)), Modal::DfuProgress(_))
+                | (Some(Modal::DfuFailed(_)), Modal::DfuFailed(_))
+        );
+        if same {
+            ModalOutcome::Refresh(modal)
+        } else {
+            ModalOutcome::Show(modal)
+        }
     }
 
     const fn outcome_for(self, event: AppEvent) -> ModalOutcome {
@@ -78,7 +102,7 @@ impl ModalState {
         // first: a pairing or transfer that starts behind it must not raise a
         // prompt over the one flow that cannot be interrupted.
         if let AppEvent::StorageUpdated(StorageState::Formatting(percent)) = event {
-            return ModalOutcome::Show(Modal::StorageFormat(percent));
+            return self.raise(Modal::StorageFormat(percent));
         }
         if matches!(self.current, Some(Modal::StorageFormat(_))) {
             return match event {
@@ -95,11 +119,9 @@ impl ModalState {
         // A BLE state that has its own modal always raises or refreshes it.
         if let AppEvent::BleUpdated(state) = event {
             match state {
-                BleState::Pairing(passkey) => return ModalOutcome::Show(Modal::Pairing(passkey)),
-                BleState::DfuProgress(percent) => {
-                    return ModalOutcome::Show(Modal::DfuProgress(percent));
-                }
-                BleState::DfuFailed(reason) => return ModalOutcome::Show(Modal::DfuFailed(reason)),
+                BleState::Pairing(passkey) => return self.raise(Modal::Pairing(passkey)),
+                BleState::DfuProgress(percent) => return self.raise(Modal::DfuProgress(percent)),
+                BleState::DfuFailed(reason) => return self.raise(Modal::DfuFailed(reason)),
                 BleState::Off | BleState::Advertising | BleState::Connected => {}
             }
         }
@@ -171,6 +193,11 @@ mod tests {
         assert_eq!(modals.current(), None);
     }
 
+    /// A percentage that moved is a refresh, not a new prompt.
+    ///
+    /// The distinction is what keeps the progress screen from being repainted
+    /// whole a hundred times over a transfer, which is visible as flicker: each
+    /// full repaint clears the panel for the length of an SPI frame.
     #[test]
     fn transfer_progress_refreshes_rather_than_dismisses() {
         let mut modals = ModalState::new();
@@ -180,7 +207,7 @@ mod tests {
         );
         assert_eq!(
             modals.handle(AppEvent::BleUpdated(BleState::DfuProgress(90))),
-            ModalOutcome::Show(Modal::DfuProgress(90))
+            ModalOutcome::Refresh(Modal::DfuProgress(90))
         );
         // A stray touch cannot kill a transfer in flight.
         assert_eq!(modals.handle(SWIPE), ModalOutcome::Suppressed);
@@ -255,7 +282,7 @@ mod tests {
         assert_eq!(modals.handle(SWIPE), ModalOutcome::Suppressed);
         assert_eq!(
             modals.handle(AppEvent::StorageUpdated(StorageState::Formatting(80))),
-            ModalOutcome::Show(Modal::StorageFormat(80))
+            ModalOutcome::Refresh(Modal::StorageFormat(80))
         );
         assert_eq!(
             modals.handle(AppEvent::StorageUpdated(StorageState::Ready)),
@@ -271,6 +298,27 @@ mod tests {
         assert_eq!(
             modals.handle(AppEvent::StorageUpdated(StorageState::Failed)),
             ModalOutcome::Dismissed { deliver: false }
+        );
+    }
+
+    /// Only the *same* prompt refreshes. A different one replacing it has to
+    /// be drawn whole, or the screen underneath it would show through.
+    #[test]
+    fn a_different_prompt_taking_over_is_drawn_whole() {
+        let mut modals = ModalState::new();
+        let _ = modals.handle(AppEvent::BleUpdated(BleState::DfuProgress(40)));
+
+        assert_eq!(
+            modals.handle(AppEvent::BleUpdated(BleState::DfuFailed(
+                DfuFailReason::EraseFailed
+            ))),
+            ModalOutcome::Show(Modal::DfuFailed(DfuFailReason::EraseFailed))
+        );
+        // And a prompt that comes back after being dismissed is new again.
+        let _ = modals.handle(SWIPE);
+        assert_eq!(
+            modals.handle(AppEvent::BleUpdated(BleState::DfuProgress(1))),
+            ModalOutcome::Show(Modal::DfuProgress(1))
         );
     }
 

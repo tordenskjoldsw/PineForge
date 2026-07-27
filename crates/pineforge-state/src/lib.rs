@@ -49,6 +49,9 @@ pub use watch::{WatchField, WatchFields, WatchState};
 mod watchface;
 pub use watchface::{WATCHFACES, WatchfaceDescriptor, WatchfaceId};
 
+mod touch;
+pub use touch::{SwipeRecognizer, TouchEvents, TouchReport, TouchRouter};
+
 mod storage;
 pub use storage::{
     STORAGE_BASE, STORAGE_DATA_SECTOR_COUNT, STORAGE_END, STORAGE_FORMAT_VERSION,
@@ -673,93 +676,6 @@ impl SwipeDirection {
     }
 }
 
-const SWIPE_MIN_DISTANCE: i32 = 40;
-const SWIPE_AXIS_DOMINANCE_NUMERATOR: i32 = 3;
-const SWIPE_AXIS_DOMINANCE_DENOMINATOR: i32 = 2;
-
-/// Combines controller-provided gestures with a coordinate-based fallback.
-///
-/// The fallback only accepts a clearly dominant axis, preserving taps and
-/// diagonal drawing input while covering missed `CST816S` gesture reports.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct SwipeRecognizer {
-    start: Option<(i32, i32)>,
-    emitted: bool,
-}
-
-impl SwipeRecognizer {
-    #[must_use]
-    pub const fn new() -> Self {
-        Self {
-            start: None,
-            emitted: false,
-        }
-    }
-
-    pub fn update(
-        &mut self,
-        x: i32,
-        y: i32,
-        pressed: bool,
-        controller_gesture: Option<SwipeDirection>,
-    ) -> Option<SwipeDirection> {
-        if !pressed {
-            // Fast flicks can deliver only a press and a release report, so
-            // the release coordinates are also checked for a missed swipe.
-            let fallback = self
-                .start
-                .and_then(|start| Self::direction_from_delta(x - start.0, y - start.1));
-            let gesture = controller_gesture.or(fallback).filter(|_| !self.emitted);
-            self.reset();
-            return gesture;
-        }
-
-        let start = *self.start.get_or_insert((x, y));
-        if self.emitted {
-            return None;
-        }
-        if let Some(gesture) = controller_gesture {
-            self.emitted = true;
-            return Some(gesture);
-        }
-
-        let direction = Self::direction_from_delta(x - start.0, y - start.1);
-        self.emitted = direction.is_some();
-        direction
-    }
-
-    const fn direction_from_delta(delta_x: i32, delta_y: i32) -> Option<SwipeDirection> {
-        let horizontal = delta_x.abs();
-        let vertical = delta_y.abs();
-        if horizontal >= SWIPE_MIN_DISTANCE
-            && horizontal * SWIPE_AXIS_DOMINANCE_DENOMINATOR
-                >= vertical * SWIPE_AXIS_DOMINANCE_NUMERATOR
-        {
-            Some(if delta_x < 0 {
-                SwipeDirection::Left
-            } else {
-                SwipeDirection::Right
-            })
-        } else if vertical >= SWIPE_MIN_DISTANCE
-            && vertical * SWIPE_AXIS_DOMINANCE_DENOMINATOR
-                >= horizontal * SWIPE_AXIS_DOMINANCE_NUMERATOR
-        {
-            Some(if delta_y < 0 {
-                SwipeDirection::Up
-            } else {
-                SwipeDirection::Down
-            })
-        } else {
-            None
-        }
-    }
-
-    pub const fn reset(&mut self) {
-        self.start = None;
-        self.emitted = false;
-    }
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ScreenAction {
     None,
@@ -942,11 +858,24 @@ impl Button {
                 self.state = ButtonState::Pressed;
                 ButtonOutcome::Redraw
             }
-            (ButtonState::Pressed, false, true) => {
+            // A press captures the button, and lifting completes it - wherever
+            // the controller happens to say the finger ended up.
+            //
+            // Requiring the release to land inside as well is what made a tile
+            // light up and then do nothing: the CST816S does not promise a
+            // meaningful position on the report that ends a touch, and one that
+            // read as outside dropped the activation on the floor. Every
+            // pointer stack works this way, LVGL included, which is why
+            // InfiniTime does not have this failure - the object under the
+            // press owns the interaction until it is dragged out of, and the
+            // release position never re-selects a target.
+            (ButtonState::Pressed, false, _) => {
                 self.state = ButtonState::Idle;
                 ButtonOutcome::Activated
             }
-            (ButtonState::Pressed, _, false) => {
+            // Dragged out while still down: the press is abandoned, which is
+            // the one way to change your mind without lifting.
+            (ButtonState::Pressed, true, false) => {
                 self.state = ButtonState::Idle;
                 ButtonOutcome::Redraw
             }
@@ -1229,69 +1158,6 @@ mod tests {
             HeartRateState::Result(72)
         );
         assert_eq!(session.stop(), HeartRateState::Disabled);
-    }
-
-    #[test]
-    fn swipe_recognizer_falls_back_to_dominant_coordinate_motion() {
-        let mut recognizer = SwipeRecognizer::new();
-
-        assert_eq!(recognizer.update(120, 190, true, None), None);
-        assert_eq!(
-            recognizer.update(118, 145, true, None),
-            Some(SwipeDirection::Up)
-        );
-        assert_eq!(recognizer.update(116, 90, true, None), None);
-        assert_eq!(recognizer.update(0, 0, false, None), None);
-    }
-
-    #[test]
-    fn swipe_recognizer_prefers_hardware_and_preserves_taps() {
-        let mut recognizer = SwipeRecognizer::new();
-
-        assert_eq!(recognizer.update(100, 100, true, None), None);
-        assert_eq!(recognizer.update(105, 103, true, None), None);
-        assert_eq!(recognizer.update(105, 103, false, None), None);
-        assert_eq!(recognizer.update(180, 100, true, None), None);
-        assert_eq!(
-            recognizer.update(170, 100, true, Some(SwipeDirection::Left)),
-            Some(SwipeDirection::Left)
-        );
-        assert_eq!(
-            recognizer.update(100, 100, true, Some(SwipeDirection::Left)),
-            None
-        );
-    }
-
-    #[test]
-    fn swipe_recognizer_derives_fast_flicks_from_the_release_report() {
-        let mut recognizer = SwipeRecognizer::new();
-
-        assert_eq!(recognizer.update(200, 120, true, None), None);
-        assert_eq!(recognizer.update(190, 118, true, None), None);
-        assert_eq!(
-            recognizer.update(60, 120, false, None),
-            Some(SwipeDirection::Left)
-        );
-        assert_eq!(recognizer.update(100, 100, true, None), None);
-        assert_eq!(recognizer.update(100, 100, false, None), None);
-    }
-
-    #[test]
-    fn swipe_recognizer_reset_discards_stale_tracking() {
-        let mut recognizer = SwipeRecognizer::new();
-
-        assert_eq!(recognizer.update(100, 100, true, None), None);
-        assert_eq!(
-            recognizer.update(180, 100, true, None),
-            Some(SwipeDirection::Right)
-        );
-        // The release report was lost, e.g. due to invalid coordinates.
-        recognizer.reset();
-        assert_eq!(recognizer.update(120, 200, true, None), None);
-        assert_eq!(
-            recognizer.update(120, 120, true, None),
-            Some(SwipeDirection::Up)
-        );
     }
 
     #[test]
@@ -1629,6 +1495,51 @@ mod tests {
                 pressed: false,
             }),
             ButtonOutcome::Activated
+        );
+        assert_eq!(button.state(), ButtonState::Idle);
+    }
+
+    /// The regression behind "the tile lights up and nothing happens".
+    ///
+    /// The report that ends a touch does not promise a sensible position, and
+    /// activation used to require one inside the button. A release that read as
+    /// somewhere else left the press captured and the outcome dropped, so the
+    /// user pressed twice and blamed the swipe.
+    #[test]
+    fn a_press_is_completed_by_the_lift_wherever_it_is_reported() {
+        let mut button = Button::new(ButtonBounds::new(10, 20, 100, 40));
+        let _ = button.handle_event(AppEvent::Touch {
+            x: 20,
+            y: 30,
+            pressed: true,
+        });
+
+        // The origin is the value a CST816S is most likely to leave behind, and
+        // it is nowhere near this button.
+        assert_eq!(
+            button.handle_event(AppEvent::Touch {
+                x: 0,
+                y: 0,
+                pressed: false,
+            }),
+            ButtonOutcome::Activated
+        );
+        assert_eq!(button.state(), ButtonState::Idle);
+    }
+
+    /// Capture does not mean a button can be activated without being pressed:
+    /// a lift with no press behind it belongs to nobody.
+    #[test]
+    fn a_lift_without_a_press_activates_nothing() {
+        let mut button = Button::new(ButtonBounds::new(10, 20, 100, 40));
+
+        assert_eq!(
+            button.handle_event(AppEvent::Touch {
+                x: 20,
+                y: 30,
+                pressed: false,
+            }),
+            ButtonOutcome::None
         );
         assert_eq!(button.state(), ButtonState::Idle);
     }
