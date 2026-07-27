@@ -67,9 +67,9 @@ impl NotificationCategory {
 
     /// The short name a screen puts on this category.
     ///
-    /// Here rather than beside a screen because two screens show it - the
-    /// watchface row and the notification list - and two tables would be one
-    /// too many.
+    /// Here rather than beside the one screen that draws it, because naming a
+    /// category is not a drawing decision: the same word has to be right on a
+    /// notification screen, in a log line, and on any face that ever shows one.
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {

@@ -24,8 +24,8 @@ use crate::ui::{
     watchface::{
         Watchface,
         row::{
-            self, BATTERY_ROW, DATE_ROW, LIGHT_GRAY, SCREEN_AREA, STATUS_ROW, TERMINAL_GREEN,
-            TERMINAL_ORANGE, TERMINAL_RED, TIME_ROW, UNSYNCHRONIZED_DATE, row_at,
+            self, BATTERY_ROW, DATE_ROW, LIGHT_GRAY, SCREEN_AREA, TERMINAL_GREEN, TERMINAL_ORANGE,
+            TERMINAL_RED, TIME_ROW, UNSYNCHRONIZED_DATE, row_at,
         },
     },
 };
@@ -33,6 +33,7 @@ use crate::ui::{
 const MOTION_ROW: Rectangle = row_at(100);
 const STEP_ROW: Rectangle = row_at(125);
 const HEART_RATE_ROW: Rectangle = row_at(150);
+const STATUS_ROW: Rectangle = row_at(175);
 
 /// Holds no readings of its own; see [`TerminalWatchface`].
 ///

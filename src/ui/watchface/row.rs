@@ -29,10 +29,12 @@ const GLYPH_WIDTH: i32 = JETBRAINS_MONO_10X22.cell.width.cast_signed();
 const BASELINE_OFFSET: i32 = 20;
 
 pub const SCREEN_AREA: Rectangle = Rectangle::new(Point::new(0, 0), Size::new(240, 240));
+/// The rows every terminal-styled face opens with, in the same places. Below
+/// them a face lays out whatever it is for, and where its last row falls is its
+/// own business - which is why the status row is not here.
 pub const DATE_ROW: Rectangle = row_at(25);
 pub const TIME_ROW: Rectangle = row_at(50);
 pub const BATTERY_ROW: Rectangle = row_at(75);
-pub const STATUS_ROW: Rectangle = row_at(175);
 
 pub const LIGHT_GRAY: Rgb565 = Rgb565::new(20, 40, 20);
 pub const TERMINAL_GREEN: Rgb565 = Rgb565::new(4, 51, 10);

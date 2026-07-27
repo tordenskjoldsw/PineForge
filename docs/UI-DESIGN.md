@@ -172,6 +172,9 @@ dismisses.
 swipes and one of them destroys something, so a gesture that lands short or
 crooked must not be able to delete the message being read.
 
+No watchface carries a notification count. What is pending is read where it is
+read, and a tally on a face would only be a second place to keep it right.
+
 ## What this does not decide
 
 - **Animation timing.** Transitions currently run as fast as SPI allows, with

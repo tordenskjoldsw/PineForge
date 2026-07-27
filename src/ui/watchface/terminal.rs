@@ -17,15 +17,17 @@ use crate::ui::{
     watchface::{
         Watchface,
         row::{
-            self, BATTERY_ROW, DATE_ROW, LIGHT_GRAY, SCREEN_AREA, STATUS_ROW, TERMINAL_BLUE,
-            TERMINAL_GREEN, TERMINAL_ORANGE, TERMINAL_RED, TIME_ROW, UNSYNCHRONIZED_DATE, row_at,
+            self, BATTERY_ROW, DATE_ROW, LIGHT_GRAY, SCREEN_AREA, TERMINAL_GREEN, TERMINAL_ORANGE,
+            TERMINAL_RED, TIME_ROW, UNSYNCHRONIZED_DATE, row_at,
         },
     },
 };
 
 const STEP_ROW: Rectangle = row_at(100);
 const HEART_RATE_ROW: Rectangle = row_at(125);
-const NOTIFICATION_ROW: Rectangle = row_at(150);
+/// No notification row: what is pending is read on the notification screen, and
+/// a count on the face would only be a second place to keep it right.
+const STATUS_ROW: Rectangle = row_at(150);
 
 /// Holds no readings of its own: everything it shows comes from the shared
 /// [`WatchState`], so it is a layout and nothing else.
@@ -103,19 +105,6 @@ impl TerminalWatchface {
         row::draw(canvas, HEART_RATE_ROW, "[HRT ]", &value, TERMINAL_RED)
     }
 
-    /// How many notifications are pending and what the newest one is. Reading
-    /// them is the notification screen's job; this row is the tally that says
-    /// there is something to read.
-    fn draw_notifications(state: &WatchState, canvas: &mut Canvas<'_>) -> Result<(), CanvasError> {
-        let mut value: String<16> = String::new();
-        if let Some(category) = state.last_category() {
-            let _ = write!(value, "{} {}", state.notifications(), category.label());
-        } else {
-            let _ = value.push_str("---");
-        }
-        row::draw(canvas, NOTIFICATION_ROW, "[MSG ]", &value, TERMINAL_BLUE)
-    }
-
     fn draw_status(state: &WatchState, canvas: &mut Canvas<'_>) -> Result<(), CanvasError> {
         row::draw(
             canvas,
@@ -154,8 +143,6 @@ impl Watchface for TerminalWatchface {
         keep_alive();
         Self::draw_heart_rate(state, canvas)?;
         keep_alive();
-        Self::draw_notifications(state, canvas)?;
-        keep_alive();
         Self::draw_status(state, canvas)?;
         keep_alive();
 
@@ -193,10 +180,8 @@ impl Watchface for TerminalWatchface {
             Self::draw_heart_rate(state, canvas)?;
             keep_alive();
         }
-        if changed.contains(WatchField::Notifications) {
-            Self::draw_notifications(state, canvas)?;
-            keep_alive();
-        }
+        // Nothing for `WatchField::Notifications`: this face shows no tally, so
+        // an arrival costs it no redraw at all.
         if changed.contains(WatchField::Ble) {
             // The pairing passkey changes both text and colour, so the whole
             // row is redrawn rather than diffed.
