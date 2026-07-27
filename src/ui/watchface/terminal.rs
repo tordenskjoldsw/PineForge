@@ -8,7 +8,7 @@ use embedded_graphics::{
     primitives::{PrimitiveStyle, Rectangle},
 };
 use heapless::String;
-use pineforge_state::{HeartRateState, NotificationCategory, WatchField, WatchFields, WatchState};
+use pineforge_state::{HeartRateState, WatchField, WatchFields, WatchState};
 
 use crate::ui::canvas::{Canvas, CanvasError};
 use crate::ui::font::ui_text;
@@ -103,33 +103,13 @@ impl TerminalWatchface {
         row::draw(canvas, HEART_RATE_ROW, "[HRT ]", &value, TERMINAL_RED)
     }
 
-    const fn category_label(category: NotificationCategory) -> &'static str {
-        match category {
-            NotificationCategory::Call => "CALL",
-            NotificationCategory::MissedCall => "MISSED",
-            NotificationCategory::Sms => "SMS",
-            NotificationCategory::Email => "EMAIL",
-            NotificationCategory::InstantMessage => "IM",
-            NotificationCategory::News => "NEWS",
-            NotificationCategory::VoiceMail => "VMAIL",
-            NotificationCategory::Schedule => "CAL",
-            NotificationCategory::HighPriority => "ALERT",
-            NotificationCategory::SimpleAlert | NotificationCategory::Other(_) => "MSG",
-        }
-    }
-
-    /// The session's notification count and the latest category. A full
-    /// per-message view arrives with the notification screen in the UI
-    /// redesign.
+    /// How many notifications are pending and what the newest one is. Reading
+    /// them is the notification screen's job; this row is the tally that says
+    /// there is something to read.
     fn draw_notifications(state: &WatchState, canvas: &mut Canvas<'_>) -> Result<(), CanvasError> {
         let mut value: String<16> = String::new();
         if let Some(category) = state.last_category() {
-            let _ = write!(
-                value,
-                "{} {}",
-                state.notifications(),
-                Self::category_label(category)
-            );
+            let _ = write!(value, "{} {}", state.notifications(), category.label());
         } else {
             let _ = value.push_str("---");
         }

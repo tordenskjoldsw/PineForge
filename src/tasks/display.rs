@@ -1,5 +1,5 @@
 use defmt::info;
-use embassy_futures::select::{Either3, Either4, select3, select4};
+use embassy_futures::select::{Either, Either4, select, select4};
 use embassy_nrf::gpio::{Level, Output, OutputDrive};
 use embassy_time::{Delay, Duration, Instant, Timer};
 use mipidsi::interface::SpiInterface;
@@ -16,7 +16,7 @@ use crate::{
     boot::watchdog::BootloaderWatchdog,
     drivers::backlight::Backlight,
     services::events::{
-        POWER_COMMANDS, SETTINGS_COMMANDS, UI_EVENTS, VIBRATION_COMMANDS,
+        NOTIFICATIONS, POWER_COMMANDS, SETTINGS_COMMANDS, UI_EVENTS, VIBRATION_COMMANDS,
         display_settings_receiver, system_power_receiver, wall_clock_receiver,
     },
     ui::{
@@ -24,6 +24,7 @@ use crate::{
         dfu::{draw_dfu_failed, draw_dfu_progress, draw_storage_progress},
         firmware::FirmwareScreen,
         launcher::LauncherScreen,
+        notifications::NotificationScreen,
         pairing::draw_pairing,
         screen::{Paint, Screen},
         setting_picker::{SettingPickerScreen, setting_of},
@@ -34,7 +35,8 @@ use crate::{
 };
 use pineforge_state::{
     AppEffect, AppEvent, AppState, DisplaySettings, HeartRateCommand, Modal, ModalOutcome,
-    ModalState, PowerCommand, ScreenAction, ScreenId, SystemPowerState, VibrationPattern,
+    ModalState, Notification, PowerCommand, ScreenAction, ScreenId, SystemPowerState,
+    VibrationPattern,
 };
 
 static DISPLAY_BUFFER: StaticCell<[u8; 512]> = StaticCell::new();
@@ -58,6 +60,8 @@ enum DisplayEvent {
 struct Screens {
     watchface: WatchfaceScreen,
     launcher: LauncherScreen,
+    /// Holds the pending notifications, whether or not it is the screen showing.
+    notifications: NotificationScreen,
     settings: DisplaySettingsScreen,
     /// The one settings leaf, pointed at whichever setting is being edited.
     picker: SettingPickerScreen,
@@ -77,6 +81,7 @@ impl Screens {
         match active {
             ScreenId::Watchface => &self.watchface,
             ScreenId::Launcher => &self.launcher,
+            ScreenId::Notifications => &self.notifications,
             ScreenId::DisplaySettings => &self.settings,
             ScreenId::Firmware => &self.firmware,
             // Every leaf is the same screen; `enter` has pointed it at the one
@@ -96,6 +101,7 @@ impl Screens {
         match active {
             ScreenId::Watchface => &mut self.watchface,
             ScreenId::Launcher => &mut self.launcher,
+            ScreenId::Notifications => &mut self.notifications,
             ScreenId::DisplaySettings => &mut self.settings,
             ScreenId::Firmware => &mut self.firmware,
             // Every leaf is the same screen; `enter` has pointed it at the one
@@ -117,13 +123,22 @@ impl Screens {
 
     /// Hands the screen that is now on top whatever it needs to be correct.
     ///
-    /// Only the settings leaf needs anything, and what it needs is the record
-    /// that is current rather than one it kept from an earlier visit. Called on
-    /// every navigation, so a leaf cannot be reached without it.
+    /// A settings leaf needs the record that is current rather than one it kept
+    /// from an earlier visit, and a watchface's notification tally is the
+    /// inbox's rather than a count of its own. Both are the same rule: a screen
+    /// is given shared state as it is entered instead of keeping a copy across
+    /// visits, so neither can show something the firmware no longer believes.
+    ///
+    /// Called on every navigation, so a screen cannot be reached without it.
     fn enter(&mut self, active: ScreenId, settings: DisplaySettings) {
         if let Some(setting) = setting_of(active) {
             self.picker.open(setting, settings);
         }
+        // This is what carries a dismissal back to the face: the notification
+        // screen changes the inbox, and leaving it is when the face is told.
+        let _ = self
+            .watchface
+            .handle_event(AppEvent::NotificationsChanged(self.notifications.summary()));
     }
 
     /// Paints a screen and, unless it is a watchface, the status corner over
@@ -152,6 +167,19 @@ impl Screens {
     ) -> Result<(), CanvasError> {
         self.active(active).draw_dirty(canvas, keep_alive)
     }
+}
+
+/// Puts an arriving notification in the inbox and reports what is now pending.
+///
+/// Filed where it is received rather than carried through [`DisplayEvent`]: a
+/// notification is well over a hundred bytes of text buffers, and a variant
+/// holding one would add that to the task's future for the whole life of the
+/// firmware. Moving it straight into the inbox keeps it on the stack instead,
+/// and the event that comes back out carries only the tally.
+fn file(screens: &mut Screens, notification: Notification) -> DisplayEvent {
+    DisplayEvent::Ui(AppEvent::NotificationsChanged(
+        screens.notifications.file(notification),
+    ))
 }
 
 /// Draws the system modal that owns the screen.
@@ -210,6 +238,7 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
     let mut screens = Screens {
         watchface: WatchfaceScreen::default(),
         launcher: LauncherScreen::default(),
+        notifications: NotificationScreen::default(),
         settings: DisplaySettingsScreen::default(),
         picker: SettingPickerScreen::default(),
         firmware: FirmwareScreen::default(),
@@ -253,29 +282,40 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
     }
 
     loop {
+        // A notification is received even while asleep: it has to be in the
+        // inbox by the time the watch is woken, and leaving it queued would
+        // block the one behind it.
         let display_event = if power == SystemPowerState::Sleeping {
-            match select3(
-                UI_EVENTS.receive(),
-                power_receiver.changed(),
-                settings_receiver.changed(),
-            )
-            .await
-            {
-                Either3::First(event) => DisplayEvent::Ui(event),
-                Either3::Second(state) => DisplayEvent::Power(state),
-                Either3::Third(snapshot) => DisplayEvent::Settings(snapshot),
-            }
-        } else {
             match select4(
                 UI_EVENTS.receive(),
-                Timer::at(next_tick),
                 power_receiver.changed(),
                 settings_receiver.changed(),
+                NOTIFICATIONS.receive(),
             )
             .await
             {
                 Either4::First(event) => DisplayEvent::Ui(event),
-                Either4::Second(()) => {
+                Either4::Second(state) => DisplayEvent::Power(state),
+                Either4::Third(snapshot) => DisplayEvent::Settings(snapshot),
+                Either4::Fourth(notification) => file(&mut screens, notification),
+            }
+        } else {
+            // Nested because there is no `select5`, and the notification is the
+            // input least entangled with the other four.
+            match select(
+                select4(
+                    UI_EVENTS.receive(),
+                    Timer::at(next_tick),
+                    power_receiver.changed(),
+                    settings_receiver.changed(),
+                ),
+                NOTIFICATIONS.receive(),
+            )
+            .await
+            {
+                Either::Second(notification) => file(&mut screens, notification),
+                Either::First(Either4::First(event)) => DisplayEvent::Ui(event),
+                Either::First(Either4::Second(())) => {
                     let now = Instant::now();
                     while next_tick <= now {
                         next_tick += Duration::from_secs(1);
@@ -295,8 +335,8 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                             .map(|reference| reference.date_at(now.as_secs())),
                     })
                 }
-                Either4::Third(state) => DisplayEvent::Power(state),
-                Either4::Fourth(snapshot) => DisplayEvent::Settings(snapshot),
+                Either::First(Either4::Third(state)) => DisplayEvent::Power(state),
+                Either::First(Either4::Fourth(snapshot)) => DisplayEvent::Settings(snapshot),
             }
         };
         let now = Instant::now();
@@ -388,8 +428,13 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                 );
             }
         }
-        if matches!(event, AppEvent::HeartRateStateUpdated(_))
-            && app.active_screen() != ScreenId::Watchface
+        // Readings the watchface shows arrive whatever screen is up, and it is
+        // the only screen holding them. Feeding it here keeps them current
+        // without painting anything: the screen actually showing is drawn below.
+        if matches!(
+            event,
+            AppEvent::HeartRateStateUpdated(_) | AppEvent::NotificationsChanged(_)
+        ) && app.active_screen() != ScreenId::Watchface
         {
             let _ = screens.watchface.handle_event(event);
         }

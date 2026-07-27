@@ -6,11 +6,24 @@ use embassy_sync::{
 };
 
 use pineforge_state::{
-    AppEvent, BatteryStatus, DfuFailReason, DisplaySettings, HeartRateCommand, PowerCommand,
-    SystemPowerState, VibrationPattern, WallClockReference,
+    AppEvent, BatteryStatus, DfuFailReason, DisplaySettings, HeartRateCommand, Notification,
+    PowerCommand, SystemPowerState, VibrationPattern, WallClockReference,
 };
 
 pub static UI_EVENTS: Channel<CriticalSectionRawMutex, AppEvent, 8> = Channel::new();
+
+/// Phone notifications on their way from the BLE task to the inbox.
+///
+/// Separate from [`UI_EVENTS`] because of what a notification weighs: two text
+/// buffers, well over a hundred bytes, against an `AppEvent` of a dozen. Putting
+/// one in the event enum would multiply that by the event channel's capacity for
+/// a message that arrives a few times an hour.
+///
+/// Two deep, which is what it takes for a second alert to survive the redraw the
+/// first one triggers - a full repaint outlasts two messages arriving together.
+/// The display task is the only receiver, and it owns the inbox, so a
+/// notification is stored exactly once and by the task that shows it.
+pub static NOTIFICATIONS: Channel<CriticalSectionRawMutex, Notification, 2> = Channel::new();
 
 pub static POWER_COMMANDS: Channel<CriticalSectionRawMutex, PowerCommand, 8> = Channel::new();
 

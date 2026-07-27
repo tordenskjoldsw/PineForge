@@ -7,6 +7,7 @@ pub mod launcher;
 pub mod menu;
 #[cfg(feature = "diagnostics")]
 pub mod metrics;
+pub mod notifications;
 pub mod pairing;
 pub mod render;
 #[cfg(feature = "ui-animations")]

@@ -16,7 +16,8 @@ use trouble_host::prelude::*;
 use crate::{
     boot::confirm::is_validated,
     services::events::{
-        BOND_STORE, BatteryStatusReceiver, StoredBond, UI_EVENTS, VIBRATION_COMMANDS, WALL_CLOCK,
+        BOND_STORE, BatteryStatusReceiver, NOTIFICATIONS, StoredBond, UI_EVENTS,
+        VIBRATION_COMMANDS, WALL_CLOCK,
     },
     tasks::ble::dfu,
 };
@@ -255,11 +256,18 @@ async fn gatt_events(server: &Server<'_>, connection: &GattConnection<'_, '_, De
                         notification.title.as_str(),
                         notification.body.as_str()
                     );
-                    // One long alert pulse; the UI shows the running count and
-                    // latest category on the watchface.
+                    // One long alert pulse. The message itself goes to the
+                    // display task, which files it and reports the new tally -
+                    // one place decides what is pending, so the watchface can
+                    // never disagree with the notification screen.
                     let _ = VIBRATION_COMMANDS.try_send(VibrationPattern::Long);
-                    let _ =
-                        UI_EVENTS.try_send(AppEvent::NotificationReceived(notification.category));
+                    if NOTIFICATIONS.try_send(notification).is_err() {
+                        // A full queue means the display task has not run since
+                        // the last two arrived. Dropping is the honest outcome:
+                        // blocking the GATT loop here would stall every other
+                        // characteristic, DFU included.
+                        warn!("Notification dropped: the inbox queue is full");
+                    }
                 }
             }
             _ => {}

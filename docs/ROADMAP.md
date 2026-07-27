@@ -107,7 +107,8 @@ The concrete scope and acceptance criteria for the active milestone live in
 
 ## Later milestones
 
-- notifications
+- notification text in a face the panel can show — the screen reads the ASCII
+  range the atlas covers, so accented characters draw as gaps
 - alarms, timers, and stopwatch
 - step counting and activity summaries
 - heart-rate sampling

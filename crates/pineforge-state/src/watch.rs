@@ -174,10 +174,19 @@ impl WatchState {
             AppEvent::HeartRateStateUpdated(state) => {
                 Self::moved(&mut self.heart_rate, state, WatchField::HeartRate)
             }
-            AppEvent::NotificationReceived(category) => {
-                self.notifications = self.notifications.saturating_add(1);
-                self.last_category = Some(category);
-                WatchFields::of(WatchField::Notifications)
+            // The tally is the inbox's, not a running count kept here: a face
+            // that counted arrivals itself would keep showing notifications the
+            // user had already cleared.
+            AppEvent::NotificationsChanged(summary) => {
+                let moved =
+                    self.notifications != summary.count || self.last_category != summary.latest;
+                self.notifications = summary.count;
+                self.last_category = summary.latest;
+                if moved {
+                    WatchFields::of(WatchField::Notifications)
+                } else {
+                    WatchFields::NONE
+                }
             }
             #[cfg(feature = "diagnostics")]
             AppEvent::AccelerometerDetected(kind) => {
@@ -414,20 +423,51 @@ mod tests {
         assert!(WatchFields::NONE.is_empty());
     }
 
+    /// Builds the event the inbox sends when what is pending changes.
+    fn pending(count: u32, latest: Option<NotificationCategory>) -> AppEvent {
+        AppEvent::NotificationsChanged(crate::NotificationSummary { count, latest })
+    }
+
     #[test]
-    fn notifications_count_up_and_keep_the_latest_category() {
+    fn the_face_shows_what_is_pending_rather_than_what_has_arrived() {
         let mut state = WatchState::new();
 
         assert_eq!(
-            state.apply(AppEvent::NotificationReceived(NotificationCategory::Sms)),
+            state.apply(pending(1, Some(NotificationCategory::Sms))),
             WatchFields::of(WatchField::Notifications)
         );
         // Two of the same category are still two notifications.
         assert_eq!(
-            state.apply(AppEvent::NotificationReceived(NotificationCategory::Sms)),
+            state.apply(pending(2, Some(NotificationCategory::Sms))),
             WatchFields::of(WatchField::Notifications)
         );
         assert_eq!(state.notifications(), 2);
         assert_eq!(state.last_category(), Some(NotificationCategory::Sms));
+
+        // The regression a running tally would produce: dismissing on the
+        // notification screen has to bring the face's count back down, and
+        // clearing the inbox has to clear the row entirely.
+        assert_eq!(
+            state.apply(pending(1, Some(NotificationCategory::Sms))),
+            WatchFields::of(WatchField::Notifications)
+        );
+        assert_eq!(state.notifications(), 1);
+        assert_eq!(
+            state.apply(pending(0, None)),
+            WatchFields::of(WatchField::Notifications)
+        );
+        assert_eq!(state.notifications(), 0);
+        assert_eq!(state.last_category(), None);
+    }
+
+    #[test]
+    fn an_inbox_that_did_not_move_costs_no_redraw() {
+        let mut state = WatchState::new();
+        let _ = state.apply(pending(2, Some(NotificationCategory::Email)));
+
+        assert_eq!(
+            state.apply(pending(2, Some(NotificationCategory::Email))),
+            WatchFields::NONE
+        );
     }
 }

@@ -30,8 +30,8 @@ pub use modal::{Modal, ModalOutcome, ModalState};
 
 mod notification;
 pub use notification::{
-    NOTIFICATION_BODY_MAX, NOTIFICATION_TITLE_MAX, Notification, NotificationCategory,
-    parse_new_alert,
+    NOTIFICATION_BODY_MAX, NOTIFICATION_CAPACITY, NOTIFICATION_TITLE_MAX, Notification,
+    NotificationCategory, NotificationInbox, NotificationSummary, Wrapped, parse_new_alert, wrap,
 };
 
 mod settings;
@@ -510,6 +510,8 @@ pub enum ScreenId {
     Watchface,
     /// The application launcher: tiles opening the screens below the root.
     Launcher,
+    /// The notifications that have arrived and not been dismissed, one per page.
+    Notifications,
     DisplaySettings,
     /// Settings leaves, each offering the presets of one setting.
     Brightness,
@@ -567,10 +569,14 @@ pub enum AppEvent {
     HeartRateAnalysisUpdated(PpgAnalysis),
     HeartRateStateUpdated(HeartRateState),
     StepsUpdated(u32),
-    /// A phone notification arrived over the Alert Notification Service. Only
-    /// the category rides on the event; the full text stays out of the fixed
-    /// event channel and is logged/handled by the BLE task.
-    NotificationReceived(NotificationCategory),
+    /// What is pending in the notification inbox changed - one arrived, or one
+    /// was dismissed.
+    ///
+    /// The text does not ride on this event. `AppEvent` is `Copy` and sits in a
+    /// fixed-capacity channel, so carrying two string buffers would cost the
+    /// channel its capacity times a notification; the messages travel on their
+    /// own channel and this reports what a tally needs.
+    NotificationsChanged(NotificationSummary),
     DisplaySettingsUpdated(DisplaySettings),
     BleUpdated(BleState),
     StorageUpdated(StorageState),
@@ -905,10 +911,13 @@ struct ScreenEntry {
 /// any rendering code.
 const fn route(from: ScreenId, swipe: SwipeDirection) -> Option<ScreenId> {
     match (from, swipe) {
-        // Down and left are spoken for by notifications and quick settings; the
-        // screens are not built yet, so those gestures lead nowhere rather than
-        // somewhere temporary that has to be unlearned.
         (ScreenId::Watchface, SwipeDirection::Up) => Some(ScreenId::Launcher),
+        // Pulling down brings what arrived down with it, the way a phone's
+        // shade does.
+        (ScreenId::Watchface, SwipeDirection::Down) => Some(ScreenId::Notifications),
+        // Left is spoken for by quick settings; the screen is not built yet, so
+        // the gesture leads nowhere rather than somewhere temporary that would
+        // have to be unlearned.
         _ => None,
     }
 }
@@ -1296,16 +1305,42 @@ mod tests {
     fn the_root_ignores_gestures_that_route_nowhere() {
         let mut app = AppState::new(ScreenId::Watchface);
 
-        // Down and left belong to notifications and quick settings, which do
-        // not exist yet; right is the way back, and the root cannot be popped.
-        for swipe in [
-            SwipeDirection::Down,
-            SwipeDirection::Left,
-            SwipeDirection::Right,
-        ] {
+        // Left belongs to quick settings, which does not exist yet; right is
+        // the way back, and the root cannot be popped.
+        for swipe in [SwipeDirection::Left, SwipeDirection::Right] {
             assert_eq!(app.navigate(swipe), AppEffect::None);
             assert_eq!(app.active_screen(), ScreenId::Watchface);
         }
+    }
+
+    /// What is left for the notification screen's own use once navigation has
+    /// taken its share.
+    ///
+    /// The screen browses and dismisses with gestures, so which ones reach it
+    /// at all is not an implementation detail of the screen - it is decided
+    /// here, and a re-route would silently take a gesture away from it.
+    #[test]
+    fn the_notification_screen_keeps_the_gestures_it_browses_with() {
+        let mut app = AppState::new(ScreenId::Watchface);
+        assert_eq!(
+            app.navigate(SwipeDirection::Down),
+            AppEffect::Navigate(Navigation::forward(SwipeDirection::Down))
+        );
+        assert_eq!(app.active_screen(), ScreenId::Notifications);
+
+        // Down browses to the next notification and right dismisses one, so
+        // navigation must leave both alone.
+        for swipe in [SwipeDirection::Down, SwipeDirection::Right] {
+            assert_eq!(app.navigate(swipe), AppEffect::None);
+            assert_eq!(app.active_screen(), ScreenId::Notifications);
+        }
+
+        // Up is the way out, because down is the way in.
+        assert_eq!(
+            app.navigate(SwipeDirection::Up),
+            AppEffect::Navigate(Navigation::backward(SwipeDirection::Up))
+        );
+        assert_eq!(app.active_screen(), ScreenId::Watchface);
     }
 
     #[test]
@@ -1364,7 +1399,10 @@ mod tests {
 
     #[test]
     fn every_route_is_reversible_by_its_opposite() {
-        for (swipe, target) in [(SwipeDirection::Up, ScreenId::Launcher)] {
+        for (swipe, target) in [
+            (SwipeDirection::Up, ScreenId::Launcher),
+            (SwipeDirection::Down, ScreenId::Notifications),
+        ] {
             let mut app = AppState::new(ScreenId::Watchface);
             assert_eq!(
                 app.navigate(swipe),

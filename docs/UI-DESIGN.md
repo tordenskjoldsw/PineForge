@@ -156,6 +156,22 @@ a page holds six of them; the paginated list model decides which entries a page
 shows and which entry a touch hit, and pages turn vertically because a settings
 screen is reached by tapping rather than by a gesture.
 
+## Notifications
+
+One message per page, not a list of subject lines. The panel fits about six
+lines of body text, so a list would show almost nothing of any message and still
+cost a second screen to read one.
+
+Which gestures the screen can use follows from how it is opened. Pulling down
+from the watchface brings it up, so up is spent leaving again, and what is left
+is down and the horizontal pair. Down browses to the next message and wraps at
+the oldest — the finger that opened the screen keeps going through it. Right
+dismisses.
+
+**Browsing and dismissing sit on different axes deliberately.** Both are single
+swipes and one of them destroys something, so a gesture that lands short or
+crooked must not be able to delete the message being read.
+
 ## What this does not decide
 
 - **Animation timing.** Transitions currently run as fast as SPI allows, with
