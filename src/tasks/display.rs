@@ -1,4 +1,4 @@
-use defmt::info;
+use defmt::{error, info};
 use embassy_futures::select::{Either, Either4, select, select4};
 use embassy_nrf::gpio::{Level, Output, OutputDrive};
 use embassy_time::{Delay, Duration, Instant, Timer};
@@ -97,13 +97,38 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
     let reset = Output::new(resources.reset, Level::Low, OutputDrive::Standard);
     let interface = SpiInterface::new(spi, dc, DISPLAY_BUFFER.init([0; 512]));
     let mut delay = Delay;
-    let mut display = mipidsi::Builder::new(mipidsi::models::ST7789, interface)
+    // A panel that will not start must not take the watch down with it.
+    //
+    // Panicking here traps the core, nothing pets the watchdog from the trap,
+    // and seven seconds later the bootloader starts the same image into the
+    // same failure - forever, with no window in which anything can be fixed.
+    // Ending this task instead leaves every other task running, so the watch
+    // still advertises and can still be recovered over DFU. It is a blind
+    // watch, which is bad; a bootlooping watch is a brick.
+    let display = mipidsi::Builder::new(mipidsi::models::ST7789, interface)
         .display_size(pins::DISPLAY_WIDTH, pins::DISPLAY_HEIGHT)
         .invert_colors(ColorInversion::Inverted)
         .reset_pin(reset)
-        .init(&mut delay)
-        .unwrap();
-    display.set_orientation(Orientation::new()).unwrap();
+        .init(&mut delay);
+    let mut display = match display {
+        Ok(display) => display,
+        Err(error) => {
+            error!(
+                "Display init failed, continuing without a screen: {}",
+                defmt::Debug2Format(&error)
+            );
+            backlight.set_level(0);
+            return;
+        }
+    };
+    if let Err(error) = display.set_orientation(Orientation::new()) {
+        error!(
+            "Display orientation rejected, continuing without a screen: {}",
+            defmt::Debug2Format(&error)
+        );
+        backlight.set_level(0);
+        return;
+    }
     watchdog.pet();
     let mut settings = DisplaySettings::DEFAULT;
     backlight.set_level(settings.brightness());
@@ -303,6 +328,16 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
         ) && app.active_screen() != ScreenId::Watchface
         {
             let _ = screens.watchface.handle_event(event);
+        }
+
+        // The stack's high-water mark, on the one screen that can show it. A
+        // watch with no debugger attached has no other way to read it, and the
+        // reading is what the RAM budget is meant to be set from.
+        #[cfg(feature = "diagnostics")]
+        if matches!(event, AppEvent::Tick { .. }) {
+            screens
+                .touch_test
+                .set_stack(crate::boot::stack::used(), crate::boot::stack::capacity());
         }
 
         // System modals rank above the screen stack, so they claim the event

@@ -3,6 +3,13 @@ target = "thumbv7em-none-eabihf"
 
 [target.thumbv7em-none-eabihf]
 runner = "probe-rs run --chip nRF52832_xxAA"
+# Puts the stack below the statics instead of above them. On the default layout
+# the stack grows down into .bss, so an overflow silently overwrites a suspended
+# task's state and the watch misbehaves later, somewhere else. Flipped, the
+# stack grows down out of RAM into unmapped addresses and faults immediately, at
+# the point of overflow. It is a link-time rearrangement and costs nothing at
+# runtime.
+linker = "flip-link"
 rustflags = [
   "-C", "link-arg=-Tlink.x",
   "-C", "link-arg=-Tdefmt.x",

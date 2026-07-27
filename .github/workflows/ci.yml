@@ -23,6 +23,11 @@ jobs:
           --profile minimal
           --target thumbv7em-none-eabihf
           --component clippy,rustfmt
+      # The linker for the firmware target; see `.cargo/config.toml`. Without it
+      # every link of the binary fails, so it is installed before anything that
+      # builds - `cargo check` gets away without it, `cargo clippy` does not.
+      - name: Install flip-link
+        run: cargo install flip-link --locked
       - name: Check formatting
         run: cargo fmt --all -- --check
       - name: Check production firmware
@@ -71,6 +76,13 @@ jobs:
             # 44 KiB, reserving 20 KiB of the 65,528-byte RAM region for stack
             # growth. Enforcing the target and not just the ceiling is what
             # keeps it from drifting back.
+            #
+            # The 20 KiB is a guess and has always been one: this measures the
+            # statics, and the stack is simply whatever is left over. Since the
+            # firmware now reports its own high-water mark - see
+            # `src/boot/stack.rs` - the reserve can be set from what the deepest
+            # path actually costs. Until that reading exists for a device that
+            # has paired, taken a DFU and browsed every screen, the guess stands.
             ram: 45056
           - name: diagnostics
             features: diagnostics
@@ -88,6 +100,9 @@ jobs:
           --component llvm-tools
       - name: Install cargo-binutils
         run: cargo install cargo-binutils --version 0.4.0 --locked
+      # `cargo size` links the binary, so this job needs the linker too.
+      - name: Install flip-link
+        run: cargo install flip-link --locked
       - name: Enforce size budget
         run: >-
           ./scripts/check-size.sh

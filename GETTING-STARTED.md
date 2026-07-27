@@ -38,6 +38,10 @@ rustup default stable
 rustup target add thumbv7em-none-eabihf
 rustup component add llvm-tools
 cargo install cargo-binutils --locked
+# The linker for the firmware target. It places the stack below the statics so
+# that an overflow faults instead of quietly overwriting them; without it every
+# firmware link fails. See docs/ARCHITECTURE.md.
+cargo install flip-link --locked
 python -m venv .venv
 source .venv/bin/activate
 pip install adafruit-nrfutil

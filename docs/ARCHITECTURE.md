@@ -32,6 +32,32 @@ able to fail a build instead of noticing on the wrist.
 - `tasks`: long-running single-owner tasks for display, input, watchdog, and future subsystems.
 - `main`: composition root only; owns concrete peripherals and scheduling.
 
+## RAM
+
+65,528 bytes, filled from both ends. Statics grow up from the bottom and are
+exact — the linker vends every byte, and CI holds the total to a budget. The
+stack grows down from the top and is not exact: it moves with call depth, and
+the deepest it goes depends on which paths overlap.
+
+Two decisions follow, and they are separate:
+
+- **`flip-link` links the stack below the statics** rather than above them. On
+  the default layout an overflow grows down into `.bss` and silently overwrites
+  a suspended task's state, so the watch misbehaves later and elsewhere.
+  Flipped, it grows out of RAM into unmapped addresses and faults at the point
+  of overflow. Rearrangement only; no runtime cost.
+- **The firmware measures its own high-water mark.** `src/boot/stack.rs` paints
+  the region before `main` and the watchdog task reports the deepest point
+  whenever it grows. Async is why the reserve can be modest at all: a task's
+  state across its await points lives in a static the compiler sized exactly —
+  `ble::run::POOL` is 11 KiB of it — so the stack only has to cover the deepest
+  synchronous chain plus interrupts, not a worst case per task the way
+  per-task stacks would.
+
+The RAM budget in CI is a target, not the hardware ceiling. It exists to stop
+the statics drifting into the space the stack needs; the size of that space is
+what the measurement is for.
+
 ## Concurrency model
 
 Embassy is the runtime. Each stateful peripheral is assigned to one long-running owner task. The current hardware-test baseline has:

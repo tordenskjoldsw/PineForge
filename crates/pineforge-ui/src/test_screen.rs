@@ -24,6 +24,10 @@ const METRICS_AREA: Rectangle = Rectangle::new(Point::new(0, 140), Size::new(240
 const FOOTER_AREA: Rectangle = Rectangle::new(Point::new(0, 214), Size::new(240, 26));
 const TOUCH_MARKER_SIZE: Size = Size::new(13, 13);
 
+/// Where the stack reading sits: inside the blue header, under the title.
+const STACK_AREA: Rectangle = Rectangle::new(Point::new(0, 46), Size::new(240, 16));
+const STACK_BASELINE_Y: i32 = 58;
+
 #[derive(Default)]
 pub struct TestScreen {
     last_touch: Option<Point>,
@@ -32,9 +36,50 @@ pub struct TestScreen {
     previous_touching: bool,
     forward_metrics: Option<RenderMetrics>,
     backward_metrics: Option<RenderMetrics>,
+    /// Deepest the stack has been, and how much there is, in bytes. The
+    /// firmware measures it; this screen is only where it can be read on a watch
+    /// with no debugger attached.
+    stack: Option<(usize, usize)>,
+    previous_stack: Option<(usize, usize)>,
 }
 
 impl TestScreen {
+    /// Records the stack's high-water mark for display.
+    ///
+    /// Fed on the tick rather than polled here, because reading it means walking
+    /// the painted region and that belongs to the firmware that painted it.
+    pub const fn set_stack(&mut self, used: usize, capacity: usize) {
+        self.previous_stack = self.stack;
+        self.stack = Some((used, capacity));
+    }
+
+    /// The mark, over its budget. Drawn on the header rather than with the
+    /// render metrics below, because it is the reading this screen currently
+    /// exists to deliver and it should not need looking for.
+    fn draw_stack(&self, canvas: &mut Canvas<'_>) -> Result<(), CanvasError> {
+        STACK_AREA
+            .into_styled(PrimitiveStyle::with_fill(Rgb565::BLUE))
+            .draw(canvas)?;
+        let mut line = String::<24>::new();
+        match self.stack {
+            Some((used, capacity)) => {
+                let _ = write!(line, "STACK {used} / {capacity}");
+            }
+            None => {
+                let _ = line.push_str("STACK ---");
+            }
+        }
+        draw_visible(
+            &Text::with_alignment(
+                &line,
+                Point::new(120, STACK_BASELINE_Y),
+                hint_text(Rgb565::WHITE, Rgb565::BLUE),
+                Alignment::Center,
+            ),
+            canvas,
+        )
+    }
+
     #[cfg(feature = "ui-animations")]
     pub const fn record_transition(
         &mut self,
@@ -146,6 +191,7 @@ impl Paint for TestScreen {
             ),
             canvas,
         )?;
+        self.draw_stack(canvas)?;
         keep_alive();
 
         TOUCH_AREA
@@ -218,6 +264,14 @@ impl Screen for TestScreen {
 
         if self.touching != self.previous_touching {
             self.draw_touch_state(canvas)?;
+            keep_alive();
+        }
+
+        // Only when the mark actually moved. It grows a handful of times in a
+        // session and then stands still, so a redraw per tick would be one
+        // SPI transaction a second for a line that has not changed.
+        if self.stack != self.previous_stack {
+            self.draw_stack(canvas)?;
             keep_alive();
         }
 
