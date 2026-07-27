@@ -172,11 +172,25 @@ Screens implement the `Screen` trait. A screen receives hardware-independent `Ui
 - release builds use LTO and size optimization
 
 CI enforces capacity budgets rather than early-project baseline sizes.
-Production is limited to 360 KiB flash and 44 KiB static RAM — the design
-targets, not the hard slot limits — leaving at least 20 KiB of the 65,528-byte
-RAM region for stack growth. Diagnostics is limited to 448 KiB flash and 56 KiB
-static RAM. Size changes remain visible in CI output even when they stay below
-the limits.
+Production is limited to 420 KiB flash and 44 KiB static RAM, diagnostics to
+448 KiB and 56 KiB. Size changes remain visible in CI output even when they
+stay below the limits.
+
+Both are design targets rather than hard limits, but they are not held to the
+same margin, because they fail in opposite ways:
+
+- **RAM** is the tight one. A static that outgrows its budget eats into the
+  stack, and the failure is silent, on hardware, and late. The reserve is a
+  factor of two over a measured peak, which is why the budget stays where it
+  is even though it leaves only a few hundred bytes free.
+- **Flash** is the loose one. An image that outgrows the 475,104-byte slot is
+  refused by imgtool at packaging time, so the worst case is a build that
+  produces nothing. The target exists to catch unnoticed growth, not to
+  prevent a failure. The earlier 360 KiB target left 104 KiB of the slot unused
+  and had begun shaping features rather than catching bloat.
+
+Two thirds of the production image is the BLE stack: a build without the `ble`
+feature is 125,708 bytes.
 
 The display-transition scratch is capped at 8 KiB and currently uses 5.6 KiB;
 it is the one large allocation whose size trades purely against render time,

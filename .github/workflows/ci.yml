@@ -70,9 +70,18 @@ jobs:
         include:
           - name: production
             features: ""
-            # The v0.2 design target rather than the hard slot limit: 360 KiB
-            # leaves about 104 KiB of the 475,104-byte app region unused.
-            flash: 368640
+            # 420 KiB, against a 475,104-byte slot. A design target rather than
+            # the slot limit, so unnoticed growth still fails a build - but the
+            # v0.2 target of 360 KiB was leaving 104 KiB of the slot unused and
+            # had started shaping features rather than catching bloat.
+            #
+            # Held to a looser margin than the RAM budget on purpose: the two
+            # fail in opposite ways. A static that outgrows RAM overwrites the
+            # stack silently, on hardware, later. An image that outgrows this is
+            # refused by imgtool at packaging time, so the worst case is a build
+            # that does not produce a ZIP. Two thirds of what is used is the BLE
+            # stack; a build without the `ble` feature is 125,708 bytes.
+            flash: 430080
             # 44 KiB, reserving 20 KiB of the 65,528-byte RAM region for stack
             # growth. Enforcing the target and not just the ceiling is what
             # keeps it from drifting back.
