@@ -527,6 +527,66 @@ pub enum ScreenId {
     TouchTest,
 }
 
+impl ScreenId {
+    /// How many screens this build has.
+    pub const COUNT: usize = if cfg!(feature = "diagnostics") {
+        12
+    } else {
+        11
+    };
+
+    /// Every screen, so anything that has to hold for all of them can be
+    /// written once - the registry that owns them, and the tests that check
+    /// each one paints its whole surface.
+    ///
+    /// Listed rather than derived, because deriving it needs a macro crate this
+    /// firmware does not otherwise want. Forgetting to list a new screen is
+    /// caught rather than trusted: [`Self::position`] below is exhaustive, so a
+    /// new variant stops the build until it is placed, the array's length is
+    /// [`Self::COUNT`], and the test at the foot of this file proves the two
+    /// agree.
+    pub const ALL: [Self; Self::COUNT] = [
+        Self::Watchface,
+        Self::Launcher,
+        Self::Notifications,
+        Self::DisplaySettings,
+        Self::Brightness,
+        Self::DimTimeout,
+        Self::OffTimeout,
+        Self::HeartRate,
+        Self::HeartRateInterval,
+        Self::WatchfaceSelect,
+        Self::Firmware,
+        #[cfg(feature = "diagnostics")]
+        Self::TouchTest,
+    ];
+
+    /// This screen's slot in [`Self::ALL`].
+    ///
+    /// Exists to be exhaustive, not to be called: a new variant stops this
+    /// matching, and that is the whole mechanism. It is compiled only under
+    /// test so it costs the firmware nothing - the check still runs, because
+    /// the tests are a CI gate for both feature sets.
+    #[cfg(test)]
+    const fn position(self) -> usize {
+        match self {
+            Self::Watchface => 0,
+            Self::Launcher => 1,
+            Self::Notifications => 2,
+            Self::DisplaySettings => 3,
+            Self::Brightness => 4,
+            Self::DimTimeout => 5,
+            Self::OffTimeout => 6,
+            Self::HeartRate => 7,
+            Self::HeartRateInterval => 8,
+            Self::WatchfaceSelect => 9,
+            Self::Firmware => 10,
+            #[cfg(feature = "diagnostics")]
+            Self::TouchTest => 11,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AppEvent {
     Touch {
@@ -1299,6 +1359,27 @@ mod tests {
             AppEffect::Navigate(Navigation::backward(SwipeDirection::Down))
         );
         assert_eq!(app.active_screen(), ScreenId::Watchface);
+    }
+
+    /// Closes the one gap `position` alone cannot: it makes a new variant fail
+    /// to compile, but it cannot make anyone put that variant in `ALL`. Here a
+    /// screen that was given a slot and then left out of the list shows up as
+    /// an unfilled slot.
+    #[test]
+    fn every_screen_is_listed_exactly_once() {
+        let mut filled = [false; ScreenId::COUNT];
+        for screen in ScreenId::ALL {
+            let slot = screen.position();
+            assert!(
+                !filled[slot],
+                "{screen:?} shares a slot with another screen"
+            );
+            filled[slot] = true;
+        }
+        assert!(
+            filled.iter().all(|slot| *slot),
+            "a screen has a slot but is missing from ALL"
+        );
     }
 
     #[test]

@@ -15,7 +15,7 @@ use embedded_graphics::{
 };
 use pineforge_state::{BatteryStatus, BleState};
 
-use crate::ui::{
+use crate::{
     canvas::{Canvas, CanvasError},
     render::draw_visible,
     screen::Paint,

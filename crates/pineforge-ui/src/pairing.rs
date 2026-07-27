@@ -7,9 +7,9 @@ use embedded_graphics::{
 };
 use heapless::String;
 
-use crate::ui::canvas::{Canvas, CanvasError};
-use crate::ui::font::{hint_text, ui_text};
-use crate::ui::{render::draw_visible, theme};
+use crate::canvas::{Canvas, CanvasError};
+use crate::font::{hint_text, ui_text};
+use crate::{render::draw_visible, theme};
 
 const CODE_BOX: Rectangle = Rectangle::new(Point::new(20, 96), Size::new(200, 48));
 

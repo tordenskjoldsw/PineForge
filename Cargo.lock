@@ -1324,6 +1324,7 @@ dependencies = [
  "nrf-sdc",
  "panic-probe",
  "pineforge-state",
+ "pineforge-ui",
  "postcard",
  "serde",
  "static_cell",
@@ -1336,6 +1337,16 @@ version = "0.1.0"
 dependencies = [
  "heapless 0.9.3",
  "microfft",
+]
+
+[[package]]
+name = "pineforge-ui"
+version = "0.1.0"
+dependencies = [
+ "embassy-time",
+ "embedded-graphics",
+ "heapless 0.9.3",
+ "pineforge-state",
 ]
 
 [[package]]

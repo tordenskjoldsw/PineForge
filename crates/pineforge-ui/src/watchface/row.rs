@@ -13,9 +13,9 @@ use embedded_graphics::{
 use heapless::String;
 use pineforge_state::{BleState, CalendarDate};
 
-use crate::ui::canvas::{Canvas, CanvasError};
-use crate::ui::font::{JETBRAINS_MONO_10X22, ui_text};
-use crate::ui::render::draw_mono_text_visible;
+use crate::canvas::{Canvas, CanvasError};
+use crate::font::{JETBRAINS_MONO_10X22, ui_text};
+use crate::render::draw_mono_text_visible;
 
 pub const ROW_HEIGHT: u32 = 25;
 const VALUE_X: i32 = 70;

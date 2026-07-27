@@ -19,8 +19,8 @@
 
 use pineforge_state::{AppEvent, DisplaySettings, ScreenAction, ScreenId, Setting};
 
-use crate::ui::canvas::{Canvas, CanvasError};
-use crate::ui::{
+use crate::canvas::{Canvas, CanvasError};
+use crate::{
     menu::{self, Menu, MenuColumn, MenuOutcome, MenuRow, MenuState, MenuTitle},
     render::ROW_HEIGHT,
     screen::{Paint, Screen},

@@ -1,0 +1,33 @@
+[package]
+name = "pineforge-ui"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.87"
+license = "MIT OR Apache-2.0"
+description = "PineForge's screens, drawn against a target the host can supply"
+publish = false
+
+[features]
+default = []
+# Instrumented builds time each stripe of a transition, which is the one thing
+# here that needs a clock. It is the only reason this crate can depend on
+# Embassy at all, and it is off in every build the host tests run.
+diagnostics = ["pineforge-state/diagnostics", "dep:embassy-time"]
+ui-animations = []
+
+[dependencies]
+embedded-graphics = "0.8.2"
+heapless = "0.9.3"
+pineforge-state = { path = "../pineforge-state" }
+embassy-time = { version = "0.5.1", features = ["defmt"], optional = true }
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+module_name_repetitions = "allow"
+
+[lints.rust]
+unsafe_code = "warn"

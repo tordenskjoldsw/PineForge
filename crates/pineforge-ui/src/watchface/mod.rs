@@ -13,8 +13,8 @@ mod terminal;
 
 use pineforge_state::{AppEvent, ScreenAction, WatchFields, WatchState, WatchfaceId};
 
-use crate::ui::canvas::{Canvas, CanvasError};
-use crate::ui::screen::{Paint, Screen};
+use crate::canvas::{Canvas, CanvasError};
+use crate::screen::{Paint, Screen};
 #[cfg(feature = "diagnostics")]
 pub use diagnostics::DiagnosticsWatchface;
 pub use terminal::TerminalWatchface;

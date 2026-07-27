@@ -7,10 +7,6 @@ use mipidsi::options::{ColorInversion, Orientation};
 use static_cell::StaticCell;
 
 use crate::services::events::HEART_RATE_COMMANDS;
-#[cfg(feature = "diagnostics")]
-use crate::ui::test_screen::TestScreen;
-#[cfg(feature = "ui-animations")]
-use crate::ui::{scratch::UiScratch, transition::draw_slide_reveal};
 use crate::{
     board::{buses::DisplaySpi, peripherals::DisplayResources, pins},
     boot::watchdog::BootloaderWatchdog,
@@ -19,25 +15,21 @@ use crate::{
         NOTIFICATIONS, POWER_COMMANDS, SETTINGS_COMMANDS, UI_EVENTS, VIBRATION_COMMANDS,
         display_settings_receiver, system_power_receiver, wall_clock_receiver,
     },
-    ui::{
-        canvas::{Canvas, CanvasError},
-        dfu::{draw_dfu_failed, draw_dfu_progress, draw_storage_progress},
-        firmware::FirmwareScreen,
-        launcher::LauncherScreen,
-        notifications::NotificationScreen,
-        pairing::draw_pairing,
-        screen::{Paint, Screen},
-        setting_picker::{SettingPickerScreen, setting_of},
-        settings::DisplaySettingsScreen,
-        status::{StatusCorner, WithStatus, wears_status},
-        watchface::WatchfaceScreen,
-    },
 };
 use pineforge_state::{
     AppEffect, AppEvent, AppState, DisplaySettings, HeartRateCommand, Modal, ModalOutcome,
-    ModalState, Notification, PowerCommand, ScreenAction, ScreenId, SystemPowerState,
-    VibrationPattern,
+    ModalState, Notification, PowerCommand, ScreenId, SystemPowerState, VibrationPattern,
 };
+use pineforge_ui::{
+    canvas::{Canvas, CanvasError},
+    dfu::{draw_dfu_failed, draw_dfu_progress, draw_storage_progress},
+    pairing::draw_pairing,
+    registry::Screens,
+    screen::Screen,
+    status::{StatusCorner, wears_status},
+};
+#[cfg(feature = "ui-animations")]
+use pineforge_ui::{scratch::UiScratch, transition::draw_slide_reveal};
 
 static DISPLAY_BUFFER: StaticCell<[u8; 512]> = StaticCell::new();
 #[cfg(feature = "ui-animations")]
@@ -50,123 +42,6 @@ enum DisplayEvent {
     Ui(AppEvent),
     Power(SystemPowerState),
     Settings(DisplaySettings),
-}
-
-/// Every screen instance, dispatching to whichever one the navigation state
-/// says is active.
-///
-/// Screens are held for the lifetime of the task so their model state survives
-/// navigation and sleep; only the active one receives events and draws.
-struct Screens {
-    watchface: WatchfaceScreen,
-    launcher: LauncherScreen,
-    /// Holds the pending notifications, whether or not it is the screen showing.
-    notifications: NotificationScreen,
-    settings: DisplaySettingsScreen,
-    /// The one settings leaf, pointed at whichever setting is being edited.
-    picker: SettingPickerScreen,
-    firmware: FirmwareScreen,
-    #[cfg(feature = "diagnostics")]
-    touch_test: TestScreen,
-}
-
-impl Screens {
-    /// The screen the navigation state says is active.
-    ///
-    /// One place naming every screen, rather than one per operation. `Screen`
-    /// is object-safe since screens stopped being generic over their draw
-    /// target, so adding a screen is an arm here and an arm in the mutable
-    /// twin below - not an arm in every match that touches screens.
-    fn active(&self, active: ScreenId) -> &dyn Screen {
-        match active {
-            ScreenId::Watchface => &self.watchface,
-            ScreenId::Launcher => &self.launcher,
-            ScreenId::Notifications => &self.notifications,
-            ScreenId::DisplaySettings => &self.settings,
-            ScreenId::Firmware => &self.firmware,
-            // Every leaf is the same screen; `enter` has pointed it at the one
-            // this id names before it can be drawn or touched.
-            ScreenId::Brightness
-            | ScreenId::DimTimeout
-            | ScreenId::OffTimeout
-            | ScreenId::HeartRate
-            | ScreenId::HeartRateInterval
-            | ScreenId::WatchfaceSelect => &self.picker,
-            #[cfg(feature = "diagnostics")]
-            ScreenId::TouchTest => &self.touch_test,
-        }
-    }
-
-    fn active_mut(&mut self, active: ScreenId) -> &mut dyn Screen {
-        match active {
-            ScreenId::Watchface => &mut self.watchface,
-            ScreenId::Launcher => &mut self.launcher,
-            ScreenId::Notifications => &mut self.notifications,
-            ScreenId::DisplaySettings => &mut self.settings,
-            ScreenId::Firmware => &mut self.firmware,
-            // Every leaf is the same screen; `enter` has pointed it at the one
-            // this id names before it can be drawn or touched.
-            ScreenId::Brightness
-            | ScreenId::DimTimeout
-            | ScreenId::OffTimeout
-            | ScreenId::HeartRate
-            | ScreenId::HeartRateInterval
-            | ScreenId::WatchfaceSelect => &mut self.picker,
-            #[cfg(feature = "diagnostics")]
-            ScreenId::TouchTest => &mut self.touch_test,
-        }
-    }
-
-    fn handle(&mut self, active: ScreenId, event: AppEvent) -> ScreenAction {
-        self.active_mut(active).handle_event(event)
-    }
-
-    /// Hands the screen that is now on top whatever it needs to be correct.
-    ///
-    /// A settings leaf needs the record that is current rather than one it kept
-    /// from an earlier visit, and a watchface's notification tally is the
-    /// inbox's rather than a count of its own. Both are the same rule: a screen
-    /// is given shared state as it is entered instead of keeping a copy across
-    /// visits, so neither can show something the firmware no longer believes.
-    ///
-    /// Called on every navigation, so a screen cannot be reached without it.
-    fn enter(&mut self, active: ScreenId, settings: DisplaySettings) {
-        if let Some(setting) = setting_of(active) {
-            self.picker.open(setting, settings);
-        }
-        // This is what carries a dismissal back to the face: the notification
-        // screen changes the inbox, and leaving it is when the face is told.
-        let _ = self
-            .watchface
-            .handle_event(AppEvent::NotificationsChanged(self.notifications.summary()));
-    }
-
-    /// Paints a screen and, unless it is a watchface, the status corner over
-    /// it. The two are drawn together so a transition composing this stripe by
-    /// stripe carries the corner with it instead of adding it afterwards.
-    fn draw_full(
-        &self,
-        active: ScreenId,
-        status: &StatusCorner,
-        canvas: &mut Canvas<'_>,
-        keep_alive: &mut dyn FnMut(),
-    ) -> Result<(), CanvasError> {
-        let screen = self.active(active);
-        if wears_status(active) {
-            WithStatus::new(screen, status).draw_full(canvas, keep_alive)
-        } else {
-            screen.draw_full(canvas, keep_alive)
-        }
-    }
-
-    fn draw_dirty(
-        &self,
-        active: ScreenId,
-        canvas: &mut Canvas<'_>,
-        keep_alive: &mut dyn FnMut(),
-    ) -> Result<(), CanvasError> {
-        self.active(active).draw_dirty(canvas, keep_alive)
-    }
 }
 
 /// Puts an arriving notification in the inbox and reports what is now pending.
@@ -235,16 +110,7 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
 
     let started_at = Instant::now();
     let mut next_tick = started_at + Duration::from_secs(1);
-    let mut screens = Screens {
-        watchface: WatchfaceScreen::default(),
-        launcher: LauncherScreen::default(),
-        notifications: NotificationScreen::default(),
-        settings: DisplaySettingsScreen::default(),
-        picker: SettingPickerScreen::default(),
-        firmware: FirmwareScreen::default(),
-        #[cfg(feature = "diagnostics")]
-        touch_test: TestScreen::default(),
-    };
+    let mut screens = Screens::new();
     screens
         .firmware
         .set_confirmed(crate::boot::confirm::is_validated());
@@ -549,28 +415,18 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                 #[cfg(feature = "ui-animations")]
                 {
                     let active = app.active_screen();
-                    // The borrow ends with the block so the metrics below can
-                    // take the screens mutably.
-                    let result = {
-                        let screen = screens.active(active);
-                        if wears_status(active) {
-                            draw_slide_reveal(
-                                &WithStatus::new(screen, &status),
-                                &mut display,
-                                ui_scratch,
-                                navigation,
-                                &mut || watchdog.pet(),
-                            )
-                        } else {
-                            draw_slide_reveal(
-                                screen,
-                                &mut display,
-                                ui_scratch,
-                                navigation,
-                                &mut || watchdog.pet(),
-                            )
-                        }
-                    };
+                    // The registry lends the surface the panel would show,
+                    // corner and all, and the borrow ends with the statement so
+                    // the metrics below can take the screens mutably.
+                    let result = screens.surface(active, &status, &mut |surface| {
+                        draw_slide_reveal(
+                            surface,
+                            &mut display,
+                            ui_scratch,
+                            navigation,
+                            &mut || watchdog.pet(),
+                        )
+                    });
                     #[cfg(feature = "diagnostics")]
                     if let Ok(metrics) = result {
                         screens

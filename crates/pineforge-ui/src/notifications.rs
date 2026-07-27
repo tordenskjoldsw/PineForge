@@ -35,7 +35,7 @@ use pineforge_state::{
     wrap,
 };
 
-use crate::ui::{
+use crate::{
     canvas::{Canvas, CanvasError},
     font::{hint_text, ui_text},
     render::{ROW_WIDTH, ROW_X, draw_mono_text_visible},

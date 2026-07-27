@@ -14,7 +14,6 @@ mod boot;
 mod drivers;
 mod services;
 mod tasks;
-mod ui;
 
 use board::peripherals::HeartRateResources;
 use board::peripherals::{

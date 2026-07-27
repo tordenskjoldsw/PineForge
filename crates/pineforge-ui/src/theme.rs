@@ -35,9 +35,11 @@ pub const ACCENT: Rgb565 = Rgb565::new(15, 23, 31);
 /// attention; never decoration.
 pub const DANGER: Rgb565 = Rgb565::new(31, 0, 0);
 
-/// Bluetooth connected. Azure rather than pure blue: pure blue is the first
-/// colour to disappear when the backlight dims to its lowest level, and a
-/// status symbol that vanishes before the watch sleeps is worse than none.
+/// Bluetooth connected.
+///
+/// Azure rather than pure blue: pure blue is the first colour to disappear when
+/// the backlight dims to its lowest level, and a status symbol that vanishes
+/// before the watch sleeps is worse than none.
 pub const LINK: Rgb565 = Rgb565::new(8, 40, 31);
 pub const OK: Rgb565 = Rgb565::new(0, 63, 0);
 pub const WARN: Rgb565 = Rgb565::new(31, 63, 0);

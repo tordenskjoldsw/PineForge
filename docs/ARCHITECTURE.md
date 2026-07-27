@@ -1,12 +1,35 @@
 # Architecture
 
-## Layers
+## Crates
+
+Three, and the split is what decides what can be tested without a watch.
+
+- `pineforge-state`: product state and protocol logic. No Embassy, no nRF, no
+  drawing. Every rule that fails silently — a settings invariant, a paginated
+  list's arithmetic, what a dismissal does to the notification cursor — lives
+  here and is tested on the host.
+- `pineforge-ui`: every screen, drawn against `Canvas`, which borrows any
+  `Surface`. On the watch that is the panel; in a test it is a recording buffer,
+  so layout and the opaque-drawing contract are checked on the host too. The
+  `diagnostics` feature is the only thing that pulls in Embassy, because timing
+  a transition needs a clock. `registry::Screens` owns one of every screen and
+  answers which one a `ScreenId` names — the display task holds no screen table
+  of its own, and the host tests walk `ScreenId::ALL` through the same registry,
+  so a screen that exists is a screen they check.
+- `pineforge`: the firmware. Peripherals, tasks, and the composition root — the
+  part that genuinely cannot run anywhere but the watch.
+
+**The rule the split enforces:** if a piece of logic can be wrong without being
+visibly wrong, it does not belong in the firmware crate. The boundary costs
+about 1.2 KiB of flash in lost cross-crate inlining, which is the price of being
+able to fail a build instead of noticing on the wrist.
+
+## Layers within the firmware crate
 
 - `board`: immutable PineTime hardware facts, especially pin assignments.
 - `drivers`: device-local state machines implementing `embedded-hal` boundaries.
 - `services`: product behavior independent from concrete peripherals.
 - `tasks`: long-running single-owner tasks for display, input, watchdog, and future subsystems.
-- `ui`: framebuffer-free rendering using `embedded-graphics`.
 - `main`: composition root only; owns concrete peripherals and scheduling.
 
 ## Concurrency model

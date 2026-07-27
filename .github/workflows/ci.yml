@@ -42,6 +42,19 @@ jobs:
           cargo test --locked --manifest-path crates/pineforge-state/Cargo.toml
           --target x86_64-unknown-linux-gnu
           --features diagnostics
+      # The screens are checked on the host because nothing about drawing one
+      # needs a watch: a Canvas borrows any Surface, and the tests give it a
+      # recording one. Without ui-animations, so the crate stays clear of
+      # Embassy - the transition's stripe timing is the only thing that wants a
+      # clock.
+      - name: Test screens
+        run: >-
+          cargo test --locked --manifest-path crates/pineforge-ui/Cargo.toml
+          --target x86_64-unknown-linux-gnu
+      - name: Check screens build for the watch
+        run: >-
+          cargo check --locked --manifest-path crates/pineforge-ui/Cargo.toml
+          --release --features ui-animations,diagnostics
 
   size:
     name: Size budget (${{ matrix.name }})

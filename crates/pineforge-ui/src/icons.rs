@@ -5,7 +5,7 @@
 //! bytes and blits with a loop. They are tinted at draw time, so one bitmap
 //! serves a tile in both its normal and its pressed colours.
 
-use crate::ui::canvas::{Canvas, CanvasError};
+use crate::canvas::{Canvas, CanvasError};
 use embedded_graphics::{
     draw_target::DrawTarget, pixelcolor::Rgb565, prelude::*, primitives::Rectangle,
 };

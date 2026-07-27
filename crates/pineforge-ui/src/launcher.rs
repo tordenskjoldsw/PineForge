@@ -13,9 +13,9 @@ use pineforge_state::{
     AppEvent, ButtonBounds, ButtonState, ListOutcome, ListSlots, PageAxis, ScreenAction, ScreenId,
 };
 
-use crate::ui::canvas::{Canvas, CanvasError};
-use crate::ui::font::{JETBRAINS_MONO_10X22, ui_text};
-use crate::ui::{
+use crate::canvas::{Canvas, CanvasError};
+use crate::font::{JETBRAINS_MONO_10X22, ui_text};
+use crate::{
     icons::{self, ICON_SIZE, Icon, draw_icon},
     render::{draw_mono_text_visible, draw_visible, round_corners},
     screen::{Paint, Screen},

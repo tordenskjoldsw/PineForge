@@ -10,9 +10,9 @@ use embedded_graphics::{
 use heapless::String;
 use pineforge_state::{HeartRateState, WatchField, WatchFields, WatchState};
 
-use crate::ui::canvas::{Canvas, CanvasError};
-use crate::ui::font::ui_text;
-use crate::ui::{
+use crate::canvas::{Canvas, CanvasError};
+use crate::font::ui_text;
+use crate::{
     render::draw_mono_text_visible,
     watchface::{
         Watchface,

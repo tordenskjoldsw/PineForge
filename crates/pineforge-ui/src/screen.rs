@@ -1,6 +1,6 @@
 use pineforge_state::{AppEvent, ScreenAction};
 
-use crate::ui::canvas::{Canvas, CanvasError};
+use crate::canvas::{Canvas, CanvasError};
 
 /// Anything that can paint a complete surface.
 ///

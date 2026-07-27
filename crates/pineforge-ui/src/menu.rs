@@ -23,7 +23,7 @@ use pineforge_state::{
     AppEvent, ButtonBounds, ButtonState, ListOutcome, ListSlots, PageAxis, PagedList, ScreenId,
 };
 
-use crate::ui::{
+use crate::{
     canvas::{Canvas, CanvasError},
     font::ui_text,
     render::{ROW_HEIGHT, ROW_WIDTH, ROW_X, draw_mono_text_visible, draw_row},
@@ -146,7 +146,7 @@ impl Menu {
 
 /// Paints a whole menu opaquely, as [`Paint::draw_full`] requires.
 ///
-/// [`Paint::draw_full`]: crate::ui::screen::Paint::draw_full
+/// [`Paint::draw_full`]: crate::screen::Paint::draw_full
 pub fn draw(
     menu: &Menu,
     page: MenuPage<'_>,

@@ -6,8 +6,8 @@ use embedded_graphics::{
     text::Text,
 };
 
-use crate::ui::font::{AaTextStyle, ui_text};
-use crate::ui::{
+use crate::font::{AaTextStyle, ui_text};
+use crate::{
     canvas::{Canvas, CanvasError},
     theme,
 };
