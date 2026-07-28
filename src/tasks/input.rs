@@ -1,6 +1,6 @@
 use defmt::{info, warn};
 use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
-use embassy_time::Delay;
+use embassy_time::{Delay, Duration, with_timeout};
 
 use crate::{
     board::{buses::TouchI2c, peripherals::TouchResources},
@@ -8,6 +8,16 @@ use crate::{
     services::events::{POWER_COMMANDS, TOUCH_READY, UI_EVENTS},
 };
 use pineforge_state::{PowerCommand, SwipeDirection, TouchReport, TouchRouter};
+
+/// How long a touch already in flight may go without a report before it is
+/// treated as one whose lift was lost.
+///
+/// The controller pulses periodically while a finger is down, so this is two
+/// orders of magnitude past the gap between reports. Erring long is deliberate:
+/// cutting a slow drag short costs a gesture the user repeats, while recovering
+/// a moment late costs nothing at all - the stale touch has to be cleared
+/// before the *next* one, not before the screen is repainted.
+const TOUCH_STALE_TIMEOUT: Duration = Duration::from_millis(500);
 
 /// Owns the touch controller and publishes hardware-independent UI events.
 ///
@@ -29,7 +39,26 @@ pub async fn run(resources: TouchResources, i2c: TouchI2c) {
     TOUCH_READY.signal(());
 
     loop {
-        interrupt.wait_for_falling_edge().await;
+        // A touch in flight is held to a deadline; an idle panel is not. The
+        // controller's interrupt is a bare low pulse with nothing latching it,
+        // so a pulse that arrives while this task is anywhere else - notably
+        // blocked handing the previous event to a display task busy painting a
+        // transition - is gone without trace. When the lost one was the finger
+        // lifting, the router keeps measuring the next swipe's travel from a
+        // finger that is no longer there. Nothing in the report stream can
+        // reveal that, so silence is the only evidence there is.
+        if router.is_tracking() {
+            if with_timeout(TOUCH_STALE_TIMEOUT, interrupt.wait_for_falling_edge())
+                .await
+                .is_err()
+            {
+                warn!("Touch went quiet; forgetting the touch in flight");
+                router.lost_report();
+                continue;
+            }
+        } else {
+            interrupt.wait_for_falling_edge().await;
+        }
 
         if let Ok(event) = touch.read_touch().await {
             info!(
@@ -50,7 +79,12 @@ pub async fn run(resources: TouchResources, i2c: TouchI2c) {
             };
             let events = router.report(report);
 
-            POWER_COMMANDS.send(PowerCommand::UserActivity).await;
+            // Never awaited. An activity ping is idempotent - the power service
+            // only needs to know the user is there, and eight of them queued
+            // say that as well as nine do. Blocking here would put this task
+            // outside the interrupt wait for as long as the queue stayed full,
+            // and every report arriving in that window would be lost.
+            let _ = POWER_COMMANDS.try_send(PowerCommand::UserActivity);
             for event in events {
                 UI_EVENTS.send(event).await;
             }

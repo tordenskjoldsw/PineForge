@@ -99,6 +99,19 @@ impl TouchRouter {
         self.recognizer.reset();
         self.gesture_claimed = false;
     }
+
+    /// Whether a finger is believed to still be down.
+    ///
+    /// The caller uses this to put a deadline on the next report. A touch that
+    /// goes quiet has had its lift dropped somewhere - the controller's
+    /// interrupt is a bare pulse with nothing latching it, so any report that
+    /// arrives while this task is not sitting in the wait is simply gone. The
+    /// tracking left behind is what makes the *next* swipe measure its distance
+    /// from a finger position that is no longer real.
+    #[must_use]
+    pub const fn is_tracking(&self) -> bool {
+        self.recognizer.start.is_some()
+    }
 }
 
 const SWIPE_MIN_DISTANCE: i32 = 40;
@@ -371,6 +384,45 @@ mod tests {
         let mut recognizer = SwipeRecognizer::new();
         assert_eq!(recognizer.update(100, 100, true, None), None);
         assert_eq!(recognizer.update(160, 160, true, None), None);
+    }
+
+    #[test]
+    fn a_router_reports_whether_a_finger_is_still_down() {
+        let mut router = TouchRouter::new();
+        assert!(!router.is_tracking());
+        let _ = router.report(down(120, 190, None));
+        assert!(router.is_tracking());
+        let _ = router.report(up(120, 190, None));
+        assert!(!router.is_tracking());
+    }
+
+    /// The lift that never arrived is what poisons the *next* gesture: its
+    /// travel is measured from where the previous finger came down.
+    #[test]
+    fn forgetting_a_stale_touch_restores_the_next_swipe() {
+        let mut router = TouchRouter::new();
+        let _ = router.report(down(120, 60, None));
+        // The lift is dropped - no report, so nothing tells the router at all.
+        assert!(router.is_tracking());
+
+        // Without the caller noticing, a new finger landing further down the
+        // screen reads as 130px of travel from the old one and fires at once.
+        let mut poisoned = router;
+        assert_eq!(
+            poisoned.report(down(120, 190, None)).as_slice(),
+            [
+                AppEvent::TouchCancelled,
+                AppEvent::Swipe(SwipeDirection::Down)
+            ]
+        );
+
+        // Told the touch went stale, the same report is an ordinary press.
+        router.lost_report();
+        assert!(!router.is_tracking());
+        assert_eq!(
+            router.report(down(120, 190, None)).as_slice(),
+            [touch(120, 190, true)]
+        );
     }
 
     #[test]
