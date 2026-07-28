@@ -23,6 +23,7 @@ use pineforge_state::{
     HeartRateState, ScreenId, WallTime, parse_new_alert,
 };
 use pineforge_ui::{
+    about::BuildInfo,
     canvas::{Canvas, CanvasError},
     dfu::{draw_dfu_failed, draw_dfu_progress, draw_storage_progress},
     pairing::draw_pairing,
@@ -144,6 +145,17 @@ fn populate(screens: &mut Screens, status: &mut StatusCorner) {
     // can be refused, and it is worth seeing what it looks like beside the
     // other two rather than only in the rare state that produces it.
     status.set_unconfirmed(true);
+
+    // The firmware supplies this on the watch; here it is stated, so the About
+    // screen and the firmware screen show a plausible width rather than the
+    // placeholder that would hide a column running off the panel.
+    let build = BuildInfo {
+        version: "0.2.1+21",
+        commit: "b56b4ab",
+        date: "2026-07-28",
+    };
+    screens.about.set_build(build);
+    screens.firmware.set_version(build.version);
 
     // Two messages, so the notification screen shows its paging rather than its
     // empty state.
