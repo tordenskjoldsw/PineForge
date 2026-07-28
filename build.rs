@@ -59,6 +59,81 @@ fn publish_bond_schema() {
     println!("cargo:rustc-env=PINEFORGE_BOND_SCHEMA={version}");
 }
 
+/// Publishes what this build is, so the watch can say so on its own screen.
+///
+/// None of it is derivable from the manifest. The package version there is
+/// `0.2.1` for every build ever cut from it - the number that actually
+/// identifies one, `0.2.1+20`, is an argument to `build-dfu.sh` and had never
+/// reached the firmware at all. And a commit is not in the manifest by nature.
+///
+/// Both arrive through the environment, which `build-dfu.sh` sets, so a
+/// packaged image is exact by construction. A plain `cargo build` has neither,
+/// and falls back to asking git directly and then to saying it does not know -
+/// which is the honest answer and better than a confident wrong one.
+fn publish_build_identity() {
+    for key in ["PINEFORGE_VERSION", "PINEFORGE_COMMIT", "PINEFORGE_DATE"] {
+        println!("cargo:rerun-if-env-changed={key}");
+    }
+    // Covers the ordinary case of committing and rebuilding without the script.
+    println!("cargo:rerun-if-changed=.git/HEAD");
+
+    let version = env::var("PINEFORGE_VERSION")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .or_else(|| env::var("CARGO_PKG_VERSION").ok())
+        .unwrap_or_else(|| "unknown".into());
+    // The firmware screen sets this in the 10-pixel face after a nine-character
+    // prefix, and the device information service stores it in sixteen bytes.
+    assert!(
+        version.len() <= 12,
+        "version {version:?} is too long to show on the watch"
+    );
+    println!("cargo:rustc-env=PINEFORGE_VERSION={version}");
+
+    let commit = env::var("PINEFORGE_COMMIT")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            let head = git(&["rev-parse", "--short=7", "HEAD"])?;
+            // A commit id that names a commit the binary was not built from is
+            // worse than no id, so an unclean tree says so. Only as good as the
+            // rerun triggers above, mind: an edit made after a build does not
+            // bring the build script back, so a development binary can carry a
+            // clean id it no longer deserves. `build-dfu.sh` sets this in the
+            // environment instead, which does force a rebuild - so the answer
+            // is exact for anything actually packaged.
+            let dirty = git(&["status", "--porcelain"]).is_some();
+            Some(if dirty { format!("{head}-dirty") } else { head })
+        })
+        .unwrap_or_else(|| "unknown".into());
+    println!("cargo:rustc-env=PINEFORGE_COMMIT={commit}");
+
+    // The commit's date rather than the moment of the build: it answers the
+    // same question - how old is what I am running - and gives the same answer
+    // every time this commit is built, which a wall clock would not.
+    let date = env::var("PINEFORGE_DATE")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .or_else(|| git(&["log", "-1", "--format=%cs"]))
+        .unwrap_or_else(|| "unknown".into());
+    println!("cargo:rustc-env=PINEFORGE_DATE={date}");
+}
+
+/// Runs git and returns its trimmed output, or `None` if it did not work.
+///
+/// Every failure is the same failure here - no git, no repository, a source
+/// tarball - and all of them mean the same thing: this build cannot name its
+/// commit.
+fn git(args: &[&str]) -> Option<String> {
+    let output = std::process::Command::new("git").args(args).output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8(output.stdout).ok()?;
+    let text = text.trim().to_owned();
+    (!text.is_empty()).then_some(text)
+}
+
 fn main() {
     let out = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR is set by Cargo"));
     fs::write(out.join("memory.x"), include_bytes!("memory.x"))
@@ -66,6 +141,7 @@ fn main() {
     decode_config(&out, "bma421");
     decode_config(&out, "bma425");
     publish_bond_schema();
+    publish_build_identity();
     println!("cargo:rustc-link-search={}", out.display());
     println!("cargo:rerun-if-changed=memory.x");
     println!("cargo:rerun-if-changed=build.rs");

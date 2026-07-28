@@ -36,6 +36,22 @@ command -v cargo >/dev/null || { echo "cargo is missing" >&2; exit 1; }
 }
 
 mkdir -p "$DIST"
+
+# What the watch will say it is. The build number lives here and nowhere else -
+# Cargo.toml carries only the release - so it has to be handed to the build
+# script, or the firmware reports a version that cannot tell two packages apart.
+# The commit is marked dirty when the tree has uncommitted changes, because an
+# id that names a commit the binary was not built from is worse than none.
+export PINEFORGE_VERSION="$VERSION"
+if command -v git >/dev/null && git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1; then
+  PINEFORGE_COMMIT="$(git -C "$ROOT" rev-parse --short=7 HEAD)"
+  if [[ -n "$(git -C "$ROOT" status --porcelain)" ]]; then
+    PINEFORGE_COMMIT="$PINEFORGE_COMMIT-dirty"
+  fi
+  export PINEFORGE_COMMIT
+  export PINEFORGE_DATE="$(git -C "$ROOT" log -1 --format=%cs)"
+fi
+
 CARGO_ARGS=(--release)
 if [[ -n "$FEATURES" ]]; then
   CARGO_ARGS+=(--features "$FEATURES")
