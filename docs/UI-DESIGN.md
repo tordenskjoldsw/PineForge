@@ -29,7 +29,8 @@ dark blues and deep saturated tones for anything that carries meaning.
 
 Defined in RGB565 because the panel stores 5-6-5 bits: green has finer steps
 than red and blue, so a colour picked as web hex shifts visibly. The values
-live in `src/ui/theme.rs` and nowhere else — a screen never names a colour.
+live in `crates/pineforge-ui/src/theme.rs` and nowhere else — a screen never
+names a colour.
 
 | Role | RGB565 | Approximate | Used for |
 |---|---|---|---|
