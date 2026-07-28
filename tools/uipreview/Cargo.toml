@@ -1,0 +1,19 @@
+# Deliberately its own workspace rather than a member of the firmware's.
+#
+# A member would be built for thumbv7em by every `cargo build` at the root and
+# would put a host-only PNG encoder in the firmware's lock file. Standing alone,
+# it path-depends on the two portable crates and changes nothing about how the
+# watch is built.
+[workspace]
+
+[package]
+name = "uipreview"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+embedded-graphics = "0.8.2"
+pineforge-state = { path = "../../crates/pineforge-state" }
+pineforge-ui = { path = "../../crates/pineforge-ui" }
+png = "0.17"

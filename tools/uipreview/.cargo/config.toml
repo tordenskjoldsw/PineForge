@@ -1,0 +1,12 @@
+# Undoes the firmware's build target for this tool.
+#
+# Cargo finds config files by walking up from the working directory, so the
+# repository root's `[build] target = "thumbv7em-none-eabihf"` reaches in here
+# even though this is a separate workspace - and a PNG encoder cross-compiled
+# for a bare-metal target fails deep inside a dependency, for reasons that have
+# nothing to do with this tool.
+#
+# Cargo has no "host" placeholder for this key, so the triple is spelled out.
+# It is the one line to change when building this on another machine.
+[build]
+target = "x86_64-unknown-linux-gnu"
