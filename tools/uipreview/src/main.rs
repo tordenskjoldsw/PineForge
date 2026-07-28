@@ -19,10 +19,16 @@ use embedded_graphics::{
     prelude::*,
 };
 use pineforge_state::{
-    AppEvent, BatteryStatus, BleState, CalendarDate, DisplaySettings, HeartRateState, ScreenId,
-    WallTime, parse_new_alert,
+    AppEvent, BatteryStatus, BleState, CalendarDate, DfuFailReason, DisplaySettings,
+    HeartRateState, ScreenId, WallTime, parse_new_alert,
 };
-use pineforge_ui::{canvas::Canvas, registry::Screens, status::StatusCorner};
+use pineforge_ui::{
+    canvas::{Canvas, CanvasError},
+    dfu::{draw_dfu_failed, draw_dfu_progress, draw_storage_progress},
+    pairing::draw_pairing,
+    registry::Screens,
+    status::StatusCorner,
+};
 
 const SIDE: u32 = 240;
 /// Nearest-neighbour magnification. The panel's pixels are the unit the design
@@ -174,6 +180,35 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .map_err(|_| format!("drawing {screen:?} failed"))?;
 
         let name = format!("{screen:?}").to_lowercase();
+        let path = out.join(format!("{name}.png"));
+        framebuffer.write_png(&path)?;
+        println!("{}", path.display());
+    }
+
+    // The system modals are not screens and are not in the registry, so they
+    // are named here. They own the whole panel while they show, which is why
+    // they are worth seeing at full size rather than inferred from a screen.
+    /// One modal, drawn at a value worth looking at.
+    type Modal<'a> = (&'a str, &'a dyn Fn(&mut Canvas<'_>) -> Result<(), CanvasError>);
+
+    let modals: [Modal<'_>; 5] = [
+        ("modal-dfu-progress", &|c| {
+            draw_dfu_progress(c, 42, &mut || {})
+        }),
+        ("modal-dfu-complete", &|c| {
+            draw_dfu_progress(c, 100, &mut || {})
+        }),
+        ("modal-dfu-failed", &|c| {
+            draw_dfu_failed(c, DfuFailReason::TimedOut, &mut || {})
+        }),
+        ("modal-storage", &|c| {
+            draw_storage_progress(c, 66, &mut || {})
+        }),
+        ("modal-pairing", &|c| draw_pairing(c, 123_456, &mut || {})),
+    ];
+    for (name, draw) in modals {
+        let mut framebuffer = Framebuffer::new();
+        draw(&mut Canvas::new(&mut framebuffer)).map_err(|_| format!("drawing {name} failed"))?;
         let path = out.join(format!("{name}.png"));
         framebuffer.write_png(&path)?;
         println!("{}", path.display());
