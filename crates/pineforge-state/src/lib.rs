@@ -600,7 +600,7 @@ impl ScreenId {
             Self::Firmware => 10,
             Self::About => 11,
             #[cfg(feature = "diagnostics")]
-            Self::TouchTest => 11,
+            Self::TouchTest => 12,
         }
     }
 }
