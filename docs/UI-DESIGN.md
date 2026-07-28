@@ -40,7 +40,7 @@ names a colour.
 | `SURFACE` | `0x2125` | near-black grey | the face of a tile or a row |
 | `ACCENT` | `0x1E33` | verdigris | values, icons, selection fill |
 | `LINK` | `0x451F` | azure | Bluetooth connected |
-| `OK` | `0x07E0` | green | battery healthy |
+| `OK` | `0x5646` | leaf green | battery healthy |
 | `WARN` | `0xFFE0` | yellow | battery low |
 | `DANGER` | `0xF800` | red | battery critical, disconnected, rollback, DFU failure |
 
@@ -51,10 +51,15 @@ so much as left over — the four semantic colours below spend red, yellow, gree
 and azure, and the accent had been pushed into the last unused sector of the
 wheel to keep it from reading as a warning.
 
-That constraint has not gone away; verdigris answers it differently. It clears
-`OK` by saturation rather than by hue: pure green carries no blue at all, this
-carries a great deal, so the two read as different colours rather than as two
-greens. Being green-blue also means it survives dimming, which is the harder
+That constraint has not gone away, and the neighbour that matters is `OK`: a
+healthy battery is the one status colour on screen almost all the time, sitting
+in the corner above a menu full of accent. The two are held apart by hue, 58
+degrees of it, and both of them moved to get there — `OK` went from maximal
+green to a leaf green shifted toward yellow, away from the accent rather than
+merely darker. Brightness alone would not have done it, because both want to be
+bright.
+
+Being green-blue also means the accent survives dimming, which is the harder
 test — green has six bits where red and blue have five, and pure blue is the
 first colour to vanish, which is why `LINK` is azure rather than `0x001F`.
 

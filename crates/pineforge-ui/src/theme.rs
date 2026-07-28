@@ -54,7 +54,16 @@ pub const DANGER: Rgb565 = Rgb565::new(31, 0, 0);
 /// the backlight dims to its lowest level, and a status symbol that vanishes
 /// before the watch sleeps is worse than none.
 pub const LINK: Rgb565 = Rgb565::new(8, 40, 31);
-pub const OK: Rgb565 = Rgb565::new(0, 63, 0);
+/// Nothing needs attention: a healthy battery, and the only status colour that
+/// is on screen almost all the time.
+///
+/// A leaf green rather than the maximal `0x07E0`. Pure green is the value a
+/// channel takes when nobody chose it, and being permanently in the corner it
+/// was the loudest thing on a screen whose whole job was to be quiet. Shifting
+/// it a little toward yellow rather than merely darkening it is what puts real
+/// distance between it and [`ACCENT`] - the two sit together on every menu, and
+/// hue separates them where brightness would not.
+pub const OK: Rgb565 = Rgb565::new(10, 50, 6);
 pub const WARN: Rgb565 = Rgb565::new(31, 63, 0);
 
 // Muted text for disabled entries lands with the component states that need
