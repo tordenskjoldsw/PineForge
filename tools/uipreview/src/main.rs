@@ -205,7 +205,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // are named here. They own the whole panel while they show, which is why
     // they are worth seeing at full size rather than inferred from a screen.
     /// One modal, drawn at a value worth looking at.
-    type Modal<'a> = (&'a str, &'a dyn Fn(&mut Canvas<'_>) -> Result<(), CanvasError>);
+    type Modal<'a> = (
+        &'a str,
+        &'a dyn Fn(&mut Canvas<'_>) -> Result<(), CanvasError>,
+    );
 
     let modals: [Modal<'_>; 6] = [
         ("modal-dfu-progress", &|c| {

@@ -102,12 +102,7 @@ impl Paint for AboutScreen {
             keep_alive();
         }
 
-        draw_mono_text_visible(
-            "> back",
-            Point::new(ROW_X, HINT_BASELINE_Y),
-            label,
-            canvas,
-        )
+        draw_mono_text_visible("> back", Point::new(ROW_X, HINT_BASELINE_Y), label, canvas)
     }
 }
 
