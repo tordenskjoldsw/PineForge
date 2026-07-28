@@ -168,11 +168,12 @@ pub fn draw_storage_progress(
 
 /// Draws a full-screen firmware-update failure notice.
 ///
-/// A flash operation during the update failed and the transfer was abandoned.
-/// There is no wire protocol error for this case, so the watch's own screen is
-/// the only place it can be surfaced. The specific reason - including the
-/// flash's JEDEC id when the chip was not recognized - is shown to make a
-/// sealed watch diagnosable without a debug port.
+/// The transfer was abandoned, either because a flash operation failed or
+/// because the host stopped sending. There is no wire protocol error for
+/// either case, so the watch's own screen is the only place it can be
+/// surfaced. The specific reason - including the flash's JEDEC id when the
+/// chip was not recognized - is shown to make a sealed watch diagnosable
+/// without a debug port.
 pub fn draw_dfu_failed(
     canvas: &mut Canvas<'_>,
     reason: DfuFailReason,
@@ -206,6 +207,9 @@ pub fn draw_dfu_failed(
         }
         DfuFailReason::VerifyFailed => {
             let _ = detail.push_str("Write verify failed");
+        }
+        DfuFailReason::TimedOut => {
+            let _ = detail.push_str("Transfer stalled\nstart it again");
         }
     }
     draw_visible(

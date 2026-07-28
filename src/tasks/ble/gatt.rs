@@ -6,10 +6,10 @@
 
 use defmt::{info, warn};
 use embassy_futures::select::select;
-use embassy_time::Instant;
+use embassy_time::{Duration, Instant, with_deadline};
 use pineforge_state::{
-    AppEvent, BOND_PAYLOAD_MAX, BleState, DfuEngine, Notification, VibrationPattern, parse_cts,
-    parse_new_alert,
+    AppEvent, BOND_PAYLOAD_MAX, BleState, DfuEngine, DfuFailReason, Notification, VibrationPattern,
+    parse_cts, parse_new_alert,
 };
 use trouble_host::prelude::*;
 
@@ -25,6 +25,12 @@ use crate::{
 /// Maximum value bytes in an ATT write at the stack's negotiated 251-byte
 /// MTU (one opcode byte and a two-byte attribute handle precede the value).
 const DFU_PACKET_MAX: usize = DefaultPacketPool::MTU - 3;
+
+/// How long a transfer in flight may go without a DFU write before the watch
+/// abandons it. `InfiniTime` uses the same ten seconds, restarted on every
+/// access to its DFU service; a streaming host beats this by orders of
+/// magnitude, so only one that has genuinely stopped ever hits it.
+const DFU_IDLE_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[gatt_server]
 pub struct Server {
@@ -147,8 +153,33 @@ async fn gatt_events(server: &Server<'_>, connection: &GattConnection<'_, '_, De
     let mut dfu_flash = dfu::FlashPipeline::new();
     // Last percent pushed to the update screen, so we only redraw on change.
     let mut last_dfu_pct: Option<u8> = None;
+    // When a transfer in flight must have been fed by, so a host that stops
+    // sending without disconnecting cannot wedge the engine. Held as a
+    // deadline rather than a per-wait timeout so unrelated traffic - a time
+    // sync, a battery subscription - does not keep a dead transfer alive.
+    let mut dfu_deadline: Option<Instant> = None;
     loop {
-        match connection.next().await {
+        let next = match dfu_deadline {
+            Some(deadline) => with_deadline(deadline, connection.next()).await,
+            None => Ok(connection.next().await),
+        };
+        let Ok(event) = next else {
+            warn!("DFU stalled; abandoning the transfer");
+            dfu_deadline = None;
+            last_dfu_pct = None;
+            // Queued flash is joined before the engine forgets what it was
+            // writing, so no result from this transfer is left for the next
+            // one to reap. A concrete flash failure has already been reported
+            // and outranks the stall.
+            if dfu::finish_pending_flash(&mut dfu_flash).await {
+                let _ = UI_EVENTS.try_send(AppEvent::BleUpdated(BleState::DfuFailed(
+                    DfuFailReason::TimedOut,
+                )));
+            }
+            engine.abort();
+            continue;
+        };
+        match event {
             GattConnectionEvent::Disconnected { reason } => {
                 info!("BLE disconnected: {}", defmt::Debug2Format(&reason));
                 // Do not leave results from this connection in the global
@@ -248,6 +279,13 @@ async fn gatt_events(server: &Server<'_>, connection: &GattConnection<'_, '_, De
                     )
                     .await;
                     report_dfu_progress(&engine, &mut last_dfu_pct);
+                    // Set after the write is executed, so the flash time this
+                    // very packet cost is not charged against the host's next
+                    // one. An engine back at idle - finished, aborted, or
+                    // reset by the host - carries no deadline at all.
+                    dfu_deadline = engine
+                        .is_active()
+                        .then(|| Instant::now() + DFU_IDLE_TIMEOUT);
                 }
                 if let Some(notification) = alert {
                     info!(

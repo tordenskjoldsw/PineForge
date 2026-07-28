@@ -14,6 +14,12 @@
 //! flash operations inside the GATT event handler stalls the connection
 //! badly enough that the transfer never completes, so the erase cost stays
 //! spread across the data phase instead.
+//!
+//! A session that is abandoned must never outlive itself. The host may retry
+//! on the same connection, and there are three ways back to idle for it to
+//! land on: a fresh `StartDFU`, the `Reset System` opcode the host sends when
+//! it aborts, and [`DfuEngine::abort`] for the BLE task's stall timeout. An
+//! engine that answered none of them could only be cleared by reconnecting.
 
 use heapless::Vec;
 
@@ -35,6 +41,7 @@ const INIT_PARAMETERS: u8 = 0x02;
 const RECEIVE_IMAGE: u8 = 0x03;
 const VALIDATE: u8 = 0x04;
 const ACTIVATE_RESET: u8 = 0x05;
+const RESET_SYSTEM: u8 = 0x06;
 const PACKET_RECEIPT_REQUEST: u8 = 0x08;
 const RESPONSE: u8 = 0x10;
 const PACKET_RECEIPT_NOTIFICATION: u8 = 0x11;
@@ -128,6 +135,24 @@ impl DfuEngine {
         *self = Self::new(validated);
     }
 
+    /// Abandons a transfer in progress and returns the engine to idle.
+    ///
+    /// Deliberately does not reboot: the host sends `Reset System` on *error*
+    /// as well as on a user abort, so rebooting here would turn every failed
+    /// upload into a restart. Nothing was activated, so dropping the partial
+    /// image in the secondary slot is the whole of the cleanup.
+    pub fn abort(&mut self) {
+        self.reset();
+    }
+
+    /// Whether a transfer is in flight, so the caller can hold it to a
+    /// deadline. Idle sessions must not be timed out - the connection is
+    /// allowed to sit there for hours without an update.
+    #[must_use]
+    pub const fn is_active(&self) -> bool {
+        !matches!(self.state, State::Idle)
+    }
+
     /// Transfer progress as a percentage while the image is being received,
     /// for the on-watch update screen. `None` outside the transfer.
     #[must_use]
@@ -154,10 +179,27 @@ impl DfuEngine {
             START_DFU => {
                 if !self.validated {
                     let _ = steps.push(response(START_DFU, STATUS_NOT_SUPPORTED));
-                } else if self.state == State::Idle && data.get(1) == Some(&IMAGE_APPLICATION) {
+                } else if data.get(1) == Some(&IMAGE_APPLICATION) {
+                    // A new transfer supersedes whatever is left of the last
+                    // one. Ignoring this while a stale session is open leaves
+                    // the host waiting for a response that never comes, and
+                    // only a reconnect - which rebuilds the engine - clears it;
+                    // that is exactly the "upload fails until I disconnect"
+                    // symptom. Nothing of the old session is worth keeping:
+                    // the sizes and CRC that follow describe the new image.
+                    self.reset();
                     self.state = State::Start;
+                } else {
+                    // Softdevice and bootloader images have nowhere to go on
+                    // this target. Saying so is what keeps the host from
+                    // waiting out its own timeout.
+                    let _ = steps.push(response(START_DFU, STATUS_NOT_SUPPORTED));
                 }
             }
+            // Sent by the host on an aborted or failed transfer. The protocol
+            // expects no reply, only that the target forgets the session, so
+            // the next attempt starts clean on the same connection.
+            RESET_SYSTEM => self.reset(),
             INIT_PARAMETERS => {
                 let complete = data.get(1).copied().unwrap_or(0) != 0;
                 if self.state == State::Init && complete {
@@ -507,6 +549,134 @@ mod tests {
                 .control_write(&[START_DFU, IMAGE_APPLICATION])
                 .is_empty()
         );
+    }
+
+    /// Drives a transfer up to the middle of the data phase and leaves it
+    /// there, the way an upload that is cancelled or that loses its host does.
+    fn engine_stalled_mid_transfer() -> DfuEngine {
+        let mut engine = DfuEngine::new(true);
+        engine.control_write(&[START_DFU, IMAGE_APPLICATION]);
+        let mut sizes = [0_u8; 12];
+        sizes[8..12].copy_from_slice(&1_024_u32.to_le_bytes());
+        engine.packet_write(&sizes);
+        engine.packet_write(&init_packet(0x1234));
+        engine.control_write(&[INIT_PARAMETERS, 1]);
+        engine.control_write(&[RECEIVE_IMAGE]);
+        engine.packet_write(&[0xAB; 300]);
+        assert!(engine.is_active());
+        engine
+    }
+
+    /// Asserts the engine will carry a fresh transfer all the way to a reset.
+    fn assert_accepts_a_new_transfer(engine: &mut DfuEngine) {
+        let image = [3_u8, 1, 4, 1, 5];
+        assert!(
+            engine
+                .control_write(&[START_DFU, IMAGE_APPLICATION])
+                .is_empty()
+        );
+        let mut sizes = [0_u8; 12];
+        sizes[8..12].copy_from_slice(&(image.len() as u32).to_le_bytes());
+        assert_eq!(
+            engine.packet_write(&sizes)[0],
+            notify(&[RESPONSE, START_DFU, STATUS_SUCCESS])
+        );
+        engine.packet_write(&init_packet(crc16(&image)));
+        engine.control_write(&[INIT_PARAMETERS, 1]);
+        engine.control_write(&[RECEIVE_IMAGE]);
+        assert!(engine.packet_write(&image).iter().any(
+            |step| matches!(step, DfuStep::Notify(bytes) if bytes.as_slice() == [RESPONSE, RECEIVE_IMAGE, STATUS_SUCCESS])
+        ));
+        assert_eq!(
+            engine.control_write(&[VALIDATE])[0],
+            notify(&[RESPONSE, VALIDATE, STATUS_SUCCESS])
+        );
+        assert!(matches!(
+            engine.control_write(&[ACTIVATE_RESET]).last(),
+            Some(DfuStep::Reset)
+        ));
+    }
+
+    #[test]
+    fn a_new_start_supersedes_a_stalled_transfer() {
+        // The host retrying on the same connection is the case that used to
+        // hang: StartDFU was ignored outside idle, so no response ever came
+        // and only a reconnect - which builds a new engine - recovered.
+        let mut engine = engine_stalled_mid_transfer();
+        assert_accepts_a_new_transfer(&mut engine);
+    }
+
+    #[test]
+    fn reset_system_returns_a_stalled_transfer_to_idle() {
+        let mut engine = engine_stalled_mid_transfer();
+        // The protocol expects no reply, only that the session is forgotten.
+        assert!(engine.control_write(&[RESET_SYSTEM]).is_empty());
+        assert!(!engine.is_active());
+        assert_accepts_a_new_transfer(&mut engine);
+    }
+
+    #[test]
+    fn abort_returns_a_stalled_transfer_to_idle() {
+        let mut engine = engine_stalled_mid_transfer();
+        engine.abort();
+        assert!(!engine.is_active());
+        assert_eq!(engine.progress_percent(), None);
+        assert_accepts_a_new_transfer(&mut engine);
+    }
+
+    #[test]
+    fn a_superseded_transfer_leaves_no_state_behind() {
+        // Bytes, CRC and write offset from the abandoned attempt must not
+        // bleed into the next one: a stale CRC would fail validation, and a
+        // stale offset would write the new image into the middle of the slot.
+        let mut engine = engine_stalled_mid_transfer();
+        let image = [9_u8; 64];
+        engine.control_write(&[START_DFU, IMAGE_APPLICATION]);
+        let mut sizes = [0_u8; 12];
+        sizes[8..12].copy_from_slice(&(image.len() as u32).to_le_bytes());
+        engine.packet_write(&sizes);
+        engine.packet_write(&init_packet(crc16(&image)));
+        engine.control_write(&[INIT_PARAMETERS, 1]);
+        engine.control_write(&[RECEIVE_IMAGE]);
+
+        let mut programmed: Vec<u8, 64> = Vec::new();
+        for step in engine.packet_write(&image) {
+            if let DfuStep::Program { offset, data } = step {
+                assert_eq!(offset, 0);
+                programmed.extend_from_slice(&data).unwrap();
+            }
+        }
+        assert_eq!(&programmed[..], &image[..]);
+        assert_eq!(
+            engine.control_write(&[VALIDATE])[0],
+            notify(&[RESPONSE, VALIDATE, STATUS_SUCCESS])
+        );
+    }
+
+    #[test]
+    fn an_unsupported_image_type_is_refused_rather_than_ignored() {
+        // Softdevice and bootloader images have nowhere to go here. Silence
+        // would leave the host waiting out its own timeout.
+        let mut engine = DfuEngine::new(true);
+        const IMAGE_SOFTDEVICE: u8 = 0x01;
+        assert_eq!(
+            engine.control_write(&[START_DFU, IMAGE_SOFTDEVICE])[0],
+            notify(&[RESPONSE, START_DFU, STATUS_NOT_SUPPORTED])
+        );
+        assert!(!engine.is_active());
+    }
+
+    #[test]
+    fn an_unvalidated_engine_still_refuses_a_repeated_start() {
+        // The rollback image in the secondary slot outranks a retry.
+        let mut engine = DfuEngine::new(false);
+        for _ in 0..2 {
+            assert_eq!(
+                engine.control_write(&[START_DFU, IMAGE_APPLICATION])[0],
+                notify(&[RESPONSE, START_DFU, STATUS_NOT_SUPPORTED])
+            );
+            assert!(!engine.is_active());
+        }
     }
 
     #[test]

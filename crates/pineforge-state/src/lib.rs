@@ -227,6 +227,10 @@ pub enum DfuFailReason {
     ProgramFailed,
     /// A verified write read back different bytes than were programmed.
     VerifyFailed,
+    /// The host stopped sending mid-transfer without closing the connection.
+    /// The partial image is discarded and the engine returns to idle, so the
+    /// next attempt needs neither a reconnect nor a restart.
+    TimedOut,
 }
 
 /// State of the one-time external storage initialization.
