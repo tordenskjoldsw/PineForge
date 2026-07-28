@@ -231,6 +231,13 @@ pub enum DfuFailReason {
     /// The partial image is discarded and the engine returns to idle, so the
     /// next attempt needs neither a reconnect nor a restart.
     TimedOut,
+    /// The running image has not been confirmed, so it refused to overwrite the
+    /// rollback image sitting in the secondary slot.
+    ///
+    /// Not a failure of the transfer - it never started. It is here because the
+    /// alternative is a refusal only the phone hears about, which from the
+    /// watch is indistinguishable from a connection that quietly died.
+    NotConfirmed,
 }
 
 /// State of the one-time external storage initialization.

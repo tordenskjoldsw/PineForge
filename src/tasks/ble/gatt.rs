@@ -14,7 +14,6 @@ use pineforge_state::{
 use trouble_host::prelude::*;
 
 use crate::{
-    boot::confirm::is_validated,
     services::events::{
         BOND_STORE, BatteryStatusReceiver, NOTIFICATIONS, StoredBond, UI_EVENTS,
         VIBRATION_COMMANDS, WALL_CLOCK,
@@ -148,8 +147,7 @@ async fn gatt_events(server: &Server<'_>, connection: &GattConnection<'_, '_, De
     let dfu_control_handle = server.dfu.control_point.handle;
     let dfu_packet_handle = server.dfu.packet.handle;
     let new_alert_handle = server.alert_notification.new_alert.handle;
-    // An unconfirmed image refuses DFU so it never overwrites the rollback.
-    let mut engine = DfuEngine::new(is_validated());
+    let mut engine = DfuEngine::new();
     let mut dfu_flash = dfu::FlashPipeline::new();
     // Last percent pushed to the update screen, so we only redraw on change.
     let mut last_dfu_pct: Option<u8> = None;

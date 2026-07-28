@@ -73,6 +73,12 @@ pub enum DfuStep {
         data: Vec<u8, PAGE_SIZE>,
     },
     Reset,
+    /// An update was refused because the running image is not confirmed.
+    ///
+    /// The host is told over the wire by the `Notify` beside this, but a
+    /// refusal nobody can see is indistinguishable from a broken link - so the
+    /// watch says so on its own screen too. This is the step that asks it to.
+    Refused,
 }
 
 // One packet can at most cross one page boundary. The largest sequence is a
@@ -95,8 +101,14 @@ enum State {
 }
 
 /// Nordic legacy DFU state machine.
+///
+/// Deliberately holds no opinion about whether updates are allowed. That
+/// depends on whether the running image has been confirmed, which can change
+/// while a phone is connected - and an engine that latched it at construction
+/// went on refusing for the life of the connection after the user had already
+/// confirmed. Asking the caller at each control write makes the stale answer
+/// impossible to hold rather than merely wrong.
 pub struct DfuEngine {
-    validated: bool,
     state: State,
     application_size: u32,
     expected_crc: u16,
@@ -109,14 +121,16 @@ pub struct DfuEngine {
     packets_received: u32,
 }
 
+impl Default for DfuEngine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DfuEngine {
-    /// `validated` gates `StartDFU`: an unconfirmed image must refuse updates
-    /// so it never erases the secondary slot that still holds the rollback
-    /// image.
     #[must_use]
-    pub const fn new(validated: bool) -> Self {
+    pub const fn new() -> Self {
         Self {
-            validated,
             state: State::Idle,
             application_size: 0,
             expected_crc: 0,
@@ -131,8 +145,7 @@ impl DfuEngine {
     }
 
     fn reset(&mut self) {
-        let validated = self.validated;
-        *self = Self::new(validated);
+        *self = Self::new();
     }
 
     /// Abandons a transfer in progress and returns the engine to idle.
@@ -170,15 +183,22 @@ impl DfuEngine {
     }
 
     /// Handles a write to the control-point characteristic.
-    pub fn control_write(&mut self, data: &[u8]) -> Steps {
+    ///
+    /// `confirmed` is read fresh at every call rather than remembered, and
+    /// gates `StartDFU`: an unconfirmed image must refuse updates so it never
+    /// erases the secondary slot that still holds the rollback image. Confirming
+    /// therefore takes effect on the next attempt, on the connection already
+    /// open, instead of after a reconnect nobody knew was needed.
+    pub fn control_write(&mut self, data: &[u8], confirmed: bool) -> Steps {
         let mut steps = Steps::new();
         let Some(&opcode) = data.first() else {
             return steps;
         };
         match opcode {
             START_DFU => {
-                if !self.validated {
+                if !confirmed {
                     let _ = steps.push(response(START_DFU, STATUS_NOT_SUPPORTED));
+                    let _ = steps.push(DfuStep::Refused);
                 } else if data.get(1) == Some(&IMAGE_APPLICATION) {
                     // A new transfer supersedes whatever is left of the last
                     // one. Ignoring this while a stale session is open leaves
@@ -395,23 +415,26 @@ mod tests {
     }
 
     #[test]
-    fn unvalidated_engine_refuses_to_start() {
-        let mut engine = DfuEngine::new(false);
-        let steps = engine.control_write(&[START_DFU, IMAGE_APPLICATION]);
+    fn an_unconfirmed_image_refuses_to_start() {
+        let mut engine = DfuEngine::new();
+        let steps = engine.control_write(&[START_DFU, IMAGE_APPLICATION], false);
         assert_eq!(
             steps[0],
             notify(&[RESPONSE, START_DFU, STATUS_NOT_SUPPORTED])
         );
+        // The phone is told over the wire; the watch is told separately, or the
+        // refusal is invisible to the person holding both.
+        assert!(steps.contains(&DfuStep::Refused));
         // No flash touched, and a following packet is ignored.
         assert!(engine.packet_write(&[0; 12]).is_empty());
     }
 
     #[test]
     fn rejects_an_image_larger_than_the_slot() {
-        let mut engine = DfuEngine::new(true);
+        let mut engine = DfuEngine::new();
         assert!(
             engine
-                .control_write(&[START_DFU, IMAGE_APPLICATION])
+                .control_write(&[START_DFU, IMAGE_APPLICATION], true)
                 .is_empty()
         );
         let mut sizes = [0_u8; 12];
@@ -437,10 +460,10 @@ mod tests {
         let image: Vec<u8, 300> = (0..300).map(|i| (i * 7) as u8).collect();
         let expected = crc16(&image);
 
-        let mut engine = DfuEngine::new(true);
+        let mut engine = DfuEngine::new();
         assert!(
             engine
-                .control_write(&[START_DFU, IMAGE_APPLICATION])
+                .control_write(&[START_DFU, IMAGE_APPLICATION], true)
                 .is_empty()
         );
 
@@ -453,11 +476,11 @@ mod tests {
 
         engine.packet_write(&init_packet(expected));
         assert_eq!(
-            engine.control_write(&[INIT_PARAMETERS, 1])[0],
+            engine.control_write(&[INIT_PARAMETERS, 1], true)[0],
             notify(&[RESPONSE, INIT_PARAMETERS, STATUS_SUCCESS])
         );
-        engine.control_write(&[PACKET_RECEIPT_REQUEST, 4]);
-        assert!(engine.control_write(&[RECEIVE_IMAGE]).is_empty());
+        engine.control_write(&[PACKET_RECEIPT_REQUEST, 4], true);
+        assert!(engine.control_write(&[RECEIVE_IMAGE], true).is_empty());
 
         let mut programmed: Vec<u8, 512> = Vec::new();
         let mut erased: Vec<u32, 4> = Vec::new();
@@ -474,7 +497,10 @@ mod tests {
                         assert_eq!(&bytes[..], &[RESPONSE, RECEIVE_IMAGE, STATUS_SUCCESS]);
                         completed = true;
                     }
-                    DfuStep::Notify(_) | DfuStep::Receipt(_) | DfuStep::Reset => {}
+                    DfuStep::Notify(_)
+                    | DfuStep::Receipt(_)
+                    | DfuStep::Reset
+                    | DfuStep::Refused => {}
                 }
             }
         }
@@ -486,11 +512,11 @@ mod tests {
         assert_eq!(&erased[..], &[0, SECTOR_SIZE]);
 
         assert_eq!(
-            engine.control_write(&[VALIDATE])[0],
+            engine.control_write(&[VALIDATE], true)[0],
             notify(&[RESPONSE, VALIDATE, STATUS_SUCCESS])
         );
 
-        let activate = engine.control_write(&[ACTIVATE_RESET]);
+        let activate = engine.control_write(&[ACTIVATE_RESET], true);
         assert!(matches!(activate.last(), Some(DfuStep::Reset)));
         // The magic sector is erased and programmed before reset.
         assert!(activate.iter().any(
@@ -504,18 +530,18 @@ mod tests {
         // magic must erase just the trailer's own sector, never the unwritten
         // sectors in between, and never a base at or beyond the slot end.
         let image = [7_u8, 7, 7, 7];
-        let mut engine = DfuEngine::new(true);
-        engine.control_write(&[START_DFU, IMAGE_APPLICATION]);
+        let mut engine = DfuEngine::new();
+        engine.control_write(&[START_DFU, IMAGE_APPLICATION], true);
         let mut sizes = [0_u8; 12];
         sizes[8..12].copy_from_slice(&(image.len() as u32).to_le_bytes());
         engine.packet_write(&sizes);
         engine.packet_write(&init_packet(crc16(&image)));
-        engine.control_write(&[INIT_PARAMETERS, 1]);
-        engine.control_write(&[RECEIVE_IMAGE]);
+        engine.control_write(&[INIT_PARAMETERS, 1], true);
+        engine.control_write(&[RECEIVE_IMAGE], true);
         engine.packet_write(&image);
-        engine.control_write(&[VALIDATE]);
+        engine.control_write(&[VALIDATE], true);
 
-        let activate = engine.control_write(&[ACTIVATE_RESET]);
+        let activate = engine.control_write(&[ACTIVATE_RESET], true);
         let erases: Vec<u32, 4> = activate
             .iter()
             .filter_map(|step| match step {
@@ -532,21 +558,21 @@ mod tests {
     #[test]
     fn a_bad_crc_reports_an_error_and_resets() {
         let image = [1_u8, 2, 3, 4];
-        let mut engine = DfuEngine::new(true);
-        engine.control_write(&[START_DFU, IMAGE_APPLICATION]);
+        let mut engine = DfuEngine::new();
+        engine.control_write(&[START_DFU, IMAGE_APPLICATION], true);
         let mut sizes = [0_u8; 12];
         sizes[8..12].copy_from_slice(&(image.len() as u32).to_le_bytes());
         engine.packet_write(&sizes);
         engine.packet_write(&init_packet(0x0000)); // wrong CRC
-        engine.control_write(&[RECEIVE_IMAGE]);
+        engine.control_write(&[RECEIVE_IMAGE], true);
         engine.packet_write(&image);
 
-        let steps = engine.control_write(&[VALIDATE]);
+        let steps = engine.control_write(&[VALIDATE], true);
         assert_eq!(steps[0], notify(&[RESPONSE, VALIDATE, STATUS_CRC_ERROR]));
         // A fresh transfer can start again after the reset.
         assert!(
             engine
-                .control_write(&[START_DFU, IMAGE_APPLICATION])
+                .control_write(&[START_DFU, IMAGE_APPLICATION], true)
                 .is_empty()
         );
     }
@@ -554,14 +580,14 @@ mod tests {
     /// Drives a transfer up to the middle of the data phase and leaves it
     /// there, the way an upload that is cancelled or that loses its host does.
     fn engine_stalled_mid_transfer() -> DfuEngine {
-        let mut engine = DfuEngine::new(true);
-        engine.control_write(&[START_DFU, IMAGE_APPLICATION]);
+        let mut engine = DfuEngine::new();
+        engine.control_write(&[START_DFU, IMAGE_APPLICATION], true);
         let mut sizes = [0_u8; 12];
         sizes[8..12].copy_from_slice(&1_024_u32.to_le_bytes());
         engine.packet_write(&sizes);
         engine.packet_write(&init_packet(0x1234));
-        engine.control_write(&[INIT_PARAMETERS, 1]);
-        engine.control_write(&[RECEIVE_IMAGE]);
+        engine.control_write(&[INIT_PARAMETERS, 1], true);
+        engine.control_write(&[RECEIVE_IMAGE], true);
         engine.packet_write(&[0xAB; 300]);
         assert!(engine.is_active());
         engine
@@ -572,7 +598,7 @@ mod tests {
         let image = [3_u8, 1, 4, 1, 5];
         assert!(
             engine
-                .control_write(&[START_DFU, IMAGE_APPLICATION])
+                .control_write(&[START_DFU, IMAGE_APPLICATION], true)
                 .is_empty()
         );
         let mut sizes = [0_u8; 12];
@@ -582,17 +608,17 @@ mod tests {
             notify(&[RESPONSE, START_DFU, STATUS_SUCCESS])
         );
         engine.packet_write(&init_packet(crc16(&image)));
-        engine.control_write(&[INIT_PARAMETERS, 1]);
-        engine.control_write(&[RECEIVE_IMAGE]);
+        engine.control_write(&[INIT_PARAMETERS, 1], true);
+        engine.control_write(&[RECEIVE_IMAGE], true);
         assert!(engine.packet_write(&image).iter().any(
             |step| matches!(step, DfuStep::Notify(bytes) if bytes.as_slice() == [RESPONSE, RECEIVE_IMAGE, STATUS_SUCCESS])
         ));
         assert_eq!(
-            engine.control_write(&[VALIDATE])[0],
+            engine.control_write(&[VALIDATE], true)[0],
             notify(&[RESPONSE, VALIDATE, STATUS_SUCCESS])
         );
         assert!(matches!(
-            engine.control_write(&[ACTIVATE_RESET]).last(),
+            engine.control_write(&[ACTIVATE_RESET], true).last(),
             Some(DfuStep::Reset)
         ));
     }
@@ -610,7 +636,7 @@ mod tests {
     fn reset_system_returns_a_stalled_transfer_to_idle() {
         let mut engine = engine_stalled_mid_transfer();
         // The protocol expects no reply, only that the session is forgotten.
-        assert!(engine.control_write(&[RESET_SYSTEM]).is_empty());
+        assert!(engine.control_write(&[RESET_SYSTEM], true).is_empty());
         assert!(!engine.is_active());
         assert_accepts_a_new_transfer(&mut engine);
     }
@@ -631,13 +657,13 @@ mod tests {
         // stale offset would write the new image into the middle of the slot.
         let mut engine = engine_stalled_mid_transfer();
         let image = [9_u8; 64];
-        engine.control_write(&[START_DFU, IMAGE_APPLICATION]);
+        engine.control_write(&[START_DFU, IMAGE_APPLICATION], true);
         let mut sizes = [0_u8; 12];
         sizes[8..12].copy_from_slice(&(image.len() as u32).to_le_bytes());
         engine.packet_write(&sizes);
         engine.packet_write(&init_packet(crc16(&image)));
-        engine.control_write(&[INIT_PARAMETERS, 1]);
-        engine.control_write(&[RECEIVE_IMAGE]);
+        engine.control_write(&[INIT_PARAMETERS, 1], true);
+        engine.control_write(&[RECEIVE_IMAGE], true);
 
         let mut programmed: Vec<u8, 64> = Vec::new();
         for step in engine.packet_write(&image) {
@@ -648,7 +674,7 @@ mod tests {
         }
         assert_eq!(&programmed[..], &image[..]);
         assert_eq!(
-            engine.control_write(&[VALIDATE])[0],
+            engine.control_write(&[VALIDATE], true)[0],
             notify(&[RESPONSE, VALIDATE, STATUS_SUCCESS])
         );
     }
@@ -657,40 +683,65 @@ mod tests {
     fn an_unsupported_image_type_is_refused_rather_than_ignored() {
         // Softdevice and bootloader images have nowhere to go here. Silence
         // would leave the host waiting out its own timeout.
-        let mut engine = DfuEngine::new(true);
+        let mut engine = DfuEngine::new();
         const IMAGE_SOFTDEVICE: u8 = 0x01;
         assert_eq!(
-            engine.control_write(&[START_DFU, IMAGE_SOFTDEVICE])[0],
+            engine.control_write(&[START_DFU, IMAGE_SOFTDEVICE], true)[0],
             notify(&[RESPONSE, START_DFU, STATUS_NOT_SUPPORTED])
         );
         assert!(!engine.is_active());
     }
 
     #[test]
-    fn an_unvalidated_engine_still_refuses_a_repeated_start() {
+    fn an_unconfirmed_image_still_refuses_a_repeated_start() {
         // The rollback image in the secondary slot outranks a retry.
-        let mut engine = DfuEngine::new(false);
+        let mut engine = DfuEngine::new();
         for _ in 0..2 {
             assert_eq!(
-                engine.control_write(&[START_DFU, IMAGE_APPLICATION])[0],
+                engine.control_write(&[START_DFU, IMAGE_APPLICATION], false)[0],
                 notify(&[RESPONSE, START_DFU, STATUS_NOT_SUPPORTED])
             );
             assert!(!engine.is_active());
         }
     }
 
+    /// The regression for "I confirmed it and it still will not flash".
+    ///
+    /// Confirmation happens on the watch while the phone sits connected, so the
+    /// answer has to be re-read rather than remembered. An engine that latched
+    /// it at construction went on refusing for the life of that connection -
+    /// which is why disconnecting and reconnecting appeared to be the fix, and
+    /// why nothing about the watch explained it.
+    #[test]
+    fn confirming_takes_effect_without_a_reconnect() {
+        let mut engine = DfuEngine::new();
+        assert_eq!(
+            engine.control_write(&[START_DFU, IMAGE_APPLICATION], false)[0],
+            notify(&[RESPONSE, START_DFU, STATUS_NOT_SUPPORTED])
+        );
+
+        // Same engine, same connection: the user has just confirmed.
+        assert!(
+            engine
+                .control_write(&[START_DFU, IMAGE_APPLICATION], true)
+                .is_empty()
+        );
+        assert!(engine.is_active());
+        assert_accepts_a_new_transfer(&mut engine);
+    }
+
     #[test]
     fn packet_receipt_notifications_report_progress() {
         let image: Vec<u8, 120> = (0..120).map(|i| i as u8).collect();
-        let mut engine = DfuEngine::new(true);
-        engine.control_write(&[START_DFU, IMAGE_APPLICATION]);
+        let mut engine = DfuEngine::new();
+        engine.control_write(&[START_DFU, IMAGE_APPLICATION], true);
         let mut sizes = [0_u8; 12];
         sizes[8..12].copy_from_slice(&120_u32.to_le_bytes());
         engine.packet_write(&sizes);
         engine.packet_write(&init_packet(crc16(&image)));
-        engine.control_write(&[INIT_PARAMETERS, 1]);
-        engine.control_write(&[PACKET_RECEIPT_REQUEST, 2]);
-        engine.control_write(&[RECEIVE_IMAGE]);
+        engine.control_write(&[INIT_PARAMETERS, 1], true);
+        engine.control_write(&[PACKET_RECEIPT_REQUEST, 2], true);
+        engine.control_write(&[RECEIVE_IMAGE], true);
 
         let mut receipts = 0;
         for chunk in image.chunks(20) {
@@ -709,14 +760,14 @@ mod tests {
     fn negotiated_mtu_sized_packets_complete_the_transfer() {
         const ATT_WRITE_VALUE_MAX: usize = 248;
         let image: Vec<u8, 5000> = (0..5000).map(|i| (i * 13) as u8).collect();
-        let mut engine = DfuEngine::new(true);
-        engine.control_write(&[START_DFU, IMAGE_APPLICATION]);
+        let mut engine = DfuEngine::new();
+        engine.control_write(&[START_DFU, IMAGE_APPLICATION], true);
         let mut sizes = [0_u8; 12];
         sizes[8..12].copy_from_slice(&(image.len() as u32).to_le_bytes());
         engine.packet_write(&sizes);
         engine.packet_write(&init_packet(crc16(&image)));
-        engine.control_write(&[INIT_PARAMETERS, 1]);
-        engine.control_write(&[RECEIVE_IMAGE]);
+        engine.control_write(&[INIT_PARAMETERS, 1], true);
+        engine.control_write(&[RECEIVE_IMAGE], true);
 
         let mut completed = false;
         for chunk in image.chunks(ATT_WRITE_VALUE_MAX) {
@@ -727,7 +778,7 @@ mod tests {
 
         assert!(completed);
         assert_eq!(
-            engine.control_write(&[VALIDATE])[0],
+            engine.control_write(&[VALIDATE], true)[0],
             notify(&[RESPONSE, VALIDATE, STATUS_SUCCESS])
         );
     }
@@ -744,14 +795,14 @@ mod tests {
         const IMAGE_LEN: usize = PREFIX_LEN + FINAL_LEN;
         let image: Vec<u8, IMAGE_LEN> = (0..IMAGE_LEN).map(|i| (i * 17) as u8).collect();
 
-        let mut engine = DfuEngine::new(true);
-        engine.control_write(&[START_DFU, IMAGE_APPLICATION]);
+        let mut engine = DfuEngine::new();
+        engine.control_write(&[START_DFU, IMAGE_APPLICATION], true);
         let mut sizes = [0_u8; 12];
         sizes[8..12].copy_from_slice(&(IMAGE_LEN as u32).to_le_bytes());
         engine.packet_write(&sizes);
         engine.packet_write(&init_packet(crc16(&image)));
-        engine.control_write(&[INIT_PARAMETERS, 1]);
-        engine.control_write(&[RECEIVE_IMAGE]);
+        engine.control_write(&[INIT_PARAMETERS, 1], true);
+        engine.control_write(&[RECEIVE_IMAGE], true);
 
         for chunk in image[..PREFIX_LEN].chunks(248) {
             let _ = engine.packet_write(chunk);

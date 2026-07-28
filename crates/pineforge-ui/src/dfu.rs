@@ -159,25 +159,32 @@ pub fn draw_storage_progress(
     Ok(())
 }
 
-/// Draws a full-screen firmware-update failure notice.
+/// Draws a full-screen notice that an update did not happen.
 ///
-/// The transfer was abandoned, either because a flash operation failed or
-/// because the host stopped sending. There is no wire protocol error for
-/// either case, so the watch's own screen is the only place it can be
-/// surfaced. The specific reason - including the flash's JEDEC id when the
-/// chip was not recognized - is shown to make a sealed watch diagnosable
-/// without a debug port.
+/// The transfer was abandoned, the host stopped sending, or the watch declined
+/// it outright. There is no wire protocol error for most of that, so the
+/// watch's own screen is the only place it can be surfaced. The specific
+/// reason, including the flash's JEDEC id when the chip was not recognized, is
+/// shown to make a sealed watch diagnosable without a debug port.
+///
+/// A refusal is titled and coloured differently from a fault. Telling somebody
+/// their watch failed when it deliberately protected its rollback image sends
+/// them looking for a defect that is not there.
 pub fn draw_dfu_failed(
     canvas: &mut Canvas<'_>,
     reason: DfuFailReason,
     keep_alive: &mut dyn FnMut(),
 ) -> Result<(), CanvasError> {
+    let (headline, ink) = match reason {
+        DfuFailReason::NotConfirmed => ("UPDATE REFUSED", theme::WARN),
+        _ => ("UPDATE FAILED", theme::DANGER),
+    };
     canvas.clear(theme::BACKGROUND)?;
     draw_visible(
         &Text::with_alignment(
-            "UPDATE FAILED",
+            headline,
             Point::new(120, 108),
-            ui_text(theme::DANGER, theme::BACKGROUND),
+            ui_text(ink, theme::BACKGROUND),
             Alignment::Center,
         ),
         canvas,
@@ -203,6 +210,9 @@ pub fn draw_dfu_failed(
         }
         DfuFailReason::TimedOut => {
             let _ = detail.push_str("Transfer stalled\nstart it again");
+        }
+        DfuFailReason::NotConfirmed => {
+            let _ = detail.push_str("This build is unconfirmed\nOpen FIRMWARE to confirm");
         }
     }
     draw_visible(

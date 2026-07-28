@@ -59,7 +59,11 @@ pub async fn handle_write(
     data: &[u8],
 ) {
     let steps = if is_control_point {
-        engine.control_write(data)
+        // Read now, not once per connection. Confirming the running image is
+        // something the user does on the watch while the phone sits connected,
+        // and an answer cached at connection setup goes on refusing long after
+        // it stopped being true.
+        engine.control_write(data, crate::boot::confirm::is_validated())
     } else {
         engine.packet_write(data)
     };
@@ -105,6 +109,12 @@ pub async fn handle_write(
                     .send(DfuFlashCommand::Program { offset, data })
                     .await;
                 flash.pending += 1;
+            }
+            DfuStep::Refused => {
+                warn!("DFU refused: the running image is not confirmed");
+                let _ = UI_EVENTS.try_send(AppEvent::BleUpdated(BleState::DfuFailed(
+                    DfuFailReason::NotConfirmed,
+                )));
             }
             DfuStep::Reset => {
                 if !finish_pending_flash(flash).await {
