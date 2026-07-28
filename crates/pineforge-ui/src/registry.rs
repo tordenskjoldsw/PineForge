@@ -21,6 +21,7 @@ use pineforge_state::{AppEvent, DisplaySettings, ScreenAction, ScreenId};
 #[cfg(feature = "diagnostics")]
 use crate::test_screen::TestScreen;
 use crate::{
+    about::AboutScreen,
     canvas::{Canvas, CanvasError},
     firmware::FirmwareScreen,
     launcher::LauncherScreen,
@@ -48,6 +49,7 @@ pub struct Screens {
     /// The one settings leaf, pointed at whichever setting is being edited.
     picker: SettingPickerScreen,
     pub firmware: FirmwareScreen,
+    pub about: AboutScreen,
     #[cfg(feature = "diagnostics")]
     pub touch_test: TestScreen,
 }
@@ -72,6 +74,7 @@ impl Screens {
             ScreenId::Notifications => &self.notifications,
             ScreenId::DisplaySettings => &self.settings,
             ScreenId::Firmware => &self.firmware,
+            ScreenId::About => &self.about,
             // Every leaf is the same screen; `enter` has pointed it at the one
             // this id names before it can be drawn or touched.
             ScreenId::Brightness
@@ -92,6 +95,7 @@ impl Screens {
             ScreenId::Notifications => &mut self.notifications,
             ScreenId::DisplaySettings => &mut self.settings,
             ScreenId::Firmware => &mut self.firmware,
+            ScreenId::About => &mut self.about,
             // Every leaf is the same screen; `enter` has pointed it at the one
             // this id names before it can be drawn or touched.
             ScreenId::Brightness

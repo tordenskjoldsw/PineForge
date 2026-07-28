@@ -41,6 +41,11 @@ const TILES: &[Tile] = &[
         label: "FIRMWARE",
         target: ScreenId::Firmware,
     },
+    Tile {
+        icon: &icons::INFO,
+        label: "ABOUT",
+        target: ScreenId::About,
+    },
     #[cfg(feature = "diagnostics")]
     Tile {
         icon: &icons::CROSSHAIR,

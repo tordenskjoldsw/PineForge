@@ -21,6 +21,7 @@ use pineforge_state::{
     ModalState, Notification, PowerCommand, ScreenId, SystemPowerState, VibrationPattern,
 };
 use pineforge_ui::{
+    about::BuildInfo,
     canvas::{Canvas, CanvasError},
     dfu::{draw_dfu_failed, draw_dfu_progress, draw_storage_progress, refresh_progress},
     pairing::draw_pairing,
@@ -170,6 +171,16 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
     screens
         .firmware
         .set_confirmed(crate::boot::confirm::is_validated());
+    // Which build this is, from the one crate that can know. `pineforge-ui` has
+    // its own package version and compiling it in there named that instead -
+    // which is how a watch running 0.2.1 came to report 0.1.0.
+    let build = BuildInfo {
+        version: env!("PINEFORGE_VERSION"),
+        commit: env!("PINEFORGE_COMMIT"),
+        date: env!("PINEFORGE_DATE"),
+    };
+    screens.about.set_build(build);
+    screens.firmware.set_version(build.version);
     #[cfg(feature = "ui-animations")]
     let ui_scratch = UI_SCRATCH.init(UiScratch::new());
     let mut app = AppState::new(ScreenId::Watchface);

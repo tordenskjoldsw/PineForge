@@ -1,5 +1,6 @@
 use pineforge_state::{AppEvent, ScreenAction};
 
+use crate::about::BuildInfo;
 use crate::canvas::{Canvas, CanvasError};
 use crate::{
     menu::{self, Menu, MenuColumn, MenuOutcome, MenuRow, MenuState, MenuTitle},
@@ -13,15 +14,19 @@ const TITLE_BASELINE_Y: i32 = STATUS_HEIGHT + 20;
 
 static MENU: Menu = Menu {
     title: Some(MenuTitle {
-        // Built at compile time rather than formatted per paint: the version is
-        // known then, and a runtime `write!` would cost a buffer and the
-        // formatting machinery for a string that never changes.
-        text: concat!("PINEFORGE ", env!("CARGO_PKG_VERSION")),
+        text: "FIRMWARE",
         baseline_y: TITLE_BASELINE_Y,
     }),
     first_row_y: TITLE_BASELINE_Y + 16,
-    row_step: ROW_HEIGHT + 16,
+    // Tighter than the two rows this screen used to carry had room for: three
+    // on the old rhythm ran the last one into the hint at the foot.
+    row_step: ROW_HEIGHT + 8,
     rows: &[
+        // The build this screen is deciding about. It reads as a row rather
+        // than as the heading because the heading cannot carry it: a `Menu` is
+        // a `'static` description, and which build this is only becomes known
+        // when the firmware hands it over.
+        MenuRow::Value { label: "BUILD" },
         MenuRow::Value { label: "FW" },
         MenuRow::Value { label: "RESTART" },
     ],
@@ -37,13 +42,17 @@ static MENU: Menu = Menu {
 /// value column names the consequence rather than the action.
 pub struct FirmwareScreen {
     confirmed: bool,
-    menu: MenuState<2>,
+    /// The packaged release, handed over by the firmware at start-up. See
+    /// [`crate::about`] for why it cannot be compiled in here.
+    version: &'static str,
+    menu: MenuState<3>,
 }
 
 impl Default for FirmwareScreen {
     fn default() -> Self {
         Self {
             confirmed: false,
+            version: BuildInfo::UNKNOWN.version,
             menu: MenuState::new(&MENU),
         }
     }
@@ -57,15 +66,20 @@ impl FirmwareScreen {
         self.menu.mark_dirty();
     }
 
+    pub const fn set_version(&mut self, version: &'static str) {
+        self.version = version;
+        self.menu.mark_dirty();
+    }
+
     /// The right-hand column, in row order.
     ///
     /// An unconfirmed image does not survive a reset: `MCUBoot` restores the
     /// image this one replaced.
-    const fn values(&self) -> [&'static str; 2] {
+    const fn values(&self) -> [&'static str; 3] {
         if self.confirmed {
-            ["OK", "REBOOT"]
+            [self.version, "OK", "REBOOT"]
         } else {
-            ["CONFIRM", "ROLLBACK"]
+            [self.version, "CONFIRM", "ROLLBACK"]
         }
     }
 }
@@ -89,8 +103,8 @@ impl Paint for FirmwareScreen {
 impl Screen for FirmwareScreen {
     fn handle_event(&mut self, event: AppEvent) -> ScreenAction {
         match self.menu.handle(&MENU, event) {
-            MenuOutcome::Chose(0) if !self.confirmed => ScreenAction::ConfirmFirmware,
-            MenuOutcome::Chose(1) => ScreenAction::Reboot,
+            MenuOutcome::Chose(1) if !self.confirmed => ScreenAction::ConfirmFirmware,
+            MenuOutcome::Chose(2) => ScreenAction::Reboot,
             _ => ScreenAction::None,
         }
     }

@@ -22,6 +22,7 @@
 #[cfg(test)]
 extern crate std;
 
+pub mod about;
 pub mod canvas;
 pub mod dfu;
 pub mod firmware;

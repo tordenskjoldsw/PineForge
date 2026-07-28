@@ -92,7 +92,7 @@ pub struct DeviceInformationService {
     #[characteristic(
         uuid = characteristic::FIRMWARE_REVISION_STRING,
         read,
-        value = heapless::String::try_from(env!("CARGO_PKG_VERSION")).unwrap()
+        value = heapless::String::try_from(env!("PINEFORGE_VERSION")).unwrap()
     )]
     firmware_revision: heapless::String<16>,
     #[characteristic(

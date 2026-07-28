@@ -537,6 +537,8 @@ pub enum ScreenId {
     WatchfaceSelect,
     /// Firmware confirmation and a software reboot.
     Firmware,
+    /// Which build this is: release, commit, and date.
+    About,
     #[cfg(feature = "diagnostics")]
     TouchTest,
 }
@@ -544,9 +546,9 @@ pub enum ScreenId {
 impl ScreenId {
     /// How many screens this build has.
     pub const COUNT: usize = if cfg!(feature = "diagnostics") {
-        12
+        13
     } else {
-        11
+        12
     };
 
     /// Every screen, so anything that has to hold for all of them can be
@@ -571,6 +573,7 @@ impl ScreenId {
         Self::HeartRateInterval,
         Self::WatchfaceSelect,
         Self::Firmware,
+        Self::About,
         #[cfg(feature = "diagnostics")]
         Self::TouchTest,
     ];
@@ -595,6 +598,7 @@ impl ScreenId {
             Self::HeartRateInterval => 8,
             Self::WatchfaceSelect => 9,
             Self::Firmware => 10,
+            Self::About => 11,
             #[cfg(feature = "diagnostics")]
             Self::TouchTest => 11,
         }
