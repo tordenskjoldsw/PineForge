@@ -36,7 +36,19 @@ static DISPLAY_BUFFER: StaticCell<[u8; 512]> = StaticCell::new();
 static UI_SCRATCH: StaticCell<UiScratch> = StaticCell::new();
 
 const DIMMED_BRIGHTNESS: u8 = 1;
-const WAKE_INPUT_GUARD: Duration = Duration::from_millis(500);
+
+/// Backstop for how long input is disowned after waking.
+///
+/// What actually has to be swallowed is the *rest of the touch that did the
+/// waking* - its press woke the watch and its lift must not then activate
+/// whatever it landed on. That end is recognised directly, by the release the
+/// router always emits, so this timer only covers the case where no release is
+/// coming: a wake from the side button leaves no touch in flight to end.
+///
+/// It used to be the only rule, at half a second, and half a second is a long
+/// time to be deaf. A swipe is a thing people do immediately after lighting up
+/// the screen, and every one of them inside that window was dropped.
+const WAKE_INPUT_GUARD: Duration = Duration::from_millis(250);
 
 enum DisplayEvent {
     Ui(AppEvent),
@@ -405,10 +417,21 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
             ModalOutcome::None => {}
         }
 
-        if power == SystemPowerState::Sleeping
-            || (event.is_user_activity() && now < ignore_input_until)
-        {
+        if power == SystemPowerState::Sleeping {
             continue;
+        }
+        if now < ignore_input_until {
+            // The lift that ends the waking touch is what the guard was really
+            // waiting for, so seeing it retires the guard early instead of
+            // staying deaf for the rest of the window. The router emits this
+            // release for every touch, gesture or not, so there is always one
+            // to see when a touch is what woke the watch.
+            if matches!(event, AppEvent::Touch { pressed: false, .. }) {
+                ignore_input_until = now;
+            }
+            if event.is_user_activity() {
+                continue;
+            }
         }
 
         // The corner redraws on its own, without the screen underneath: it
