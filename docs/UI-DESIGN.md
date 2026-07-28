@@ -217,6 +217,22 @@ many to count and the rail runs out of edge to sit on. No screen is near that,
 but it is the boundary at which this component should become something else — a
 proportional thumb — rather than be made smaller.
 
+## Progress
+
+One bar, shared by the firmware update and the first-boot format. It is a
+filled **track** in `SURFACE` with the completed part in `ACCENT` over it, and
+both ends carry the same corner curve the rows do — 200 x 16 at x = 20.
+
+A track rather than an outline around nothing. An empty box says where a bar
+would be; a track that is visible the whole way across says how far there is
+left to go, which is the only question anybody watching a progress screen has.
+
+The percentage above it is set in the UI face and the accent, and the title
+above that in the same face in `TEXT`. There is no explanatory line under the
+bar: "keep the watch nearby" told nobody anything they could act on. The format
+screen keeps its one line, because "safe to restart" answers the question a
+first boot sitting on a progress bar actually raises.
+
 A tile carries a 24 x 24 icon above a centred label. Icons are one-bit bitmaps,
 four bytes per row, tinted at draw time so one bitmap serves both the normal and
 the pressed colour. Drawing them as geometry would cost more than storing them:

@@ -2,7 +2,7 @@ use core::fmt::Write;
 
 use embedded_graphics::{
     prelude::*,
-    primitives::{PrimitiveStyleBuilder, Rectangle},
+    primitives::Rectangle,
     text::{Alignment, Text},
 };
 use heapless::String;
@@ -10,14 +10,22 @@ use pineforge_state::DfuFailReason;
 
 use crate::canvas::{Canvas, CanvasError};
 use crate::font::{hint_text, ui_text};
-use crate::{render::draw_visible, theme};
+use crate::{
+    render::{draw_visible, round_corners},
+    theme,
+};
 
-const BAR: Rectangle = Rectangle::new(Point::new(20, 128), Size::new(200, 24));
-const PERCENT_BASELINE: Point = Point::new(120, 108);
+const TITLE_BASELINE: Point = Point::new(120, 90);
+const PERCENT_BASELINE: Point = Point::new(120, 138);
 /// The band the percentage can occupy at any width, cleared before it is
 /// redrawn. The text is centred, so it grows in both directions and a shorter
 /// number would otherwise leave the tail of a longer one standing beside it.
-const PERCENT_AREA: Rectangle = Rectangle::new(Point::new(94, 89), Size::new(52, 24));
+const PERCENT_AREA: Rectangle = Rectangle::new(Point::new(94, 119), Size::new(52, 26));
+/// The progress bar, sized and placed so the three elements above it centre on
+/// the panel. Sixteen pixels rather than the twenty-four it was: the corner
+/// mask is five rows deep, and on a shallower bar that same curve reads as a
+/// rounded bar instead of a box with the corners knocked off.
+const BAR: Rectangle = Rectangle::new(Point::new(20, 152), Size::new(200, 16));
 
 /// Repaints only what a percentage step changes: the number and the bar.
 ///
@@ -51,10 +59,20 @@ fn draw_percent(canvas: &mut Canvas<'_>, percent: u8) -> Result<(), CanvasError>
     )
 }
 
-/// The bar's interior: filled up to `percent`, background beyond it.
+/// Draws the whole bar: the filled part, the track beyond it, and the corner
+/// mask that rounds both.
+///
+/// The unfilled part is `SURFACE` rather than the background, which is the
+/// difference between a bar and an outlined empty box. A track that is visible
+/// the whole way across says how far there is to go; an outline around nothing
+/// only says where the bar would be if it had one.
 ///
 /// Both halves are painted rather than only the filled one, so a bar that ever
 /// moves backwards - a transfer restarted - does not keep the fill it had.
+///
+/// The rounding happens here rather than at the call that draws the screen,
+/// because this is also the partial path: a percentage step repaints the
+/// interior, and corners masked once would be filled straight back in.
 fn fill_bar(canvas: &mut Canvas<'_>, percent: u8) -> Result<(), CanvasError> {
     let filled = u32::from(percent) * BAR.size.width / 100;
     if filled > 0 {
@@ -69,10 +87,10 @@ fn fill_bar(canvas: &mut Canvas<'_>, percent: u8) -> Result<(), CanvasError> {
                 Point::new(BAR.top_left.x + filled.cast_signed(), BAR.top_left.y),
                 Size::new(BAR.size.width - filled, BAR.size.height),
             ),
-            theme::BACKGROUND,
+            theme::SURFACE,
         )?;
     }
-    Ok(())
+    round_corners(&BAR, canvas)
 }
 
 /// Draws a full-screen firmware-update progress screen, mirroring
@@ -87,7 +105,7 @@ pub fn draw_dfu_progress(
     draw_visible(
         &Text::with_alignment(
             "FIRMWARE UPDATE",
-            Point::new(120, 60),
+            TITLE_BASELINE,
             ui_text(theme::TEXT, theme::BACKGROUND),
             Alignment::Center,
         ),
@@ -98,27 +116,7 @@ pub fn draw_dfu_progress(
     draw_percent(canvas, percent)?;
     keep_alive();
 
-    // Bar outline, then a fill proportional to the received bytes.
-    BAR.into_styled(
-        PrimitiveStyleBuilder::new()
-            .fill_color(theme::BACKGROUND)
-            .stroke_color(theme::ACCENT)
-            .stroke_width(2)
-            .build(),
-    )
-    .draw(canvas)?;
     fill_bar(canvas, percent)?;
-    keep_alive();
-
-    draw_visible(
-        &Text::with_alignment(
-            "Keep the watch nearby",
-            Point::new(120, 184),
-            hint_text(theme::TEXT, theme::BACKGROUND),
-            Alignment::Center,
-        ),
-        canvas,
-    )?;
     keep_alive();
     Ok(())
 }
@@ -134,7 +132,7 @@ pub fn draw_storage_progress(
     draw_visible(
         &Text::with_alignment(
             "PREPARING STORAGE",
-            Point::new(120, 60),
+            TITLE_BASELINE,
             ui_text(theme::TEXT, theme::BACKGROUND),
             Alignment::Center,
         ),
@@ -143,20 +141,15 @@ pub fn draw_storage_progress(
     keep_alive();
 
     draw_percent(canvas, percent)?;
-    BAR.into_styled(
-        PrimitiveStyleBuilder::new()
-            .fill_color(theme::BACKGROUND)
-            .stroke_color(theme::ACCENT)
-            .stroke_width(2)
-            .build(),
-    )
-    .draw(canvas)?;
     fill_bar(canvas, percent)?;
     keep_alive();
+    // This one keeps its line. "Safe to restart" is not reassurance, it is the
+    // answer to the question a first boot that sits on a progress bar actually
+    // raises - the format is power-loss safe and losing patience costs nothing.
     draw_visible(
         &Text::with_alignment(
             "Safe to restart",
-            Point::new(120, 184),
+            Point::new(120, 196),
             hint_text(theme::TEXT, theme::BACKGROUND),
             Alignment::Center,
         ),
