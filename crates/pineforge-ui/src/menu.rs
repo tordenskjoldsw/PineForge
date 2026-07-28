@@ -26,12 +26,22 @@ use pineforge_state::{
 use crate::{
     canvas::{Canvas, CanvasError},
     font::ui_text,
-    render::{ROW_HEIGHT, ROW_WIDTH, ROW_X, draw_mono_text_visible, draw_row},
+    render::{ROW_HEIGHT, ROW_WIDTH, ROW_X, draw_mono_text_visible, draw_page_marks, draw_row},
     theme,
 };
 
 /// Baseline of the hint every menu carries at its foot.
 const HINT_BASELINE_Y: i32 = 232;
+
+/// Centre of the page rail: the gutter to the right of the rows, halfway down
+/// the panel.
+///
+/// The rows span x = 20 to 220 and are centred, so both gutters are 20 wide and
+/// this sits in the middle of the right one. Menus differ in how many rows they
+/// carry and whether they wear a title, so the rail is centred on the panel
+/// rather than on the rows - it stays put between screens instead of shifting
+/// with whatever the screen happens to list.
+const PAGE_RAIL: Point = Point::new(230, 118);
 
 /// A menu's heading, with the baseline it sits on.
 ///
@@ -166,12 +176,15 @@ pub fn draw(
     draw_text(menu.hint, HINT_BASELINE_Y, canvas)
 }
 
-/// Repaints the rows alone, for a screen whose values moved.
+/// Repaints the rows and the page rail, for a screen whose values moved.
 ///
 /// The title and the hint do not change with state, so a value that ticks costs
 /// its rows and nothing else. Slots the page does not fill are cleared rather
 /// than skipped, so a short last page cannot leave the previous page's rows
 /// standing under it.
+///
+/// The rail belongs to this pass rather than to [`draw`]: turning a page is the
+/// one thing that moves it, and turning a page comes through here.
 pub fn draw_rows(
     menu: &Menu,
     page: MenuPage<'_>,
@@ -197,7 +210,7 @@ pub fn draw_rows(
         }
         keep_alive();
     }
-    Ok(())
+    draw_page_marks(canvas, PageAxis::Vertical, page.list, PAGE_RAIL)
 }
 
 /// What a row's right-hand column reads, given what the screen supplied.

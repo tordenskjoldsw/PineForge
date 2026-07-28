@@ -17,7 +17,7 @@ use crate::canvas::{Canvas, CanvasError};
 use crate::font::{JETBRAINS_MONO_10X22, ui_text};
 use crate::{
     icons::{self, ICON_SIZE, Icon, draw_icon},
-    render::{draw_mono_text_visible, draw_visible, round_corners},
+    render::{draw_mono_text_visible, draw_page_marks, draw_visible, round_corners},
     screen::{Paint, Screen},
     status::STATUS_HEIGHT,
     theme,
@@ -56,12 +56,8 @@ const TILE_WIDTH: i32 = 115;
 const TILE_HEIGHT: i32 = 106;
 const TOP: i32 = STATUS_HEIGHT + 2;
 
-/// The page indicator is drawn as squares rather than dots: a circle is a
-/// rasteriser this firmware otherwise never needs, and at four pixels the shape
-/// is indistinguishable anyway.
-const DOT_SIZE: i32 = 4;
-const DOT_SPACING: i32 = 10;
-const DOT_Y: i32 = TOP + 2 * TILE_HEIGHT + GAP + 2;
+/// Centre line of the page rail, below the second row of tiles.
+const DOT_Y: i32 = TOP + 2 * TILE_HEIGHT + GAP + 4;
 /// Width of one character in the UI face, for centring a label by hand.
 const CHARACTER_WIDTH: i32 = JETBRAINS_MONO_10X22.cell.width.cast_signed();
 
@@ -175,40 +171,17 @@ impl LauncherScreen {
         Ok(())
     }
 
-    /// One dot per page, the current one filled. Absent for a single page:
-    /// there is nothing to indicate.
+    /// The page rail, drawn along the axis this screen pages on.
+    ///
+    /// Only the position is local; the marks and the clearing behind them are
+    /// the shared component every paginated screen uses.
     fn draw_pages(&self, canvas: &mut Canvas<'_>) -> Result<(), CanvasError> {
-        let list = self.slots.list();
-        let pages = list.page_count();
-        draw_visible(
-            &Rectangle::new(
-                Point::new(0, DOT_Y),
-                Size::new(240, u32::try_from(DOT_SIZE).unwrap_or(0)),
-            )
-            .into_styled(PrimitiveStyle::with_fill(theme::BACKGROUND)),
+        draw_page_marks(
             canvas,
-        )?;
-        if pages < 2 {
-            return Ok(());
-        }
-
-        let span = layout_index(pages) * DOT_SPACING;
-        let first = 120 - span / 2 + (DOT_SPACING - DOT_SIZE) / 2;
-        let size = u32::try_from(DOT_SIZE).unwrap_or(0);
-        for page in 0..pages {
-            let left = first + layout_index(page) * DOT_SPACING;
-            let color = if page == list.page() {
-                theme::ACCENT
-            } else {
-                theme::FRAME
-            };
-            draw_visible(
-                &Rectangle::new(Point::new(left, DOT_Y), Size::new(size, size))
-                    .into_styled(PrimitiveStyle::with_fill(color)),
-                canvas,
-            )?;
-        }
-        Ok(())
+            PageAxis::Horizontal,
+            self.slots.list(),
+            Point::new(120, DOT_Y),
+        )
     }
 }
 

@@ -173,15 +173,36 @@ four slots because that is what the geometry reserves; the apps to fill it are
 the roadmap's business, not this document's.
 
 Tiles are 115 x 106 with a two-pixel gap and a four-pixel margin, leaving room
-under the second row for the page indicator. The launcher is opened by swiping
-up, so navigation owns the vertical axis and **pages turn horizontally** — the
-indicator sits at the bottom, one mark per page, the current one in `ACCENT` and
-the rest in `FRAME`. It is absent while there is only one page, because there is
-nothing to indicate.
+under the second row for the page rail. The launcher is opened by swiping up, so
+navigation owns the vertical axis and **pages turn horizontally**.
 
-The marks are four-pixel squares rather than dots: a circle is a rasteriser the
-firmware otherwise never needs, and at that size the shapes are
-indistinguishable.
+## The page rail
+
+Every paginated screen reports its position the same way, through one shared
+component.
+
+**The rail runs along the axis the screen pages on.** That is the whole content
+of the message: a column of marks beside a list that pages up and down says
+there is more that way, while the same marks in a row underneath would point
+across a movement that never goes across. So the launcher's rail lies flat
+under the tiles and a menu's stands upright beside the rows.
+
+**The showing page is a bar, the rest are squares** — 18 pixels against 4,
+4 across, 6 apart. Two treatments rather than one, because the second is
+colour, and colour has to be seen accurately at backlight level 1 to carry
+anything; the long mark still reads as position when the palette barely does.
+The showing mark is `ACCENT` and the rest are `FRAME`.
+
+Squares rather than dots: a circle is a rasteriser the firmware otherwise never
+needs, and at four pixels the shapes are indistinguishable.
+
+Exactly one mark is long whichever page shows, so the run keeps its length and
+its box. That is what lets the component clear one fixed rectangle before
+drawing — without it, a page turn would move the bar within the run and a
+partial redraw would leave the tail of its old position standing.
+
+Nothing is drawn for a single page. There is no position to report when there is
+only one place to be, and a lone mark would read as a control.
 
 A tile carries a 24 x 24 icon above a centred label. Icons are one-bit bitmaps,
 four bytes per row, tinted at draw time so one bitmap serves both the normal and
@@ -201,10 +222,9 @@ title and the hint are a `'static` value, and one interpreter draws all of
 them. A row states its geometry once, so it cannot disagree with its own hit
 box — which is the failure the three-places-per-row arrangement kept producing.
 
-**Menus have no page indicator yet.** The launcher's marks are drawn by the
-launcher, so a settings root of six entries shows four of them and says nothing
-about the second page. The same treatment belongs here; it is the one part of
-this section that describes an intention rather than the firmware.
+The page rail sits in the gutter to the right of the rows, centred on the panel
+rather than on them, so it stays put between screens that carry different
+numbers of rows.
 
 ## Notifications
 
