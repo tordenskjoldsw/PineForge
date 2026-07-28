@@ -182,6 +182,9 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
     // values while the watch sleeps, so the redraw on wake shows the state as
     // it was last reported instead of an empty corner.
     let mut status = StatusCorner::new();
+    // The one piece of corner state that is not a reading: it is settled at
+    // boot and only ever moves when the user confirms, below.
+    status.set_unconfirmed(!crate::boot::confirm::is_validated());
     let mut power_receiver = system_power_receiver();
     let mut settings_receiver = display_settings_receiver();
     let mut wall_clock = wall_clock_receiver();
@@ -472,6 +475,9 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                 let confirmed = crate::boot::confirm::confirm();
                 info!("Firmware confirmation requested; confirmed={}", confirmed);
                 screens.firmware.set_confirmed(confirmed);
+                // The corner carries the same fact, so it clears here rather
+                // than at the next boot. The full repaint below takes it.
+                status.set_unconfirmed(!confirmed);
                 let _ = VIBRATION_COMMANDS.try_send(VibrationPattern::Double);
                 let _ = screens.draw_full(
                     app.active_screen(),

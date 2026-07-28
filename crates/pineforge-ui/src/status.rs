@@ -40,12 +40,29 @@ const RUNE_HEIGHT: i32 = 14;
 const RUNE_X: i32 = BATTERY_X - 10 - RUNE_WIDTH;
 const RUNE_Y: i32 = 1;
 
+/// The unconfirmed-image mark: a bar over a dot, left of the Bluetooth rune.
+const ALERT_WIDTH: i32 = 3;
+const ALERT_X: i32 = RUNE_X - 10 - ALERT_WIDTH;
+const ALERT_Y: i32 = 2;
+const ALERT_BAR_HEIGHT: i32 = 8;
+const ALERT_DOT_Y: i32 = ALERT_Y + ALERT_BAR_HEIGHT + 2;
+/// Left edge of everything the corner owns, and so of what it clears.
+const CLEARED_X: i32 = ALERT_X - 2;
+
 /// What the corner shows. Both values arrive as events; absent means the
 /// service has not reported yet, and nothing is drawn rather than a guess.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct StatusCorner {
     ble: Option<BleState>,
     battery: Option<BatteryStatus>,
+    /// Whether the running image still has to be confirmed.
+    ///
+    /// Unlike the other two this is not a reading that arrives on a timer - it
+    /// is true from boot until the user acts, or never. It earns a place here
+    /// because of what it silently prevents: an unconfirmed image refuses every
+    /// firmware update, and until this mark existed the only way to find that
+    /// out was to attempt one and watch the phone fail for no stated reason.
+    unconfirmed: bool,
 }
 
 impl StatusCorner {
@@ -54,7 +71,15 @@ impl StatusCorner {
         Self {
             ble: None,
             battery: None,
+            unconfirmed: false,
         }
+    }
+
+    /// Returns whether the corner needs redrawing.
+    pub const fn set_unconfirmed(&mut self, unconfirmed: bool) -> bool {
+        let changed = self.unconfirmed != unconfirmed;
+        self.unconfirmed = unconfirmed;
+        changed
     }
 
     /// Returns whether the corner needs redrawing.
@@ -82,18 +107,41 @@ impl StatusCorner {
     pub fn draw(&self, canvas: &mut Canvas<'_>) -> Result<(), CanvasError> {
         draw_visible(
             &Rectangle::new(
-                Point::new(RUNE_X - 2, 0),
-                Size::new((SCREEN_WIDTH - RUNE_X + 2) as u32, STATUS_HEIGHT as u32),
+                Point::new(CLEARED_X, 0),
+                Size::new((SCREEN_WIDTH - CLEARED_X) as u32, STATUS_HEIGHT as u32),
             )
             .into_styled(PrimitiveStyle::with_fill(theme::BACKGROUND)),
             canvas,
         )?;
 
+        if self.unconfirmed {
+            Self::draw_alert(canvas)?;
+        }
         if let Some(state) = self.ble {
             self.draw_rune(canvas, theme::bluetooth(state))?;
         }
         if let Some(status) = self.battery {
             self.draw_battery(canvas, status)?;
+        }
+        Ok(())
+    }
+
+    /// The unconfirmed-image mark: an exclamation, in the colour reserved for
+    /// state that deserves attention.
+    ///
+    /// Two filled bars rather than a glyph from the font, so the corner keeps
+    /// its property of costing no flash and needing nothing read to compose it.
+    fn draw_alert(canvas: &mut Canvas<'_>) -> Result<(), CanvasError> {
+        let style = PrimitiveStyle::with_fill(theme::DANGER);
+        for (y, height) in [(ALERT_Y, ALERT_BAR_HEIGHT), (ALERT_DOT_Y, ALERT_WIDTH)] {
+            draw_visible(
+                &Rectangle::new(
+                    Point::new(ALERT_X, y),
+                    Size::new(ALERT_WIDTH.cast_unsigned(), height.cast_unsigned()),
+                )
+                .into_styled(style),
+                canvas,
+            )?;
         }
         Ok(())
     }
