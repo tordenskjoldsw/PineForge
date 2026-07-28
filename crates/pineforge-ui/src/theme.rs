@@ -17,8 +17,14 @@ use pineforge_state::{BleState, ChargeLevel};
 /// is why it is named rather than written as black at the call site.
 pub const BACKGROUND: Rgb565 = Rgb565::new(0, 0, 0);
 pub const TEXT: Rgb565 = Rgb565::new(31, 63, 31);
-/// Borders of rows and tiles.
-pub const FRAME: Rgb565 = Rgb565::new(8, 16, 8);
+/// Page marks off the current page, and rules.
+///
+/// Held at 3:1 against the background, which is what WCAG 1.4.11 asks of a
+/// non-text element that carries meaning. It used to be 2.07:1 and read as
+/// absent: a page rail showed one bright mark and, as far as the eye was
+/// concerned, nothing beside it - so a screen with two pages looked like a
+/// screen with one and a stray decoration.
+pub const FRAME: Rgb565 = Rgb565::new(11, 22, 11);
 /// The face of a raised component - a launcher tile - against the background.
 ///
 /// Dark enough to keep the display mostly black, which is what the panel is

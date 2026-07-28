@@ -36,7 +36,7 @@ names a colour.
 |---|---|---|---|
 | `BACKGROUND` | `0x0000` | black | every screen's ground |
 | `TEXT` | `0xFFFF` | white | labels, titles |
-| `FRAME` | `0x4208` | 25% grey | page marks not on the current page, rules |
+| `FRAME` | `0x5ACB` | 35% grey | page marks not on the current page, rules |
 | `SURFACE` | `0x2125` | near-black grey | the face of a tile or a row |
 | `ACCENT` | `0x1E33` | verdigris | values, icons, selection fill |
 | `LINK` | `0x451F` | azure | Bluetooth connected |
@@ -65,6 +65,14 @@ first colour to vanish, which is why `LINK` is azure rather than `0x001F`.
 
 The four semantic colours exist because status has to be readable at a glance
 rather than deciphered: they are for state, never for decoration.
+
+**Anything that carries meaning clears 3:1 against the ground**, which is what
+WCAG 1.4.11 asks of a non-text element. `FRAME` was 2.07:1 and failed it, and
+the failure was visible rather than theoretical: a page rail drew one bright
+mark and, to the eye, nothing at all beside it, so a screen with two pages
+looked like a screen with one and a stray piece of decoration. It is a useful
+line to hold on a panel that also dims to a third of its brightness before it
+sleeps — the contrast measured here is the best case, not the typical one.
 
 Components sit on `SURFACE` rather than on the background. Keeping the panel
 mostly black is what it is good at, but a tile that is only an outline reads as
@@ -187,8 +195,8 @@ there is more that way, while the same marks in a row underneath would point
 across a movement that never goes across. So the launcher's rail lies flat
 under the tiles and a menu's stands upright beside the rows.
 
-**The showing page is a bar, the rest are squares** — 18 pixels against 4,
-4 across, 6 apart. Two treatments rather than one, because the second is
+**The showing page is a bar, the rest are squares** — 24 pixels against 6,
+6 across, 6 apart. Two treatments rather than one, because the second is
 colour, and colour has to be seen accurately at backlight level 1 to carry
 anything; the long mark still reads as position when the palette barely does.
 The showing mark is `ACCENT` and the rest are `FRAME`.
@@ -203,6 +211,11 @@ partial redraw would leave the tail of its old position standing.
 
 Nothing is drawn for a single page. There is no position to report when there is
 only one place to be, and a lone mark would read as a control.
+
+This shape stops working somewhere around ten pages, where the marks are too
+many to count and the rail runs out of edge to sit on. No screen is near that,
+but it is the boundary at which this component should become something else — a
+proportional thumb — rather than be made smaller.
 
 A tile carries a 24 x 24 icon above a centred label. Icons are one-bit bitmaps,
 four bytes per row, tinted at draw time so one bitmap serves both the normal and

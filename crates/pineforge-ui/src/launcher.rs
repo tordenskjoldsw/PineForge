@@ -56,8 +56,9 @@ const TILE_WIDTH: i32 = 115;
 const TILE_HEIGHT: i32 = 106;
 const TOP: i32 = STATUS_HEIGHT + 2;
 
-/// Centre line of the page rail, below the second row of tiles.
-const DOT_Y: i32 = TOP + 2 * TILE_HEIGHT + GAP + 4;
+/// Centre line of the page rail, in the strip the tiles leave below them.
+/// Placed so the rail's thickness clears the bottom edge of the panel.
+const DOT_Y: i32 = TOP + 2 * TILE_HEIGHT + GAP + 3;
 /// Width of one character in the UI face, for centring a label by hand.
 const CHARACTER_WIDTH: i32 = JETBRAINS_MONO_10X22.cell.width.cast_signed();
 

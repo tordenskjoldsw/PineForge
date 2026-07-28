@@ -99,12 +99,16 @@ pub fn draw_row(
 }
 
 /// Thickness of a page mark across the rail it sits on.
-const MARK_THICKNESS: i32 = 4;
-/// Length of a page that is not the one showing.
-const MARK_DOT: i32 = 4;
-/// Length of the page that is. Long enough to read as position at a glance
-/// rather than as a brighter dot among dots.
-const MARK_ACTIVE: i32 = 18;
+///
+/// Six rather than four, which is the same step the rows are spaced by and the
+/// same depth the corner mask cuts. Four was thin enough that the rail read as
+/// a scratch on the panel rather than as a control's worth of information.
+const MARK_THICKNESS: i32 = 6;
+/// Length of a page that is not the one showing: a square.
+const MARK_DOT: i32 = 6;
+/// Length of the page that is - four times the square, so position is legible
+/// from the shape alone.
+const MARK_ACTIVE: i32 = 24;
 const MARK_GAP: i32 = 6;
 
 /// Length of the whole run of marks.
