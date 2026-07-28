@@ -102,13 +102,16 @@ impl TouchRouter {
 }
 
 const SWIPE_MIN_DISTANCE: i32 = 40;
-const SWIPE_AXIS_DOMINANCE_NUMERATOR: i32 = 3;
-const SWIPE_AXIS_DOMINANCE_DENOMINATOR: i32 = 2;
 
 /// Combines controller-provided gestures with a coordinate-based fallback.
 ///
-/// The fallback only accepts a clearly dominant axis, preserving taps and
-/// diagonal drawing input while covering missed `CST816S` gesture reports.
+/// The fallback exists to catch swipes the `CST816S` gesture register missed,
+/// so it must not be *stricter* than the hardware it stands in for. It used to
+/// demand the travelled axis beat the other one by half again, which left a
+/// dead wedge around the diagonals: a swipe of 50 across and 40 down satisfied
+/// neither axis and was dropped, and fingers cross a round screen diagonally
+/// all the time. Now the longer axis simply wins and only the minimum distance
+/// has to be cleared, which is what keeps a tap from reading as a swipe.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SwipeRecognizer {
     start: Option<(i32, i32)>,
@@ -178,19 +181,15 @@ impl SwipeRecognizer {
     const fn direction_from_delta(delta_x: i32, delta_y: i32) -> Option<SwipeDirection> {
         let horizontal = delta_x.abs();
         let vertical = delta_y.abs();
-        if horizontal >= SWIPE_MIN_DISTANCE
-            && horizontal * SWIPE_AXIS_DOMINANCE_DENOMINATOR
-                >= vertical * SWIPE_AXIS_DOMINANCE_NUMERATOR
-        {
+        // An exact tie names no direction, so it is the one case refused
+        // outright rather than resolved by an arbitrary preference.
+        if horizontal > vertical && horizontal >= SWIPE_MIN_DISTANCE {
             Some(if delta_x < 0 {
                 SwipeDirection::Left
             } else {
                 SwipeDirection::Right
             })
-        } else if vertical >= SWIPE_MIN_DISTANCE
-            && vertical * SWIPE_AXIS_DOMINANCE_DENOMINATOR
-                >= horizontal * SWIPE_AXIS_DOMINANCE_NUMERATOR
-        {
+        } else if vertical > horizontal && vertical >= SWIPE_MIN_DISTANCE {
             Some(if delta_y < 0 {
                 SwipeDirection::Up
             } else {
@@ -324,6 +323,54 @@ mod tests {
         );
         assert_eq!(recognizer.update(100, 100, true, None), None);
         assert_eq!(recognizer.update(100, 100, false, None), None);
+    }
+
+    /// The regression for "swipes get swallowed".
+    ///
+    /// A finger crossing a round screen rarely travels along an axis. The old
+    /// rule wanted the moved axis to beat the other by half again, so a swipe
+    /// of 50 across and 40 down cleared the minimum distance on both axes and
+    /// was still dropped by both arms of the test - the fallback meant to
+    /// recover missed hardware gestures was refusing more than the hardware.
+    #[test]
+    fn a_diagonal_swipe_resolves_to_its_longer_axis() {
+        let cases = [
+            ((50, 40), SwipeDirection::Right),
+            ((-50, 40), SwipeDirection::Left),
+            ((40, 50), SwipeDirection::Down),
+            ((40, -50), SwipeDirection::Up),
+        ];
+        for ((delta_x, delta_y), expected) in cases {
+            let mut recognizer = SwipeRecognizer::new();
+            assert_eq!(recognizer.update(120, 120, true, None), None);
+            assert_eq!(
+                recognizer.update(120 + delta_x, 120 + delta_y, true, None),
+                Some(expected),
+                "delta ({delta_x}, {delta_y})"
+            );
+        }
+    }
+
+    #[test]
+    fn a_short_move_is_still_a_tap_whichever_way_it_leans() {
+        // Relaxing the axis rule must not lower the bar that separates a swipe
+        // from a tap: the minimum distance still has to be cleared.
+        for (delta_x, delta_y) in [(30, 25), (25, 30), (39, 0), (0, 39), (39, 39)] {
+            let mut recognizer = SwipeRecognizer::new();
+            assert_eq!(recognizer.update(100, 100, true, None), None);
+            assert_eq!(
+                recognizer.update(100 + delta_x, 100 + delta_y, true, None),
+                None,
+                "delta ({delta_x}, {delta_y})"
+            );
+        }
+    }
+
+    #[test]
+    fn an_exactly_diagonal_swipe_names_no_direction() {
+        let mut recognizer = SwipeRecognizer::new();
+        assert_eq!(recognizer.update(100, 100, true, None), None);
+        assert_eq!(recognizer.update(160, 160, true, None), None);
     }
 
     #[test]
