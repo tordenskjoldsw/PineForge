@@ -39,18 +39,28 @@ names a colour.
 | `TEXT_MUTED` | `0x8410` | 50% grey | disabled entries, secondary lines |
 | `FRAME` | `0x4208` | 25% grey | borders of rows |
 | `SURFACE` | `0x2125` | near-black grey | the face of a tile or a row |
-| `ACCENT` | `0x7AFF` | indigo | values, icons, selection fill |
+| `ACCENT` | `0x1E33` | verdigris | values, icons, selection fill |
 | `LINK` | `0x451F` | azure | Bluetooth connected |
 | `OK` | `0x07E0` | green | battery healthy |
 | `WARN` | `0xFFE0` | yellow | battery low |
 | `DANGER` | `0xF800` | red | battery critical, disconnected, rollback, DFU failure |
 
-Indigo is the accent because it is the one hue no status colour uses: nothing
-interactive can be mistaken for a warning, and both of its channels stay bright
-enough at the lowest backlight level. The four semantic colours exist because
-status has to be readable at a glance rather than deciphered: they are for
-state, never for decoration. Azure rather than pure blue (`0x001F`) because pure
-blue is the first colour to vanish when the backlight dims.
+Verdigris is the accent because the product is called PineForge: it is what
+forged copper ages into and what a pine needle is in shade, so the one colour
+the firmware is recognised by says its name. The earlier indigo was not chosen
+so much as left over — the four semantic colours below spend red, yellow, green
+and azure, and the accent had been pushed into the last unused sector of the
+wheel to keep it from reading as a warning.
+
+That constraint has not gone away; verdigris answers it differently. It clears
+`OK` by saturation rather than by hue: pure green carries no blue at all, this
+carries a great deal, so the two read as different colours rather than as two
+greens. Being green-blue also means it survives dimming, which is the harder
+test — green has six bits where red and blue have five, and pure blue is the
+first colour to vanish, which is why `LINK` is azure rather than `0x001F`.
+
+The four semantic colours exist because status has to be readable at a glance
+rather than deciphered: they are for state, never for decoration.
 
 Components sit on `SURFACE` rather than on the background. Keeping the panel
 mostly black is what it is good at, but a tile that is only an outline reads as

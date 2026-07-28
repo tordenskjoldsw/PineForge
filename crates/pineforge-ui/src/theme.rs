@@ -27,10 +27,23 @@ pub const FRAME: Rgb565 = Rgb565::new(8, 16, 8);
 pub const SURFACE: Rgb565 = Rgb565::new(4, 9, 5);
 /// Values, icons, and the fill of a pressed or selected component.
 ///
-/// Indigo rather than the amber this started with: it is the one hue no status
-/// colour uses, so nothing interactive can be mistaken for a warning, and both
-/// its channels are bright enough to survive the lowest backlight level.
-pub const ACCENT: Rgb565 = Rgb565::new(15, 23, 31);
+/// Verdigris: the colour forged copper ages into, and the colour a pine needle
+/// is in shade. Both halves of the name land on it, which is the whole reason
+/// it is this and not something else - an accent is the one colour a product
+/// gets to be recognised by.
+///
+/// It replaces an indigo that was never chosen so much as left over. The palette
+/// spends red, yellow, green and azure on status, and the accent had been pushed
+/// into the last free sector to keep it from reading as a warning. That
+/// constraint is real and this colour still answers it, but by separation in
+/// saturation rather than in hue: `OK` is pure green with no blue at all, while
+/// this is visibly blue-green, so the two do not trade places at a glance.
+///
+/// Green and blue are also the channels that survive dimming - green has six
+/// bits where the others have five, and pure blue is the first to vanish - so
+/// this stays legible at backlight level 1, where a darker or warmer accent
+/// would not.
+pub const ACCENT: Rgb565 = Rgb565::new(3, 49, 19);
 /// Rollback, DFU failure, critical charge. Reserved for state that deserves
 /// attention; never decoration.
 pub const DANGER: Rgb565 = Rgb565::new(31, 0, 0);
