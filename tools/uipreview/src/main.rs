@@ -140,6 +140,10 @@ fn populate(screens: &mut Screens, status: &mut StatusCorner) {
 
     status.set_battery(battery);
     status.set_ble(BleState::Connected);
+    // Shown rather than hidden: this mark is the whole reason a firmware update
+    // can be refused, and it is worth seeing what it looks like beside the
+    // other two rather than only in the rare state that produces it.
+    status.set_unconfirmed(true);
 
     // Two messages, so the notification screen shows its paging rather than its
     // empty state.
@@ -191,7 +195,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// One modal, drawn at a value worth looking at.
     type Modal<'a> = (&'a str, &'a dyn Fn(&mut Canvas<'_>) -> Result<(), CanvasError>);
 
-    let modals: [Modal<'_>; 5] = [
+    let modals: [Modal<'_>; 6] = [
         ("modal-dfu-progress", &|c| {
             draw_dfu_progress(c, 42, &mut || {})
         }),
@@ -200,6 +204,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }),
         ("modal-dfu-failed", &|c| {
             draw_dfu_failed(c, DfuFailReason::TimedOut, &mut || {})
+        }),
+        ("modal-dfu-unconfirmed", &|c| {
+            draw_dfu_failed(c, DfuFailReason::NotConfirmed, &mut || {})
         }),
         ("modal-storage", &|c| {
             draw_storage_progress(c, 66, &mut || {})
