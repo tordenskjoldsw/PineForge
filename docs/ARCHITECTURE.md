@@ -28,9 +28,33 @@ able to fail a build instead of noticing on the wrist.
 
 - `board`: immutable PineTime hardware facts, especially pin assignments.
 - `drivers`: device-local state machines implementing `embedded-hal` boundaries.
-- `services`: product behavior independent from concrete peripherals.
-- `tasks`: long-running single-owner tasks for display, input, watchdog, and future subsystems.
+- `ipc`: the bus between tasks — channels, watches, signals, and the reasoning
+  for each one's depth. Declarations only.
+- `services`: executor-independent runners. Generic over the `embedded-hal`
+  traits they need; never name `embassy_nrf` and never declare a task.
+- `tasks`: everything the executor runs. Binds board resources to a runner, or
+  does the work itself where there is no portable half.
 - `main`: composition root only; owns concrete peripherals and scheduling.
+
+**The rule between `services` and `tasks`, and which way it runs.** A service
+owns a subsystem's lifecycle and cadence and exposes `run()`; the task is the
+few lines that hand it a concrete bus and spawn it. `AccelerometerRunner` and
+`HeartRateRunner` are the shape — both are generic over `I2c`, so what a sensor
+does over time is readable without a watch attached.
+
+The rule is one-directional: a service may not reach down into the executor or
+the chip, but **a task needs no service half.** Where there is nothing portable
+to extract — a motor that pulses, a watchdog that is petted, deadline
+arithmetic that only `embassy-time` can do — the task is the whole subsystem
+and no wrapper is invented for symmetry.
+
+`scripts/check-layers.sh` holds this in CI, because it is otherwise a
+convention that erodes one convenient import at a time — which is exactly how
+it eroded before: `services::power` and `services::settings` were both tasks,
+the second owning the external flash, and `services::events` was a message bus
+filed under product behavior. The script also fails a task module that
+`main.rs` never spawns, so the layer's contents and the composition root cannot
+drift apart.
 
 ## RAM
 

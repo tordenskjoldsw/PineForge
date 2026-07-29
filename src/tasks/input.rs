@@ -5,7 +5,7 @@ use embassy_time::{Delay, Duration, with_timeout};
 use crate::{
     board::{buses::TouchI2c, peripherals::TouchResources},
     drivers::touch::{Cst816s, Gesture},
-    services::events::{POWER_COMMANDS, TOUCH_READY, UI_EVENTS},
+    ipc::{POWER_COMMANDS, TOUCH_READY, UI_EVENTS},
 };
 use pineforge_state::{PowerCommand, SwipeDirection, TouchReport, TouchRouter};
 

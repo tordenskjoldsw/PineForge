@@ -11,7 +11,7 @@ use pineforge_state::{
 
 use crate::{
     drivers::hrs3300::{Hrs3300, Hrs3300Kind},
-    services::events::{
+    ipc::{
         HEART_RATE_COMMANDS, MOTION_READY, SystemPowerReceiver, UI_EVENTS, system_power_receiver,
     },
 };

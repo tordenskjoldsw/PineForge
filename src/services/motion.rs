@@ -8,9 +8,7 @@ use pineforge_state::{AccelerometerKind, AppEvent, SystemPowerState};
 
 use crate::{
     drivers::bma42x::{AccelerationPowerMode, Bma42x, FeatureEngineError},
-    services::events::{
-        MOTION_READY, SystemPowerReceiver, TOUCH_READY, UI_EVENTS, system_power_receiver,
-    },
+    ipc::{MOTION_READY, SystemPowerReceiver, TOUCH_READY, UI_EVENTS, system_power_receiver},
 };
 
 const ACTIVE_UPDATE_INTERVAL: Duration = Duration::from_millis(100);

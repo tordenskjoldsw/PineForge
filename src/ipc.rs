@@ -1,3 +1,24 @@
+//! The bus every task reaches the others through.
+//!
+//! Declarations only - a channel, a watch, or a signal, and the reasoning for
+//! each one's depth. No task loop and no hardware live here, which is what
+//! keeps this readable as the firmware's wiring diagram: the set of things that
+//! cross a task boundary is this file, and nothing else.
+//!
+//! It sat under `services` while the distinction between a service and a task
+//! was being worked out, and was neither. It is not product behavior, and the
+//! name `events` covered only the channels - the watches carry state and the
+//! signals carry bring-up order.
+//!
+//! Three kinds, chosen by what a late reader should see:
+//!
+//! - [`Channel`] where every message matters (a keystroke, a flash page).
+//! - [`Watch`] where only the latest does (power state, battery, settings). Its
+//!   subscriber count is fixed at compile time and handed out by the
+//!   `*_receiver()` helpers below.
+//! - [`Signal`] for one-shot ordering, which is how the shared I²C bus is
+//!   brought up in the sequence the `PineTime` wants.
+
 use embassy_sync::{
     blocking_mutex::raw::CriticalSectionRawMutex,
     channel::Channel,

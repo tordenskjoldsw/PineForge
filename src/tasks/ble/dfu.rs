@@ -7,7 +7,7 @@ use pineforge_state::{AppEvent, BleState, DfuEngine, DfuFailReason, DfuStep};
 use trouble_host::prelude::*;
 
 use crate::{
-    services::events::{DFU_FLASH_COMMANDS, DFU_FLASH_RESULT, DfuFlashCommand, UI_EVENTS},
+    ipc::{DFU_FLASH_COMMANDS, DFU_FLASH_RESULT, DfuFlashCommand, UI_EVENTS},
     tasks::ble::gatt::DfuService,
 };
 

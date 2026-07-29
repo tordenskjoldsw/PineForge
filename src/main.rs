@@ -12,6 +12,7 @@ use panic_probe as _;
 mod board;
 mod boot;
 mod drivers;
+mod ipc;
 mod services;
 mod tasks;
 
@@ -50,7 +51,7 @@ async fn main(spawner: embassy_executor::Spawner) {
     let watchdog = BootloaderWatchdog::take_over();
     watchdog.pet();
     spawner.spawn(defmt::unwrap!(tasks::watchdog::run(watchdog)));
-    spawner.spawn(defmt::unwrap!(services::power::run()));
+    spawner.spawn(defmt::unwrap!(tasks::power::run()));
 
     let sensor_bus = board::buses::init_sensor_bus(SensorBusResources {
         i2c: p.TWISPI1,
@@ -101,7 +102,7 @@ async fn main(spawner: embassy_executor::Spawner) {
         board::buses::display_device(display_flash_bus, p.P0_25),
         watchdog
     )));
-    spawner.spawn(defmt::unwrap!(services::settings::run(
+    spawner.spawn(defmt::unwrap!(tasks::storage::run(
         board::buses::flash_device(display_flash_bus, p.P0_05),
         watchdog
     )));

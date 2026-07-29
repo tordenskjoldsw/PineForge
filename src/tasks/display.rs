@@ -6,12 +6,12 @@ use mipidsi::interface::SpiInterface;
 use mipidsi::options::{ColorInversion, Orientation};
 use static_cell::StaticCell;
 
-use crate::services::events::HEART_RATE_COMMANDS;
+use crate::ipc::HEART_RATE_COMMANDS;
 use crate::{
     board::{buses::DisplaySpi, peripherals::DisplayResources, pins},
     boot::watchdog::BootloaderWatchdog,
     drivers::backlight::Backlight,
-    services::events::{
+    ipc::{
         NOTIFICATIONS, POWER_COMMANDS, SETTINGS_COMMANDS, UI_EVENTS, VIBRATION_COMMANDS,
         display_settings_receiver, system_power_receiver, wall_clock_receiver,
     },

@@ -19,7 +19,7 @@ use trouble_host::prelude::*;
 
 use crate::{
     board::peripherals::BleResources,
-    services::events::{
+    ipc::{
         BOND_LOADED, BatteryStatusReceiver, UI_EVENTS, VIBRATION_COMMANDS, battery_status_receiver,
     },
 };

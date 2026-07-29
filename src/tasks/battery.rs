@@ -8,7 +8,7 @@ use pineforge_state::{AppEvent, BatteryCapacityEstimator, BatteryStatus, battery
 
 use crate::{
     board::peripherals::{BatteryResources, Irqs},
-    services::events::{BATTERY_STATUS, UI_EVENTS},
+    ipc::{BATTERY_STATUS, UI_EVENTS},
 };
 
 #[cfg(feature = "diagnostics")]

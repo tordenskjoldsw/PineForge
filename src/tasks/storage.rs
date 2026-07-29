@@ -1,9 +1,13 @@
-//! Owns the external flash for display settings and the BLE bond.
+//! Owns the external flash: display settings, the BLE bond, and the DFU slot.
 //!
 //! Boot decodes both settings slots and the bond record, publishing the
 //! newest valid settings (or defaults) and the stored bond. UI-submitted
 //! settings persist debounced across two slots; bond writes are one-shot.
 //! All regions are documented in `docs/FLASH-MAP.md`.
+//!
+//! Named for the peripheral it owns rather than the first thing stored on it.
+//! As `services::settings` it was the one hardware-owning task outside
+//! `tasks`, and the name accounted for one of the three regions it writes.
 
 use defmt::{info, warn};
 use embassy_futures::select::{Either3, select3};
@@ -20,7 +24,7 @@ use crate::{
     board::buses::FlashSpi,
     boot::watchdog::BootloaderWatchdog,
     drivers::xt25f32::{Error as FlashError, Xt25f32, is_supported_jedec_id},
-    services::events::{
+    ipc::{
         BOND_LOADED, BOND_STORE, DFU_FLASH_COMMANDS, DFU_FLASH_RESULT, DISPLAY_SETTINGS,
         DfuFlashCommand, SETTINGS_COMMANDS, StoredBond, UI_EVENTS,
     },

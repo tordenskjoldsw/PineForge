@@ -3,7 +3,7 @@ use embassy_futures::select::{Either, select};
 use embassy_nrf::gpio::{Input, Output};
 use embassy_time::{Duration, Timer};
 
-use crate::services::events::{POWER_COMMANDS, UI_EVENTS};
+use crate::ipc::{POWER_COMMANDS, UI_EVENTS};
 use pineforge_state::{AppEvent, PowerCommand};
 
 const DEBOUNCE: Duration = Duration::from_millis(30);

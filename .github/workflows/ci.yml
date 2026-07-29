@@ -30,6 +30,10 @@ jobs:
         run: cargo install flip-link --locked
       - name: Check formatting
         run: cargo fmt --all -- --check
+      # Cheap and first: a layer violation is a design regression, and finding
+      # it before a six-minute release build is the point.
+      - name: Check layer boundaries
+        run: ./scripts/check-layers.sh
       - name: Check production firmware
         run: cargo check --release
       - name: Check diagnostics firmware

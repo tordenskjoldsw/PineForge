@@ -3,7 +3,7 @@ use embassy_time::Timer;
 
 use crate::{
     board::peripherals::VibrationResources, drivers::vibration::VibrationMotor,
-    services::events::VIBRATION_COMMANDS,
+    ipc::VIBRATION_COMMANDS,
 };
 
 /// Owns the vibration motor and plays requested haptic patterns.

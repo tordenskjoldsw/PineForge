@@ -14,7 +14,7 @@ use pineforge_state::{
 use trouble_host::prelude::*;
 
 use crate::{
-    services::events::{
+    ipc::{
         BOND_STORE, BatteryStatusReceiver, NOTIFICATIONS, StoredBond, UI_EVENTS,
         VIBRATION_COMMANDS, WALL_CLOCK,
     },

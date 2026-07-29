@@ -1,8 +1,18 @@
+//! Turns inactivity into a published [`SystemPowerState`].
+//!
+//! A task rather than a service despite owning no peripheral, because there is
+//! nothing portable left in it to extract: the policy itself is
+//! [`SystemPowerPolicy`] in `pineforge-state`, already tested on the host, and
+//! what remains here is the deadline arithmetic that only `embassy-time` can
+//! do. A runner around it would be a wrapper with no second implementation.
+//!
+//! [`SystemPowerState`]: pineforge_state::SystemPowerState
+
 use embassy_futures::select::{Either, select};
 use embassy_time::{Duration, Instant, with_deadline};
 use pineforge_state::{PowerCommand, PowerConfig, SystemPowerPolicy};
 
-use crate::services::events::{POWER_COMMANDS, SYSTEM_POWER, display_settings_receiver};
+use crate::ipc::{POWER_COMMANDS, SYSTEM_POWER, display_settings_receiver};
 
 enum Input {
     Command(PowerCommand),
