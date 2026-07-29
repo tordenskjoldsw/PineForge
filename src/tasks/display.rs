@@ -17,14 +17,13 @@ use crate::{
     },
 };
 use pineforge_state::{
-    AppEffect, AppEvent, AppState, DisplaySettings, HeartRateCommand, Modal, ModalOutcome,
-    ModalState, Notification, PowerCommand, ScreenId, SystemPowerState, VibrationPattern,
+    AppEffect, AppEvent, AppState, DisplaySettings, HeartRateCommand, ModalOutcome, ModalState,
+    Notification, PowerCommand, ScreenId, SystemPowerState, VibrationPattern,
 };
 use pineforge_ui::{
     about::BuildInfo,
-    canvas::{Canvas, CanvasError},
-    dfu::{draw_dfu_failed, draw_dfu_progress, draw_storage_progress, refresh_progress},
-    pairing::draw_pairing,
+    canvas::Canvas,
+    modal,
     registry::Screens,
     screen::Screen,
     status::{StatusCorner, wears_status},
@@ -70,51 +69,59 @@ fn file(screens: &mut Screens, notification: Notification) -> DisplayEvent {
     ))
 }
 
-/// Draws the system modal that owns the screen.
-fn draw_modal(
-    canvas: &mut Canvas<'_>,
-    modal: Modal,
-    keep_alive: &mut dyn FnMut(),
-) -> Result<(), CanvasError> {
-    match modal {
-        Modal::StorageFormat(percent) => draw_storage_progress(canvas, percent, keep_alive),
-        Modal::Pairing(passkey) => draw_pairing(canvas, passkey, keep_alive),
-        Modal::DfuProgress(percent) => draw_dfu_progress(canvas, percent, keep_alive),
-        Modal::DfuFailed(reason) => draw_dfu_failed(canvas, reason, keep_alive),
-    }
-}
+/// The panel, once it is up and pointed the right way round.
+type Panel = mipidsi::Display<
+    SpiInterface<'static, DisplaySpi, Output<'static>>,
+    mipidsi::models::ST7789,
+    Output<'static>,
+>;
 
-/// Repaints the part of a showing modal that its new value moved.
+/// Brings the panel up, or reports that this watch has to run blind.
 ///
-/// A transfer reports about a hundred percentage steps, and a full repaint per
-/// step blanks the panel for the length of an SPI frame each time - which is
-/// the flicker. The two progress prompts have a partial path; the others have
-/// nothing that moves without the whole prompt changing, so they fall back.
-fn refresh_modal(
-    canvas: &mut Canvas<'_>,
-    modal: Modal,
-    keep_alive: &mut dyn FnMut(),
-) -> Result<(), CanvasError> {
-    match modal {
-        Modal::StorageFormat(percent) | Modal::DfuProgress(percent) => {
-            refresh_progress(canvas, percent, keep_alive)
+/// `None` rather than a panic, and that is the whole point of the return type.
+/// Panicking here traps the core, nothing pets the watchdog from the trap, and
+/// seven seconds later the bootloader starts the same image into the same
+/// failure - forever, with no window in which anything can be fixed. Ending the
+/// display task instead leaves every other task running, so the watch still
+/// advertises and can still be recovered over DFU. A blind watch is bad; a
+/// bootlooping watch is a brick.
+fn init_panel(
+    dc: Output<'static>,
+    reset: Output<'static>,
+    spi: DisplaySpi,
+    delay: &mut Delay,
+) -> Option<Panel> {
+    let interface = SpiInterface::new(spi, dc, DISPLAY_BUFFER.init([0; 512]));
+    let panel = mipidsi::Builder::new(mipidsi::models::ST7789, interface)
+        .display_size(pins::DISPLAY_WIDTH, pins::DISPLAY_HEIGHT)
+        .invert_colors(ColorInversion::Inverted)
+        .reset_pin(reset)
+        .init(delay);
+
+    let mut panel = match panel {
+        Ok(panel) => panel,
+        Err(error) => {
+            error!(
+                "Display init failed, continuing without a screen: {}",
+                defmt::Debug2Format(&error)
+            );
+            return None;
         }
-        Modal::Pairing(_) | Modal::DfuFailed(_) => draw_modal(canvas, modal, keep_alive),
+    };
+    if let Err(error) = panel.set_orientation(Orientation::new()) {
+        error!(
+            "Display orientation rejected, continuing without a screen: {}",
+            defmt::Debug2Format(&error)
+        );
+        return None;
     }
-}
-
-/// Whether showing this modal counts as user activity.
-///
-/// A prompt or a transfer in flight renews the idle timer so it stays readable.
-/// The terminal failure screen deliberately does not: it survives sleep and is
-/// redrawn on wake, so it must not hold the backlight on indefinitely.
-const fn renews_activity(modal: Modal) -> bool {
-    !matches!(modal, Modal::DfuFailed(_))
+    Some(panel)
 }
 
 /// Owns the display and backlight and renders events received from the UI bus.
-// Keeping setup and the event loop in one function makes peripheral ownership
-// explicit for this single-owner task.
+// Keeping the event loop in one function makes peripheral ownership explicit
+// for this single-owner task; only the panel bring-up, which shares nothing
+// with the loop, is lifted out above.
 #[allow(clippy::too_many_lines)]
 #[embassy_executor::task]
 pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: BootloaderWatchdog) {
@@ -125,42 +132,16 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
     );
     backlight.set_level(1);
 
-    let dc = Output::new(resources.dc, Level::Low, OutputDrive::Standard);
-    let reset = Output::new(resources.reset, Level::Low, OutputDrive::Standard);
-    let interface = SpiInterface::new(spi, dc, DISPLAY_BUFFER.init([0; 512]));
     let mut delay = Delay;
-    // A panel that will not start must not take the watch down with it.
-    //
-    // Panicking here traps the core, nothing pets the watchdog from the trap,
-    // and seven seconds later the bootloader starts the same image into the
-    // same failure - forever, with no window in which anything can be fixed.
-    // Ending this task instead leaves every other task running, so the watch
-    // still advertises and can still be recovered over DFU. It is a blind
-    // watch, which is bad; a bootlooping watch is a brick.
-    let display = mipidsi::Builder::new(mipidsi::models::ST7789, interface)
-        .display_size(pins::DISPLAY_WIDTH, pins::DISPLAY_HEIGHT)
-        .invert_colors(ColorInversion::Inverted)
-        .reset_pin(reset)
-        .init(&mut delay);
-    let mut display = match display {
-        Ok(display) => display,
-        Err(error) => {
-            error!(
-                "Display init failed, continuing without a screen: {}",
-                defmt::Debug2Format(&error)
-            );
-            backlight.set_level(0);
-            return;
-        }
-    };
-    if let Err(error) = display.set_orientation(Orientation::new()) {
-        error!(
-            "Display orientation rejected, continuing without a screen: {}",
-            defmt::Debug2Format(&error)
-        );
+    let Some(mut display) = init_panel(
+        Output::new(resources.dc, Level::Low, OutputDrive::Standard),
+        Output::new(resources.reset, Level::Low, OutputDrive::Standard),
+        spi,
+        &mut delay,
+    ) else {
         backlight.set_level(0);
         return;
-    }
+    };
     watchdog.pet();
     let mut settings = DisplaySettings::DEFAULT;
     backlight.set_level(settings.brightness());
@@ -296,10 +277,11 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                     SystemPowerState::Interactive if was_sleeping => {
                         let _ = display.wake(&mut delay);
                         // A modal outlives sleep and still owns the screen.
-                        if let Some(modal) = modals.current() {
-                            let _ = draw_modal(&mut Canvas::new(&mut display), modal, &mut || {
-                                watchdog.pet();
-                            });
+                        if let Some(showing) = modals.current() {
+                            let _ =
+                                modal::draw(&mut Canvas::new(&mut display), showing, &mut || {
+                                    watchdog.pet();
+                                });
                         } else {
                             if let Some(reference) = wall_clock.try_changed() {
                                 wall_clock_reference = Some(reference);
@@ -336,10 +318,34 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
             }
         };
 
+        // ---- Ingest. Every model this task owns absorbs the event here,
+        // before anything below decides whether to paint. Nothing in this
+        // section may be skipped: an event is consumed from the channel
+        // whatever happens next, so a model that misses one never sees it. ----
+
         let status_changed = match event {
             AppEvent::BatteryUpdated(reading) => status.set_battery(reading),
             AppEvent::BleUpdated(state) => status.set_ble(state),
             _ => false,
+        };
+
+        // A reading is a fact about the watch rather than something addressed
+        // to whichever screen is up, and the face is the only screen that keeps
+        // one. So it is applied once, here, instead of being routed through the
+        // active screen.
+        //
+        // This is what used to be lost. The dispatch to the active screen sits
+        // below the sleep gate, and the one path that fed the face directly
+        // covered two event kinds and only while the face was *not* showing.
+        // So the ordinary case - face showing, watch asleep - dropped every
+        // reading it received. With sleep at twenty seconds and a battery
+        // sample every ten minutes, that was nearly all of them: the percentage
+        // sat where it was at boot, and a charger on the pad never turned `BAT`
+        // into `CHG`, because that reading arrives exactly when the panel is
+        // off.
+        let reading_moved = event.is_reading() && {
+            let _ = screens.watchface.handle_event(event);
+            screens.watchface.moved()
         };
 
         if let AppEvent::DisplaySettingsUpdated(updated) = event {
@@ -364,17 +370,6 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                 );
             }
         }
-        // Readings the watchface shows arrive whatever screen is up, and it is
-        // the only screen holding them. Feeding it here keeps them current
-        // without painting anything: the screen actually showing is drawn below.
-        if matches!(
-            event,
-            AppEvent::HeartRateStateUpdated(_) | AppEvent::NotificationsChanged(_)
-        ) && app.active_screen() != ScreenId::Watchface
-        {
-            let _ = screens.watchface.handle_event(event);
-        }
-
         // The stack's high-water mark, on the one screen that can show it. A
         // watch with no debugger attached has no other way to read it, and the
         // reading is what the RAM budget is meant to be set from.
@@ -389,10 +384,10 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
         // first; only `None` leaves it to the active screen.
         let modal_outcome = modals.handle(event);
         match modal_outcome {
-            ModalOutcome::Show(modal) | ModalOutcome::Refresh(modal) => {
+            ModalOutcome::Show(showing) | ModalOutcome::Refresh(showing) => {
                 let _ = display.wake(&mut delay);
                 backlight.set_level(settings.brightness());
-                if renews_activity(modal) {
+                if showing.renews_activity() {
                     POWER_COMMANDS.send(PowerCommand::UserActivity).await;
                 }
                 // A value that moved repaints what moved; a prompt that is new
@@ -400,9 +395,9 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                 let canvas = &mut Canvas::new(&mut display);
                 let keep_alive = &mut || watchdog.pet();
                 let _ = if matches!(modal_outcome, ModalOutcome::Refresh(_)) {
-                    refresh_modal(canvas, modal, keep_alive)
+                    modal::refresh(canvas, showing, keep_alive)
                 } else {
-                    draw_modal(canvas, modal, keep_alive)
+                    modal::draw(canvas, showing, keep_alive)
                 };
                 continue;
             }
@@ -431,6 +426,11 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
             ModalOutcome::None => {}
         }
 
+        // ---- Render. From here down every path is about the panel, and every
+        // one of them may be skipped: a dark screen is not repainted, and an
+        // event that reaches no screen paints nothing. The models above are
+        // already current whichever way this goes. ----
+
         if power == SystemPowerState::Sleeping {
             continue;
         }
@@ -453,6 +453,25 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
         // repaint a menu.
         if status_changed && wears_status(app.active_screen()) {
             let _ = status.draw(&mut Canvas::new(&mut display));
+        }
+
+        // A reading never navigates, and the face already took it above. When
+        // the face is what is showing, the repaint it earned is all that is
+        // left to do - and handing it to the screen a second time would find
+        // nothing moved and cancel exactly that repaint.
+        //
+        // Any other screen keeps the ordinary path below. A notification tally
+        // is a reading to the face and a reason to repaint to the inbox, and
+        // only the screen itself can know that.
+        if event.is_reading() && app.active_screen() == ScreenId::Watchface {
+            if reading_moved {
+                let _ = screens.draw_dirty(
+                    ScreenId::Watchface,
+                    &mut Canvas::new(&mut display),
+                    &mut || watchdog.pet(),
+                );
+            }
+            continue;
         }
 
         // Navigation resolves against the contract first. A swipe that leads

@@ -668,6 +668,51 @@ impl AppEvent {
             Self::Touch { .. } | Self::Swipe(_) | Self::BackPressed
         )
     }
+
+    /// Whether this event carries a reading the shared [`WatchState`] holds.
+    ///
+    /// A reading is not addressed to whichever screen happens to be showing:
+    /// it is a fact about the watch, and the face is the only screen that keeps
+    /// one. So it has to reach that state whatever is on the panel and whether
+    /// or not the panel is even on - the display task applies it before it
+    /// decides what to paint, and painting is what sleep gates.
+    ///
+    /// Getting that order wrong is not a visibly wrong screen, it is a stale
+    /// one: the reading is consumed from the channel either way, so a dropped
+    /// one is simply never seen again. The watch slept twenty seconds after
+    /// each touch and sampled the battery every ten minutes, so nearly every
+    /// reading landed on a sleeping watch - which is how a percentage came to
+    /// sit where it was at boot, and why a charger on the pad never turned
+    /// `BAT` into `CHG`.
+    ///
+    /// [`WatchState`]: crate::WatchState
+    #[must_use]
+    pub const fn is_reading(self) -> bool {
+        match self {
+            Self::BatteryUpdated(_)
+            | Self::StepsUpdated(_)
+            | Self::BleUpdated(_)
+            | Self::NotificationsChanged(_)
+            | Self::HeartRateStateUpdated(_)
+            | Self::HeartRateSensorDetected(_)
+            | Self::HeartRateAnalysisUpdated(_) => true,
+            #[cfg(feature = "diagnostics")]
+            Self::AccelerometerDetected(_)
+            | Self::AccelerationUpdated(_)
+            | Self::FeatureEngineUpdated(_)
+            | Self::HeartRateRawSampleUpdated(_) => true,
+            // Input and navigation are addressed to the active screen; a tick
+            // is timing rather than a reading and only ever arrives awake;
+            // settings and storage belong to screens that are handed them.
+            Self::Touch { .. }
+            | Self::Swipe(_)
+            | Self::TouchCancelled
+            | Self::BackPressed
+            | Self::Tick { .. }
+            | Self::DisplaySettingsUpdated(_)
+            | Self::StorageUpdated(_) => false,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

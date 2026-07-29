@@ -412,6 +412,96 @@ mod tests {
         assert_eq!(state.changed(), WatchFields::NONE);
     }
 
+    /// One of every event the firmware raises.
+    ///
+    /// Written out by hand on purpose: adding a variant should make the caller
+    /// come here and decide which side it is on, which is the whole value of
+    /// the check below.
+    fn every_event() -> impl Iterator<Item = AppEvent> {
+        [
+            AppEvent::Touch {
+                x: 10,
+                y: 10,
+                pressed: true,
+            },
+            AppEvent::Swipe(SwipeDirection::Down),
+            AppEvent::TouchCancelled,
+            AppEvent::BackPressed,
+            tick(1),
+            AppEvent::DisplaySettingsUpdated(crate::DisplaySettings::DEFAULT),
+            AppEvent::StorageUpdated(crate::StorageState::Ready),
+            AppEvent::BatteryUpdated(BATTERY),
+            AppEvent::StepsUpdated(1),
+            AppEvent::BleUpdated(BleState::Connected),
+            AppEvent::NotificationsChanged(crate::NotificationSummary {
+                count: 1,
+                latest: Some(NotificationCategory::Sms),
+            }),
+            AppEvent::HeartRateStateUpdated(HeartRateState::Measuring),
+            AppEvent::HeartRateSensorDetected(crate::HeartRateSensorKind::Hrs3300),
+            AppEvent::HeartRateAnalysisUpdated(crate::PpgAnalysis::HeartRate { bpm: 60 }),
+            #[cfg(feature = "diagnostics")]
+            AppEvent::AccelerometerDetected(crate::AccelerometerKind::Bma421),
+            #[cfg(feature = "diagnostics")]
+            AppEvent::AccelerationUpdated(crate::AccelerationSample { x: 1, y: 2, z: 3 }),
+            #[cfg(feature = "diagnostics")]
+            AppEvent::FeatureEngineUpdated(crate::FeatureEngineStatus::Ready),
+            #[cfg(feature = "diagnostics")]
+            AppEvent::HeartRateRawSampleUpdated(crate::HeartRateRawSample { hrs: 1, als: 2 }),
+        ]
+        .into_iter()
+    }
+
+    /// The rule the display task routes by, and the one whose breach froze the
+    /// battery on the face.
+    ///
+    /// Anything this state absorbs has to be reachable when the panel is off,
+    /// because the event is consumed from the channel either way - a reading
+    /// that is dropped is not shown late, it is never shown. So it must be
+    /// applied before the task decides whether to paint, and
+    /// [`AppEvent::is_reading`] is what tells it which those are. A reading
+    /// that moves a field here while reporting `false` is exactly the bug that
+    /// left a percentage sitting where it was at boot.
+    #[test]
+    fn every_event_this_state_absorbs_is_one_the_display_task_will_route_here() {
+        for event in every_event() {
+            // The tick is the one event the display task raises itself rather
+            // than receives, and it raises it only while awake and only when it
+            // is about to repaint. It cannot be dropped by a gate the way an
+            // arriving reading can, because nothing produces it while that gate
+            // is shut - so it is deliberately not a reading, and this is the
+            // only exemption the rule has.
+            if matches!(event, AppEvent::Tick { .. }) {
+                assert!(!event.is_reading());
+                continue;
+            }
+            // A fresh state each time, so the assertion is about this event
+            // rather than the order they happen to be listed in.
+            let mut state = WatchState::new();
+            if !state.apply(event).is_empty() {
+                assert!(
+                    event.is_reading(),
+                    "{event:?} moves the watch state but is not routed to it"
+                );
+            }
+        }
+    }
+
+    /// The other direction, so the classification cannot be made trivially true
+    /// by calling everything a reading: input has to reach the active screen,
+    /// and a reading that short-circuits input would strand navigation.
+    #[test]
+    fn input_and_navigation_are_never_readings() {
+        for event in every_event().filter(|event| event.is_reading()) {
+            assert!(
+                !event.is_user_activity(),
+                "{event:?} is both a reading and user input"
+            );
+        }
+        assert!(every_event().any(AppEvent::is_reading));
+        assert!(every_event().any(|event| !event.is_reading()));
+    }
+
     #[test]
     fn fields_are_addressed_independently() {
         let fields = WatchFields::of(WatchField::Clock).with(WatchField::Ble);

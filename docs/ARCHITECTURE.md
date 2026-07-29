@@ -182,6 +182,39 @@ constant, competing-frequency, and ambient-light rejection. Raw samples remain
 visible while the first 6.4-second window is collected; validated analysis
 results then replace them in the same partial-redraw UI row.
 
+## The display task: ingest before render
+
+The task's event loop has two halves, and the order between them is a
+correctness property rather than a style.
+
+**Ingest** runs first and may never be skipped. Every model the task owns — the
+status corner, and the shared `WatchState` the watchface renders — absorbs the
+event here. An event is consumed from `UI_EVENTS` whichever way the rest of the
+loop goes, so a model that misses one never sees it again: a dropped reading is
+not shown late, it is not shown at all.
+
+**Render** runs second and may be skipped freely. A sleeping watch paints
+nothing, a modal claims the panel, an event that reaches no screen draws
+nothing. All of those are `continue`, and all of them are safe precisely
+because the models above are already current.
+
+`AppEvent::is_reading()` is what tells the two halves apart. A reading is a fact
+about the watch rather than something addressed to whichever screen is up, and
+the watchface is the only screen that keeps one, so it is applied once during
+ingest instead of being routed through the active screen. The tick is the sole
+exemption: the display task raises it itself, only while awake, and only when
+it is about to repaint, so no gate can drop it.
+
+This ordering is what a firmware bug came down to. The dispatch to the active
+screen sat below the sleep gate, and the one path that fed the face directly
+covered two event kinds and only while the face was *not* showing — so the
+ordinary case, face showing and watch asleep, dropped every reading it
+received. With sleep at twenty seconds and a battery sample every ten minutes,
+that was nearly all of them: the percentage sat where it was at boot, and a
+charger on the pad never turned `BAT` into `CHG`, because that reading arrives
+exactly when the panel is off. `WatchState`'s host tests now assert that
+anything the state absorbs is something `is_reading()` routes to it.
+
 ## UI contract
 
 Screens implement the `Screen` trait. A screen receives hardware-independent `UiEvent` values, updates its private state, renders through an `embedded-graphics` draw target, and may return a high-level `ScreenAction`. It does not own or access touch, SPI, BLE, or sensor peripherals directly. Watchfaces will use the same boundary with application state supplied by services.

@@ -135,6 +135,17 @@ impl WatchfaceScreen {
         self.face = ActiveWatchface::new(id);
         true
     }
+
+    /// Whether the last event moved anything this face shows.
+    ///
+    /// Readings reach this screen whatever is on the panel, because it is the
+    /// only screen that keeps them; this reports whether the one just applied
+    /// is worth a repaint. A sensor publishes on a timer whether or not its
+    /// value changed, so most of them are not.
+    #[must_use]
+    pub const fn moved(&self) -> bool {
+        !self.state.changed().is_empty()
+    }
 }
 
 impl Paint for WatchfaceScreen {

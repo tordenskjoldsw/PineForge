@@ -32,6 +32,7 @@ pub mod launcher;
 pub mod menu;
 #[cfg(feature = "diagnostics")]
 pub mod metrics;
+pub mod modal;
 pub mod notifications;
 pub mod pairing;
 #[cfg(test)]
@@ -109,6 +110,61 @@ mod tests {
             let stray = paint(surface).out_of_bounds();
             assert!(stray.is_empty(), "{id:?} drew outside the panel: {stray:?}");
         });
+    }
+
+    /// Every prompt that can own the panel, with a value that exercises its
+    /// widest layout: the longest passkey, a percentage of three digits, and
+    /// the failure carrying the most text.
+    fn every_modal() -> [pineforge_state::Modal; 5] {
+        use pineforge_state::{DfuFailReason, Modal};
+        [
+            Modal::StorageFormat(100),
+            Modal::Pairing(999_999),
+            Modal::DfuProgress(100),
+            Modal::DfuFailed(DfuFailReason::FlashUnrecognized([0xde, 0xad, 0xbe])),
+            Modal::DfuFailed(DfuFailReason::NotConfirmed),
+        ]
+    }
+
+    /// A modal owes the same opacity contract a screen does, and for a sharper
+    /// reason: nothing clears behind it, so a gap shows the screen underneath
+    /// rather than black. This went unchecked while the dispatch lived in the
+    /// display task, where drawing needed a panel.
+    #[test]
+    fn a_modal_covers_every_pixel_it_is_drawn_over() {
+        for showing in every_modal() {
+            let mut probe = Probe::new();
+            crate::modal::draw(&mut Canvas::new(&mut probe), showing, &mut || {})
+                .expect("the probe accepts every operation");
+            assert_eq!(
+                probe.unpainted(),
+                0,
+                "{showing:?} left {} pixels of the screen behind it showing",
+                probe.unpainted()
+            );
+            assert!(
+                probe.out_of_bounds().is_empty(),
+                "{showing:?} drew outside the panel: {:?}",
+                probe.out_of_bounds()
+            );
+        }
+    }
+
+    /// The partial path a transfer takes a hundred times. It may leave the rest
+    /// of the prompt standing - that is the point of it - but it must not draw
+    /// outside the panel while doing so.
+    #[test]
+    fn refreshing_a_prompt_stays_on_the_panel() {
+        for showing in every_modal() {
+            let mut probe = Probe::new();
+            crate::modal::refresh(&mut Canvas::new(&mut probe), showing, &mut || {})
+                .expect("the probe accepts every operation");
+            assert!(
+                probe.out_of_bounds().is_empty(),
+                "{showing:?} refreshed outside the panel: {:?}",
+                probe.out_of_bounds()
+            );
+        }
     }
 
     /// Builds a notification the way the parser produces one.

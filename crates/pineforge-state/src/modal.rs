@@ -22,6 +22,22 @@ pub enum Modal {
     DfuFailed(DfuFailReason),
 }
 
+impl Modal {
+    /// Whether showing this prompt counts as user activity.
+    ///
+    /// A prompt waiting on someone, or a transfer in flight, renews the idle
+    /// timer so it stays lit and readable while it is doing its work.
+    ///
+    /// The terminal failure deliberately does not. It survives sleep and is
+    /// redrawn on wake, so renewing on it would hold the backlight on until the
+    /// battery ran down - nobody is necessarily there to dismiss a transfer
+    /// that failed.
+    #[must_use]
+    pub const fn renews_activity(self) -> bool {
+        !matches!(self, Self::DfuFailed(_))
+    }
+}
+
 /// What the display task must do with an event.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ModalOutcome {
@@ -148,6 +164,19 @@ impl ModalState {
 mod tests {
     use super::*;
     use crate::{BatteryStatus, SwipeDirection};
+
+    /// Only the terminal failure may let the watch go dark under it. A prompt
+    /// that stopped renewing would time out mid-pairing with the passkey still
+    /// unread; a failure that started renewing would hold the backlight on
+    /// until the battery was flat, because nobody is necessarily there.
+    #[test]
+    fn every_prompt_but_the_terminal_one_keeps_the_watch_awake() {
+        assert!(Modal::StorageFormat(50).renews_activity());
+        assert!(Modal::Pairing(123_456).renews_activity());
+        assert!(Modal::DfuProgress(50).renews_activity());
+        assert!(!Modal::DfuFailed(DfuFailReason::EraseFailed).renews_activity());
+        assert!(!Modal::DfuFailed(DfuFailReason::NotConfirmed).renews_activity());
+    }
 
     const TICK: AppEvent = AppEvent::Tick {
         uptime_seconds: 1,
