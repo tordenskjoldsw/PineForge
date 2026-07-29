@@ -5,7 +5,7 @@
 //! and hid the rest, so finding out what a setting could be meant pressing it
 //! until it came round again.
 
-use pineforge_state::{AppEvent, ScreenAction, ScreenId};
+use pineforge_state::{AppEvent, ScreenAction, ScreenId, Setting};
 
 use crate::canvas::{Canvas, CanvasError};
 use crate::{
@@ -25,29 +25,34 @@ static MENU: Menu = Menu {
     title: None,
     first_row_y: STATUS_HEIGHT + 4,
     row_step: ROW_HEIGHT + 6,
+    // Each row is named by the setting it opens, not by a second shorter name
+    // kept here. The two used to disagree - a row reading DIM opened a screen
+    // headed DIM AFTER - which is one thing wearing two names, and the kind of
+    // drift that only shows up to someone reading the screen rather than the
+    // code.
     rows: &[
         MenuRow::Navigate {
-            label: "BRIGHT",
+            label: Setting::Brightness.title(),
             target: ScreenId::Brightness,
         },
         MenuRow::Navigate {
-            label: "DIM",
+            label: Setting::DimTimeout.title(),
             target: ScreenId::DimTimeout,
         },
         MenuRow::Navigate {
-            label: "OFF",
+            label: Setting::OffTimeout.title(),
             target: ScreenId::OffTimeout,
         },
         MenuRow::Navigate {
-            label: "HEART",
+            label: Setting::HeartRate.title(),
             target: ScreenId::HeartRate,
         },
         MenuRow::Navigate {
-            label: "HR INT",
+            label: Setting::HeartRateInterval.title(),
             target: ScreenId::HeartRateInterval,
         },
         MenuRow::Navigate {
-            label: "FACE",
+            label: Setting::Watchface.title(),
             target: ScreenId::WatchfaceSelect,
         },
     ],

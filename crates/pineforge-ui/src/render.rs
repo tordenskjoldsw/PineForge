@@ -28,7 +28,14 @@ pub const ROW_X: i32 = 20;
 pub const ROW_WIDTH: i32 = 200;
 pub const ROW_HEIGHT: i32 = 42;
 const LABEL_X_OFFSET: i32 = 12;
-const VALUE_X_OFFSET: i32 = 110;
+/// How far the right-hand column stops short of the row's right edge.
+///
+/// The same inset the label keeps from the left, so a row reads as one object
+/// with even margins. It used to be a fixed offset of 110 from the left, which
+/// on a 200-wide row put every marker ten pixels right of centre - close enough
+/// to the middle to read as centred, and nowhere near the values it shares the
+/// column with.
+const VALUE_RIGHT_INSET: i32 = 12;
 const TEXT_BASELINE_OFFSET: i32 = 27;
 
 /// Background spans that mask a filled rectangle's corners, innermost last.
@@ -90,12 +97,25 @@ pub fn draw_row(
         ui_text(ink, fill),
         canvas,
     )?;
+    let style = ui_text(accent, fill);
+    let cell = i32::try_from(style.font.cell.width).unwrap_or(0);
     draw_mono_text_visible(
         value,
-        Point::new(ROW_X + VALUE_X_OFFSET, y + TEXT_BASELINE_OFFSET),
-        ui_text(accent, fill),
+        Point::new(value_origin_x(value, cell), y + TEXT_BASELINE_OFFSET),
+        style,
         canvas,
     )
+}
+
+/// Where a row's right-hand column starts.
+///
+/// Right-aligned, so a marker sits against the edge and values of different
+/// lengths line up by their last character rather than their first. A value too
+/// long for the space overlaps the label rather than spilling onto the
+/// background outside the row, which is the more legible of the two failures.
+fn value_origin_x(value: &str, cell_width: i32) -> i32 {
+    let width = i32::try_from(value.len()).unwrap_or(0) * cell_width;
+    (ROW_X + ROW_WIDTH - VALUE_RIGHT_INSET - width).max(ROW_X + LABEL_X_OFFSET)
 }
 
 /// Thickness of a page mark across the rail it sits on.
@@ -311,5 +331,44 @@ mod tests {
     #[test]
     fn the_showing_page_is_the_long_mark() {
         assert!(mark_length(true) > mark_length(false));
+    }
+}
+
+#[cfg(test)]
+mod row_tests {
+    use super::*;
+
+    /// One character of the UI face.
+    const CELL: i32 = 10;
+
+    /// A marker belongs against the right edge, not near the middle.
+    ///
+    /// It sat at a fixed offset of 110 into a 200-wide row - ten pixels right
+    /// of centre, which reads as centred rather than as a column.
+    #[test]
+    fn the_right_hand_column_ends_at_the_rows_edge() {
+        for value in [">", "*", "ON", "ROLLBACK"] {
+            let right = value_origin_x(value, CELL) + i32::try_from(value.len()).unwrap() * CELL;
+            assert_eq!(
+                right,
+                ROW_X + ROW_WIDTH - VALUE_RIGHT_INSET,
+                "{value:?} did not end at the row's right inset"
+            );
+        }
+    }
+
+    /// The inset matches the label's, so a row reads as one object with even
+    /// margins rather than as two columns that happen to share a box.
+    #[test]
+    fn both_margins_of_a_row_are_the_same() {
+        assert_eq!(LABEL_X_OFFSET, VALUE_RIGHT_INSET);
+    }
+
+    /// A value with no room left stops at the label rather than running off the
+    /// row onto the background.
+    #[test]
+    fn an_overlong_value_stays_inside_the_row() {
+        let absurd = "0.2.1+34-WITH-A-VERY-LONG-SUFFIX";
+        assert_eq!(value_origin_x(absurd, CELL), ROW_X + LABEL_X_OFFSET);
     }
 }
