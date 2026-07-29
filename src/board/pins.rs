@@ -25,7 +25,13 @@ pub const BACKLIGHT_HIGH: u8 = 23;
 pub const BUTTON_INPUT: u8 = 13;
 pub const BUTTON_ENABLE: u8 = 15;
 
+/// Charge indication, active low. Low only while the charger is actually
+/// pushing current, so a watch that is full reads high on the pad.
 pub const CHARGE_STATUS: u8 = 12;
+/// External power presence, active low. This is the pin that says a watch is on
+/// the pad at all, whatever the charge indication is doing, and it was the one
+/// missing from this map while the task that needs it only ever read it.
+pub const POWER_PRESENT: u8 = 19;
 pub const BATTERY_ADC: u8 = 31;
 
 pub const TOUCH_SDA: u8 = 6;

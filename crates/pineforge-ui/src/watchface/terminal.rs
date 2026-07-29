@@ -56,14 +56,7 @@ impl TerminalWatchface {
     fn draw_battery(state: &WatchState, canvas: &mut Canvas<'_>) -> Result<(), CanvasError> {
         let mut value: String<16> = String::new();
         if let Some(status) = state.battery() {
-            let power = if status.charging {
-                "CHG"
-            } else if status.power_present {
-                "PWR"
-            } else {
-                "BAT"
-            };
-            let _ = write!(value, "{}% {power}", status.percent);
+            let _ = write!(value, "{}% {}", status.percent, status.source().label());
         } else {
             let _ = value.push_str("---");
         }

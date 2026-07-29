@@ -309,6 +309,100 @@ impl BatteryStatus {
             _ => ChargeLevel::Good,
         }
     }
+
+    /// Where the watch is drawing power from.
+    #[must_use]
+    pub const fn source(self) -> PowerSource {
+        if self.charging {
+            PowerSource::Charging
+        } else if self.power_present {
+            PowerSource::External
+        } else {
+            PowerSource::Battery
+        }
+    }
+}
+
+/// How long to wait between capacity measurements.
+///
+/// A measurement costs an ADC conversion and a wakeup, so the rate is a battery
+/// decision rather than a display one, and it is deliberately slow: the
+/// discharge curve is nearly flat and the estimator will not let the number
+/// move faster than a point a minute anyway. `InfiniTime` settles on the same
+/// ten minutes.
+///
+/// External power earns a faster rate because that is when the number is
+/// actually moving and someone is plausibly watching it. Diagnostics builds go
+/// faster still, which is what makes a suspect reading observable at all on a
+/// sealed watch.
+///
+/// Note what this is not: a way to notice the charger. Waiting ten minutes to
+/// see a pad would be a bug, and was one - the charger pins are watched for
+/// changes, and this interval is only the backstop behind them.
+#[must_use]
+pub const fn battery_sample_interval_seconds(power_present: bool) -> u64 {
+    if cfg!(feature = "diagnostics") {
+        30
+    } else if power_present {
+        60
+    } else {
+        10 * 60
+    }
+}
+
+/// The `PineTime`'s two charger pins, as levels already resolved to meaning.
+///
+/// Both are active low, and reading them is the firmware's job; deciding what a
+/// pair of them means is this type's. Kept apart because the pins are the one
+/// part no host can exercise, and the meaning is the part that was wrong.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ChargerPins {
+    /// P0.19 read low: the watch is on a pad that has power.
+    pub power_present: bool,
+    /// P0.12 read low: the charger reports current flowing.
+    pub charge_indicated: bool,
+}
+
+impl ChargerPins {
+    /// Whether the watch is charging.
+    ///
+    /// Both pins rather than the charge indication alone. P0.12 has no pull, so
+    /// an unpowered charger can leave it floating, and external power is what
+    /// makes the indication mean anything. `InfiniTime` reads P0.12 by itself
+    /// and gets away with it; requiring both is the conservative reading and
+    /// costs nothing, as long as external power is watched for changes rather
+    /// than merely read - which is exactly what it was not.
+    #[must_use]
+    pub const fn charging(self) -> bool {
+        self.power_present && self.charge_indicated
+    }
+}
+
+/// Where the watch is drawing power from, as a face shows it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PowerSource {
+    /// On the pad and taking current.
+    Charging,
+    /// On the pad, but not taking current - a watch that is already full.
+    External,
+    /// Running off its own battery.
+    Battery,
+}
+
+impl PowerSource {
+    /// The tag a face shows for this source.
+    ///
+    /// Here rather than in the drawing code because both faces showed it and
+    /// both spelled the decision out for themselves, which is two places for
+    /// one product answer to drift apart.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Charging => "CHG",
+            Self::External => "PWR",
+            Self::Battery => "BAT",
+        }
+    }
 }
 
 /// Directional capacity estimate based on `InfiniTime`'s battery policy.
@@ -1135,6 +1229,71 @@ mod tests {
         assert_eq!(at(0, false), ChargeLevel::Critical);
         // On the charger the number is climbing, so nothing is urgent.
         assert_eq!(at(0, true), ChargeLevel::Good);
+    }
+
+    /// The rates are ordered rather than pinned to exact numbers, because the
+    /// ordering is the property that matters and the numbers are tuning.
+    #[test]
+    fn measuring_is_faster_on_the_charger_than_off_it() {
+        let powered = battery_sample_interval_seconds(true);
+        let discharging = battery_sample_interval_seconds(false);
+
+        assert!(powered <= discharging);
+        // Slow enough that it cannot be what notices a charger, which is the
+        // job the pin edges do. A rate fast enough to serve as that backstop
+        // would be one nobody thought to check.
+        assert!(powered >= 30);
+    }
+
+    /// All four pin combinations, including the two that only happen when
+    /// something is wrong. The pair the firmware can never read correctly is a
+    /// floating charge indication with no external power, and that one has to
+    /// come out as `Battery` rather than as a watch that claims to be charging
+    /// while lying on a desk.
+    #[test]
+    fn the_charger_pins_only_mean_charging_when_power_is_actually_present() {
+        const fn pins(power_present: bool, charge_indicated: bool) -> ChargerPins {
+            ChargerPins {
+                power_present,
+                charge_indicated,
+            }
+        }
+
+        assert!(pins(true, true).charging());
+        // On the pad and full: the charger has stopped pushing current. This is
+        // the case that moves only the power pin, which is why watching the
+        // charge pin alone was not enough to notice a watch being set down.
+        assert!(!pins(true, false).charging());
+        // Off the pad. The charge pin has no pull, so this pair is what a
+        // floating input looks like and must never read as charging.
+        assert!(!pins(false, true).charging());
+        assert!(!pins(false, false).charging());
+    }
+
+    /// What the face shows, for every state the flags can be in.
+    #[test]
+    fn every_power_state_has_one_tag_and_the_faces_agree_on_it() {
+        const fn status(charging: bool, power_present: bool) -> BatteryStatus {
+            BatteryStatus {
+                millivolts: 3_900,
+                percent: 80,
+                charging,
+                power_present,
+            }
+        }
+
+        assert_eq!(status(true, true).source(), PowerSource::Charging);
+        assert_eq!(status(false, true).source(), PowerSource::External);
+        assert_eq!(status(false, false).source(), PowerSource::Battery);
+        // Charging without external power cannot be produced by `ChargerPins`,
+        // but `BatteryStatus` is a plain record anyone can build, so the tag is
+        // still defined rather than left to whichever branch happens to be
+        // first.
+        assert_eq!(status(true, false).source(), PowerSource::Charging);
+
+        assert_eq!(PowerSource::Charging.label(), "CHG");
+        assert_eq!(PowerSource::External.label(), "PWR");
+        assert_eq!(PowerSource::Battery.label(), "BAT");
     }
 
     #[test]

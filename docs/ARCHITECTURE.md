@@ -140,6 +140,24 @@ backend. While sleeping, periodic UI and motion updates are suspended. Wake
 fully redraws the active screen before enabling the backlight, preventing stale
 framebuffer content from becoming visible.
 
+The battery task owns SAADC plus PineTime's two active-low charger inputs, and
+**watches both of them for changes**. Which one moves when a watch is set down
+depends on how full it is: a flat one starts charging and moves both, but a
+nearly full one never enters constant current, so the charge indication stays
+put and external power is the only thing that changes. Watching one and merely
+reading the other — the charge pin here, the power pin in InfiniTime — misses
+one of those two cases each. A change on either pin also sends a
+`PowerCommand::UserActivity`, so the watch lights up when it is set down, which
+is what InfiniTime's `GoToRunning()` does on the same event.
+
+What the pins *mean* is not decided in the task. `ChargerPins` in
+`pineforge-state` turns a pair of levels into `charging`, and `PowerSource`
+turns a `BatteryStatus` into the `CHG`/`PWR`/`BAT` tag both watchfaces show —
+each with host tests over all four pin combinations, including the two that
+only occur when something is wrong. Charging requires *both* pins: the charge
+pin has no pull, so an unpowered charger can leave it floating, and that pair
+must not read as a watch charging on a desk.
+
 The battery task owns SAADC plus PineTime's active-low charge-status and
 external-power inputs. It uses Embassy one-shot conversions every ten minutes
 while discharging in production, every minute on external power, and every 30
