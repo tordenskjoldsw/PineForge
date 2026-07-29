@@ -4,11 +4,17 @@ use embassy_time::{Duration, Timer};
 use embedded_hal_async::i2c::I2c;
 #[cfg(feature = "diagnostics")]
 use pineforge_state::FeatureEngineStatus;
-use pineforge_state::{AccelerometerKind, AppEvent, SystemPowerState};
+use pineforge_state::{
+    AccelerationSample, AccelerometerKind, AppEvent, DisplaySettings, PowerCommand,
+    RaiseToWakeDetector, SystemPowerState, WakeGesture,
+};
 
 use crate::{
     drivers::bma42x::{AccelerationPowerMode, Bma42x, FeatureEngineError},
-    ipc::{MOTION_READY, SystemPowerReceiver, TOUCH_READY, UI_EVENTS, system_power_receiver},
+    ipc::{
+        DISPLAY_SETTINGS, MOTION_READY, POWER_COMMANDS, SystemPowerReceiver, TOUCH_READY,
+        UI_EVENTS, system_power_receiver,
+    },
 };
 
 const ACTIVE_UPDATE_INTERVAL: Duration = Duration::from_millis(100);
@@ -62,6 +68,7 @@ where
         power_receiver: &mut SystemPowerReceiver,
     ) -> ! {
         let mut ticks_until_step_update = 1;
+        let mut raise_to_wake = RaiseToWakeDetector::new();
         loop {
             match power {
                 SystemPowerState::Interactive => {
@@ -77,6 +84,11 @@ where
                             ticks_until_step_update = 1;
                         }
                         Either::Second(()) => {
+                            if raise_to_wake_enabled() {
+                                self.update_raise_to_wake(&mut raise_to_wake, false).await;
+                            } else {
+                                raise_to_wake.reset();
+                            }
                             #[cfg(feature = "diagnostics")]
                             self.publish_acceleration().await;
                             ticks_until_step_update -= 1;
@@ -88,22 +100,60 @@ where
                     }
                 }
                 SystemPowerState::Idle => {
-                    match select(power_receiver.changed(), Timer::after(IDLE_UPDATE_INTERVAL)).await
-                    {
+                    let track_raise = raise_to_wake_enabled();
+                    let update_interval = if track_raise {
+                        ACTIVE_UPDATE_INTERVAL
+                    } else {
+                        IDLE_UPDATE_INTERVAL
+                    };
+                    match select(power_receiver.changed(), Timer::after(update_interval)).await {
                         Either::First(next) => {
                             power = next;
                             let _ = self.apply_power_mode(power).await;
                             ticks_until_step_update = 1;
                         }
                         Either::Second(()) => {
+                            if track_raise {
+                                self.update_raise_to_wake(&mut raise_to_wake, false).await;
+                            } else {
+                                raise_to_wake.reset();
+                            }
                             #[cfg(feature = "diagnostics")]
                             self.publish_acceleration().await;
-                            self.publish_step_count().await;
+                            if track_raise {
+                                ticks_until_step_update -= 1;
+                                if ticks_until_step_update == 0 {
+                                    self.publish_step_count().await;
+                                    ticks_until_step_update = ACTIVE_STEP_DIVISOR;
+                                }
+                            } else {
+                                self.publish_step_count().await;
+                            }
                         }
                     }
                 }
                 SystemPowerState::Sleeping => {
-                    power = power_receiver.changed().await;
+                    let wake_gestures = DISPLAY_SETTINGS
+                        .try_get()
+                        .unwrap_or(DisplaySettings::DEFAULT)
+                        .wake_gestures();
+                    if wake_gestures.contains(WakeGesture::RaiseWrist) {
+                        match select(
+                            power_receiver.changed(),
+                            Timer::after(ACTIVE_UPDATE_INTERVAL),
+                        )
+                        .await
+                        {
+                            Either::First(next) => power = next,
+                            Either::Second(()) => {
+                                self.update_raise_to_wake(&mut raise_to_wake, true).await;
+                                continue;
+                            }
+                        }
+                    } else {
+                        raise_to_wake.reset();
+                        power = power_receiver.changed().await;
+                    }
                     let _ = self.apply_power_mode(power).await;
                     ticks_until_step_update = 1;
                     self.publish_step_count().await;
@@ -175,6 +225,15 @@ where
         Some(())
     }
 
+    async fn update_raise_to_wake(&mut self, detector: &mut RaiseToWakeDetector, wake: bool) {
+        if let Ok(sample) = self.accelerometer.read_acceleration().await {
+            let raised = detector.push(pinetime_axes(sample));
+            if wake && raised {
+                let _ = POWER_COMMANDS.try_send(PowerCommand::UserActivity);
+            }
+        }
+    }
+
     async fn apply_power_mode(&mut self, state: SystemPowerState) -> Result<(), ()> {
         if self
             .accelerometer
@@ -214,6 +273,23 @@ where
         } else {
             warn!("Accelerometer sample failed");
         }
+    }
+}
+
+fn raise_to_wake_enabled() -> bool {
+    DISPLAY_SETTINGS
+        .try_get()
+        .unwrap_or(DisplaySettings::DEFAULT)
+        .wake_gestures()
+        .contains(WakeGesture::RaiseWrist)
+}
+
+/// The `BMA42x` is mounted with X and Y exchanged relative to the watch body.
+const fn pinetime_axes(sample: AccelerationSample) -> AccelerationSample {
+    AccelerationSample {
+        x: sample.y,
+        y: sample.x,
+        z: sample.z,
     }
 }
 

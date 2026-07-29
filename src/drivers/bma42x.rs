@@ -1,12 +1,10 @@
 use embassy_time::{Duration, Timer};
 use embedded_hal_async::i2c::I2c;
-#[cfg(feature = "diagnostics")]
 use pineforge_state::AccelerationSample;
 use pineforge_state::{AccelerometerKind, accelerometer_kind};
 
 const ADDRESS: u8 = 0x18;
 const CHIP_ID_REGISTER: u8 = 0x00;
-#[cfg(feature = "diagnostics")]
 const ACCEL_DATA_REGISTER: u8 = 0x12;
 const ACCEL_CONFIG_REGISTER: u8 = 0x40;
 const ACCEL_RANGE_REGISTER: u8 = 0x41;
@@ -238,7 +236,6 @@ where
         Ok(())
     }
 
-    #[cfg(feature = "diagnostics")]
     pub async fn read_acceleration(&mut self) -> Result<AccelerationSample, I2C::Error> {
         let mut data = [0; 6];
         self.i2c
@@ -307,7 +304,6 @@ where
     }
 }
 
-#[cfg(feature = "diagnostics")]
 const fn decode_axis(lsb: u8, msb: u8) -> i16 {
     i16::from_le_bytes([lsb, msb]) >> 4
 }

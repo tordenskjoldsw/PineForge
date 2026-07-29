@@ -9,7 +9,7 @@
 use crate::{
     BRIGHTNESS_LEVELS, BRIGHTNESS_NAMES, DIM_TIMEOUT_NAMES, DIM_TIMEOUTS_MILLIS, DisplaySettings,
     HEART_RATE_INTERVALS_SECONDS, HEART_RATE_MODE_NAMES, OFF_TIMEOUT_NAMES, OFF_TIMEOUTS_MILLIS,
-    WATCHFACES,
+    WAKE_GESTURE_NAMES, WAKE_GESTURES, WATCHFACES,
 };
 
 /// The faces' names, in the order a picker lists them.
@@ -32,6 +32,7 @@ pub enum Setting {
     DimTimeout,
     OffTimeout,
     HeartRate,
+    WakeGesture,
     Watchface,
 }
 
@@ -44,6 +45,7 @@ impl Setting {
             Self::DimTimeout => &DIM_TIMEOUT_NAMES,
             Self::OffTimeout => &OFF_TIMEOUT_NAMES,
             Self::HeartRate => &HEART_RATE_MODE_NAMES,
+            Self::WakeGesture => &WAKE_GESTURE_NAMES,
             Self::Watchface => &WATCHFACE_NAMES,
         }
     }
@@ -56,11 +58,13 @@ impl Setting {
             Self::DimTimeout => "DIM AFTER",
             Self::OffTimeout => "SCREEN OFF",
             Self::HeartRate => "HEART RATE",
+            Self::WakeGesture => "WAKE GESTURE",
             Self::Watchface => "WATCHFACE",
         }
     }
 
-    /// Which preset a record currently holds, if it is one of them.
+    /// Which single-choice preset a record currently holds, if it is one of
+    /// them.
     ///
     /// A value the table does not list reports `None` rather than the first
     /// preset, so a record written by another build cannot make a picker claim
@@ -89,14 +93,37 @@ impl Setting {
                     Some(0)
                 }
             }
+            Self::WakeGesture => None,
             Self::Watchface => WATCHFACES
                 .iter()
                 .position(|face| face.id == settings.watchface()),
         }
     }
 
-    /// `settings` with this setting's `entry`-th preset chosen, or `None` when
-    /// nothing would change.
+    /// A bit per row that is currently selected.
+    ///
+    /// Ordinary pickers set one bit. Wake sources are independent switches and
+    /// can therefore set any combination of their three bits.
+    #[must_use]
+    pub fn selection_mask(self, settings: DisplaySettings) -> u32 {
+        if self == Self::WakeGesture {
+            let mut mask = 0;
+            for (entry, gesture) in WAKE_GESTURES.iter().enumerate() {
+                if settings.wake_gestures().contains(*gesture) {
+                    mask |= 1_u32 << entry;
+                }
+            }
+            mask
+        } else {
+            self.selected(settings).map_or(0, |entry| 1_u32 << entry)
+        }
+    }
+
+    /// `settings` after activating its `entry`-th row, or `None` when nothing
+    /// would change.
+    ///
+    /// Most settings choose one preset. A wake row instead toggles that source
+    /// without changing the other wake sources.
     ///
     /// Takes the whole record and returns a whole record on purpose. Every
     /// picker must start from the record that is *current*, not from one it
@@ -117,6 +144,7 @@ impl Setting {
                     .with_heart_rate_enabled(true)
                     .with_heart_rate_interval(*HEART_RATE_INTERVALS_SECONDS.get(interval)?),
             },
+            Self::WakeGesture => settings.toggle_wake_gesture(*WAKE_GESTURES.get(entry)?),
             Self::Watchface => settings.with_watchface(WATCHFACES.get(entry)?.id),
         };
         (updated != settings).then_some(updated)
@@ -161,6 +189,22 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn wake_rows_toggle_independently_and_report_every_marker() {
+        let single_and_tilt = choose(
+            DisplaySettings::DEFAULT,
+            Setting::WakeGesture,
+            "RAISE WRIST",
+        );
+        assert_eq!(Setting::WakeGesture.selection_mask(single_and_tilt), 0b101);
+
+        let tilt_only = choose(single_and_tilt, Setting::WakeGesture, "SINGLE TAP");
+        assert_eq!(Setting::WakeGesture.selection_mask(tilt_only), 0b100);
+
+        let none = choose(tilt_only, Setting::WakeGesture, "RAISE WRIST");
+        assert_eq!(Setting::WakeGesture.selection_mask(none), 0);
     }
 
     /// The regression this module exists for.

@@ -48,6 +48,10 @@ static MENU: Menu = Menu {
             target: ScreenId::HeartRate,
         },
         MenuRow::Navigate {
+            label: Setting::WakeGesture.title(),
+            target: ScreenId::WakeGesture,
+        },
+        MenuRow::Navigate {
             label: Setting::Watchface.title(),
             target: ScreenId::WatchfaceSelect,
         },

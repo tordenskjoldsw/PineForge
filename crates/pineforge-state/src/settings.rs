@@ -10,9 +10,9 @@ use crate::WatchfaceId;
 pub const SETTINGS_RECORD_LEN: usize = 32;
 
 const SETTINGS_MAGIC: [u8; 4] = *b"PFST";
-const SETTINGS_VERSION: u16 = 3;
+const SETTINGS_VERSION: u16 = 5;
 /// Versions this build still reads; older ones migrate on decode.
-const READABLE_VERSIONS: [u16; 3] = [1, 2, SETTINGS_VERSION];
+const READABLE_VERSIONS: [u16; 5] = [1, 2, 3, 4, SETTINGS_VERSION];
 const CRC_OFFSET: usize = 28;
 
 /// Constant so the default is reachable from `DisplaySettings::DEFAULT`, which
@@ -48,8 +48,8 @@ pub const DIM_TIMEOUTS_MILLIS: [u32; 4] = [5_000, 10_000, 20_000, 30_000];
 pub const OFF_TIMEOUTS_MILLIS: [u32; 4] = [10_000, 20_000, 30_000, 60_000];
 /// The gaps between background readings a record may hold.
 ///
-/// Zero is continuous: the service starts the next reading as soon as the last
-/// one ends. `InfiniTime` offers the same set and spells it `Cont`.
+/// Zero is continuous: the service keeps the sensor active and publishes each
+/// later validated value. `InfiniTime` offers the same set and spells it `Cont`.
 pub const HEART_RATE_INTERVALS_SECONDS: [u32; 6] = [0, 30, 60, 300, 600, 1_800];
 
 // What a picker calls each preset. The arrays are as long as the presets they
@@ -70,6 +70,105 @@ pub const OFF_TIMEOUT_NAMES: [&str; OFF_TIMEOUTS_MILLIS.len()] = ["10 s", "20 s"
 /// naming it does not compile.
 pub const HEART_RATE_MODE_NAMES: [&str; HEART_RATE_INTERVALS_SECONDS.len() + 1] =
     ["OFF", "CONT", "30 s", "1 min", "5 min", "10 min", "30 min"];
+pub const WAKE_GESTURES: [WakeGesture; 3] = [
+    WakeGesture::SingleTap,
+    WakeGesture::DoubleTap,
+    WakeGesture::RaiseWrist,
+];
+pub const WAKE_GESTURE_NAMES: [&str; WAKE_GESTURES.len()] =
+    ["SINGLE TAP", "DOUBLE TAP", "RAISE WRIST"];
+
+/// One source allowed to turn a sleeping display back on.
+///
+/// The physical side button and charger remain unconditional recovery/wake
+/// sources. These choices govern only touch and motion wake and may be combined
+/// in [`WakeGestures`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum WakeGesture {
+    #[default]
+    SingleTap,
+    DoubleTap,
+    RaiseWrist,
+}
+
+impl WakeGesture {
+    const fn bit(self) -> u8 {
+        1 << self.to_byte()
+    }
+
+    /// The byte used by the version-4 record, where only one source was stored.
+    #[must_use]
+    pub const fn to_byte(self) -> u8 {
+        match self {
+            Self::SingleTap => 0,
+            Self::DoubleTap => 1,
+            Self::RaiseWrist => 2,
+        }
+    }
+
+    #[must_use]
+    pub const fn from_byte(value: u8) -> Option<Self> {
+        match value {
+            0 => Some(Self::SingleTap),
+            1 => Some(Self::DoubleTap),
+            2 => Some(Self::RaiseWrist),
+            _ => None,
+        }
+    }
+}
+
+/// Independently enabled touch and motion sources that may wake the display.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WakeGestures(u8);
+
+impl WakeGestures {
+    const VALID_BITS: u8 =
+        WakeGesture::SingleTap.bit() | WakeGesture::DoubleTap.bit() | WakeGesture::RaiseWrist.bit();
+
+    pub const SINGLE_TAP: Self = Self(WakeGesture::SingleTap.bit());
+
+    #[must_use]
+    pub const fn from_gesture(gesture: WakeGesture) -> Self {
+        Self(gesture.bit())
+    }
+
+    #[must_use]
+    pub const fn from_byte(value: u8) -> Option<Self> {
+        if value & !Self::VALID_BITS == 0 {
+            Some(Self(value))
+        } else {
+            None
+        }
+    }
+
+    #[must_use]
+    pub const fn to_byte(self) -> u8 {
+        self.0
+    }
+
+    #[must_use]
+    pub const fn contains(self, gesture: WakeGesture) -> bool {
+        self.0 & gesture.bit() != 0
+    }
+
+    #[must_use]
+    pub const fn toggle(self, gesture: WakeGesture) -> Self {
+        Self(self.0 ^ gesture.bit())
+    }
+
+    /// Whether a touch-controller tap count is one of the enabled wake sources.
+    #[must_use]
+    pub const fn accepts_taps(self, taps: u8) -> bool {
+        (taps == 1 && self.contains(WakeGesture::SingleTap))
+            || (taps == 2 && self.contains(WakeGesture::DoubleTap))
+    }
+}
+
+impl Default for WakeGestures {
+    fn default() -> Self {
+        Self::SINGLE_TAP
+    }
+}
 
 const MIN_BRIGHTNESS: u8 = 1;
 const MAX_BRIGHTNESS: u8 = 7;
@@ -80,6 +179,7 @@ pub enum SettingsError {
     ZeroDimTimeout,
     OffNotAfterDim,
     InvalidHeartRateSettings,
+    InvalidWakeGesture,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -99,6 +199,7 @@ pub struct DisplaySettings {
     heart_rate_enabled: bool,
     heart_rate_interval_seconds: u32,
     watchface: WatchfaceId,
+    wake_gestures: WakeGestures,
 }
 
 impl DisplaySettings {
@@ -109,6 +210,7 @@ impl DisplaySettings {
         heart_rate_enabled: false,
         heart_rate_interval_seconds: 300,
         watchface: DEFAULT_WATCHFACE,
+        wake_gestures: WakeGestures::SINGLE_TAP,
     };
 
     pub const fn new(
@@ -132,6 +234,7 @@ impl DisplaySettings {
             heart_rate_enabled: false,
             heart_rate_interval_seconds: 300,
             watchface: DEFAULT_WATCHFACE,
+            wake_gestures: WakeGestures::SINGLE_TAP,
         })
     }
 
@@ -311,7 +414,28 @@ impl DisplaySettings {
         Self { watchface, ..self }
     }
 
-    /// Serializes a version-3 record carrying the given sequence number.
+    #[must_use]
+    pub const fn wake_gestures(self) -> WakeGestures {
+        self.wake_gestures
+    }
+
+    #[must_use]
+    pub const fn with_wake_gestures(self, wake_gestures: WakeGestures) -> Self {
+        Self {
+            wake_gestures,
+            ..self
+        }
+    }
+
+    #[must_use]
+    pub const fn toggle_wake_gesture(self, wake_gesture: WakeGesture) -> Self {
+        Self {
+            wake_gestures: self.wake_gestures.toggle(wake_gesture),
+            ..self
+        }
+    }
+
+    /// Serializes a version-5 record carrying the given sequence number.
     #[must_use]
     pub fn encode(self, sequence: u32) -> [u8; SETTINGS_RECORD_LEN] {
         let mut record = [0_u8; SETTINGS_RECORD_LEN];
@@ -324,6 +448,7 @@ impl DisplaySettings {
         record[16..20].copy_from_slice(&sequence.to_le_bytes());
         record[20..24].copy_from_slice(&self.heart_rate_interval_seconds.to_le_bytes());
         record[24] = self.watchface.to_byte();
+        record[25] = self.wake_gestures.to_byte();
         let crc = crc32(&record[..CRC_OFFSET]);
         record[CRC_OFFSET..].copy_from_slice(&crc.to_le_bytes());
         record
@@ -357,10 +482,21 @@ impl DisplaySettings {
             settings.heart_rate_enabled = record[7] != 0;
             settings.heart_rate_interval_seconds = interval;
         }
-        if version >= SETTINGS_VERSION {
+        if version >= 3 {
             // A face this build does not carry is not corruption - the record
             // may come from one that did - so the default stands in.
             settings.watchface = WatchfaceId::from_byte(record[24]).unwrap_or(DEFAULT_WATCHFACE);
+        }
+        if version == 4 {
+            settings.wake_gestures = WakeGesture::from_byte(record[25])
+                .map(WakeGestures::from_gesture)
+                .ok_or(DecodeError::InvalidContent(
+                    SettingsError::InvalidWakeGesture,
+                ))?;
+        } else if version >= SETTINGS_VERSION {
+            settings.wake_gestures = WakeGestures::from_byte(record[25]).ok_or(
+                DecodeError::InvalidContent(SettingsError::InvalidWakeGesture),
+            )?;
         }
         Ok((settings, sequence))
     }
@@ -495,6 +631,7 @@ mod tests {
         // the service needs no second concept to honour it.
         assert_eq!(HEART_RATE_INTERVALS_SECONDS[0], 0);
         assert_eq!(HEART_RATE_MODE_NAMES[1], "CONT");
+        assert_eq!(WAKE_GESTURE_NAMES.len(), WAKE_GESTURES.len());
     }
 
     #[test]
@@ -586,9 +723,33 @@ mod tests {
         let settings = DisplaySettings::new(7, 5_000, 30_000)
             .unwrap()
             .toggle_heart_rate()
-            .cycle_heart_rate_interval();
+            .cycle_heart_rate_interval()
+            .toggle_wake_gesture(WakeGesture::DoubleTap)
+            .toggle_wake_gesture(WakeGesture::RaiseWrist);
         let record = settings.encode(41);
         assert_eq!(DisplaySettings::decode(&record), Ok((settings, 41)));
+    }
+
+    #[test]
+    fn every_wake_gesture_combination_round_trips() {
+        for bits in 0..=WakeGestures::VALID_BITS {
+            let gestures = WakeGestures::from_byte(bits).unwrap();
+            let settings = DisplaySettings::DEFAULT.with_wake_gestures(gestures);
+            let (decoded, _) = DisplaySettings::decode(&settings.encode(1)).unwrap();
+            assert_eq!(decoded.wake_gestures(), gestures);
+        }
+    }
+
+    #[test]
+    fn combined_touch_sources_accept_each_enabled_tap() {
+        let both_taps =
+            WakeGestures::from_gesture(WakeGesture::SingleTap).toggle(WakeGesture::DoubleTap);
+        assert!(both_taps.accepts_taps(1));
+        assert!(both_taps.accepts_taps(2));
+
+        let tilt_only = WakeGestures::from_gesture(WakeGesture::RaiseWrist);
+        assert!(!tilt_only.accepts_taps(1));
+        assert!(!tilt_only.accepts_taps(2));
     }
 
     #[test]
@@ -656,6 +817,36 @@ mod tests {
     }
 
     #[test]
+    fn version_three_migrates_with_single_tap_wake() {
+        let mut record = DisplaySettings::DEFAULT.encode(1);
+        record[4..6].copy_from_slice(&3_u16.to_le_bytes());
+        // A version-3 writer never touched this byte.
+        record[25] = 0xAB;
+        let crc = crc32(&record[..CRC_OFFSET]);
+        record[CRC_OFFSET..].copy_from_slice(&crc.to_le_bytes());
+
+        let (settings, _) = DisplaySettings::decode(&record).unwrap();
+        assert_eq!(settings.wake_gestures(), WakeGestures::SINGLE_TAP);
+    }
+
+    #[test]
+    fn version_four_migrates_its_single_wake_choice() {
+        for gesture in WAKE_GESTURES {
+            let mut record = DisplaySettings::DEFAULT.encode(1);
+            record[4..6].copy_from_slice(&4_u16.to_le_bytes());
+            record[25] = gesture.to_byte();
+            let crc = crc32(&record[..CRC_OFFSET]);
+            record[CRC_OFFSET..].copy_from_slice(&crc.to_le_bytes());
+
+            let (settings, _) = DisplaySettings::decode(&record).unwrap();
+            assert_eq!(
+                settings.wake_gestures(),
+                WakeGestures::from_gesture(gesture)
+            );
+        }
+    }
+
+    #[test]
     fn a_face_this_build_lacks_falls_back_without_losing_the_rest() {
         let mut record = DisplaySettings::DEFAULT.encode(1);
         record[24] = 0xFE;
@@ -678,6 +869,17 @@ mod tests {
             DisplaySettings::decode(&record),
             Err(DecodeError::InvalidContent(
                 SettingsError::BrightnessOutOfRange
+            ))
+        );
+
+        let mut record = DisplaySettings::DEFAULT.encode(1);
+        record[25] = 0xFF;
+        let crc = crc32(&record[..CRC_OFFSET]);
+        record[CRC_OFFSET..].copy_from_slice(&crc.to_le_bytes());
+        assert_eq!(
+            DisplaySettings::decode(&record),
+            Err(DecodeError::InvalidContent(
+                SettingsError::InvalidWakeGesture
             ))
         );
     }

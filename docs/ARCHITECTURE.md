@@ -132,13 +132,24 @@ activity commands through a bounded channel; display and motion independently
 subscribe to the resulting state. The display task only applies LCD and
 backlight transitions and no longer decides global policy.
 
-A validated `PowerConfig` currently supplies defaults of ten seconds until
-idle and twenty seconds until sleep. A future settings service can replace
-those defaults without changing consumers or hardware boundaries. The same
-coordinator boundary is reserved for typed wake locks and a future nRF power
-backend. While sleeping, periodic UI and motion updates are suspended. Wake
-fully redraws the active screen before enabling the backlight, preventing stale
+A validated `PowerConfig` supplies the persisted dim and sleep timeouts without
+changing consumers or hardware boundaries. The same coordinator boundary is
+reserved for typed wake locks and a future nRF power backend. Wake fully
+redraws the active screen before enabling the backlight, preventing stale
 framebuffer content from becoming visible.
+
+The persisted wake-gesture picker offers independent switches for single tap,
+double tap, and raise wrist, so any combination can be active. The side button
+and charger remain unconditional wake sources even when all three switches are
+off. While the panel sleeps, the input task discards every touch except an
+enabled CST816S gesture, including the complete touch that caused wake so it
+cannot activate the screen underneath. Whenever raise wrist is enabled, the
+motion service maintains InfiniTime's eight-sample, 10 Hz BMA42x history before
+and during sleep. The hardware-independent detector compares the stable newest
+pair with the stable pair from roughly 0.6 seconds earlier and requires a
+rotation of more than roughly 45 degrees into the PineTime viewing orientation.
+Without raise wrist, motion sampling is suspended while sleeping, so touch-only
+combinations do not pay the tilt-wake power cost.
 
 The battery task owns SAADC plus PineTime's two active-low charger inputs, and
 **watches both of them for changes**. Which one moves when a watch is set down

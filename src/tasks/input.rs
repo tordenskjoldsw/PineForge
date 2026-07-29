@@ -5,9 +5,11 @@ use embassy_time::{Delay, Duration, with_timeout};
 use crate::{
     board::{buses::TouchI2c, peripherals::TouchResources},
     drivers::touch::{Cst816s, Gesture},
-    ipc::{POWER_COMMANDS, TOUCH_READY, UI_EVENTS},
+    ipc::{DISPLAY_SETTINGS, POWER_COMMANDS, SYSTEM_POWER, TOUCH_READY, UI_EVENTS},
 };
-use pineforge_state::{PowerCommand, SwipeDirection, TouchReport, TouchRouter};
+use pineforge_state::{
+    DisplaySettings, PowerCommand, SwipeDirection, SystemPowerState, TouchReport, TouchRouter,
+};
 
 /// How long a touch already in flight may go without a report before it is
 /// treated as one whose lift was lost.
@@ -65,6 +67,28 @@ pub async fn run(resources: TouchResources, i2c: TouchI2c) {
                 "Touch x={} y={} pressed={} gesture={:?}",
                 event.x, event.y, event.touching, event.gesture
             );
+
+            // A sleeping panel accepts only configured wake gestures. The
+            // CST816S identifies taps itself, so double-tap does not have to
+            // wake on the first touch just to let software count the second.
+            // None of the wake touch is forwarded to the screen underneath.
+            if SYSTEM_POWER.try_get() == Some(SystemPowerState::Sleeping) {
+                let wake_gestures = DISPLAY_SETTINGS
+                    .try_get()
+                    .unwrap_or(DisplaySettings::DEFAULT)
+                    .wake_gestures();
+                let taps = match event.gesture {
+                    Gesture::SingleTap => 1,
+                    Gesture::DoubleTap => 2,
+                    _ => 0,
+                };
+                if wake_gestures.accepts_taps(taps) {
+                    let _ = POWER_COMMANDS.try_send(PowerCommand::UserActivity);
+                }
+                router.lost_report();
+                continue;
+            }
+
             let report = TouchReport {
                 x: i32::from(event.x),
                 y: i32::from(event.y),

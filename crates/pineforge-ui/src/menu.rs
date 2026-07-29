@@ -73,7 +73,7 @@ pub enum MenuRow {
     },
     /// Shows a value the screen supplies. Choosing it is the screen's business.
     Value { label: &'static str },
-    /// One of the values a setting can take, marked when it is the current one.
+    /// One of the values a setting can take, marked while it is active.
     Choice { label: &'static str },
 }
 
@@ -95,8 +95,8 @@ impl MenuRow {
 pub enum MenuColumn<'a> {
     /// The right-hand column of each entry, in entry order.
     Values(&'a [&'a str]),
-    /// The entry that is currently chosen.
-    Selected(usize),
+    /// One bit per entry that is currently chosen.
+    Selections(u32),
 }
 
 /// What drawing needs to know about the showing page.
@@ -220,7 +220,11 @@ fn column_of<'a>(row: &MenuRow, entry: usize, column: MenuColumn<'a>) -> &'a str
         (MenuRow::Value { .. }, MenuColumn::Values(values)) => {
             values.get(entry).copied().unwrap_or("")
         }
-        (MenuRow::Choice { .. }, MenuColumn::Selected(selected)) if entry == selected => CHOSEN,
+        (MenuRow::Choice { .. }, MenuColumn::Selections(selections))
+            if entry < 32 && selections & (1_u32 << entry) != 0 =>
+        {
+            CHOSEN
+        }
         // An unchosen option, and a row whose kind and column disagree, both
         // draw an empty column rather than a wrong one.
         _ => "",

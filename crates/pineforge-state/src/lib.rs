@@ -10,6 +10,9 @@ use heapless::Vec;
 mod ppg;
 pub use ppg::{PpgAnalysis, PpgProcessor};
 
+mod wake;
+pub use wake::RaiseToWakeDetector;
+
 mod bond;
 pub use bond::{
     BOND_PAYLOAD_MAX, BOND_RECORD_LEN, BOND_SCHEMA_LEN, BondRecord, bond_schema_tag, frame_bond,
@@ -39,8 +42,8 @@ pub use setting::{Setting, WATCHFACE_NAMES};
 pub use settings::{
     BRIGHTNESS_LEVELS, BRIGHTNESS_NAMES, DIM_TIMEOUT_NAMES, DIM_TIMEOUTS_MILLIS, DecodeError,
     DisplaySettings, HEART_RATE_INTERVALS_SECONDS, HEART_RATE_MODE_NAMES, OFF_TIMEOUT_NAMES,
-    OFF_TIMEOUTS_MILLIS, SETTINGS_RECORD_LEN, SettingsError, SettingsSlot, SlotDecision, crc32,
-    select_slot,
+    OFF_TIMEOUTS_MILLIS, SETTINGS_RECORD_LEN, SettingsError, SettingsSlot, SlotDecision,
+    WAKE_GESTURE_NAMES, WAKE_GESTURES, WakeGesture, WakeGestures, crc32, select_slot,
 };
 mod setting;
 mod watch;
@@ -683,6 +686,7 @@ pub enum ScreenId {
     DimTimeout,
     OffTimeout,
     HeartRate,
+    WakeGesture,
     /// Picks the watchface, reached from the settings root.
     WatchfaceSelect,
     /// Firmware confirmation and a software reboot.
@@ -704,9 +708,9 @@ pub enum ScreenId {
 impl ScreenId {
     /// How many screens this build has.
     pub const COUNT: usize = if cfg!(feature = "diagnostics") {
-        14
+        15
     } else {
-        13
+        14
     };
 
     /// Every screen, so anything that has to hold for all of them can be
@@ -728,6 +732,7 @@ impl ScreenId {
         Self::DimTimeout,
         Self::OffTimeout,
         Self::HeartRate,
+        Self::WakeGesture,
         Self::WatchfaceSelect,
         Self::Firmware,
         Self::About,
@@ -774,13 +779,14 @@ impl ScreenId {
             Self::DimTimeout => 5,
             Self::OffTimeout => 6,
             Self::HeartRate => 7,
-            Self::WatchfaceSelect => 8,
-            Self::Firmware => 9,
-            Self::About => 10,
-            Self::Flashlight => 11,
-            Self::Pulse => 12,
+            Self::WakeGesture => 8,
+            Self::WatchfaceSelect => 9,
+            Self::Firmware => 10,
+            Self::About => 11,
+            Self::Flashlight => 12,
+            Self::Pulse => 13,
             #[cfg(feature = "diagnostics")]
-            Self::TouchTest => 13,
+            Self::TouchTest => 14,
         }
     }
 }

@@ -1,7 +1,7 @@
 //! The one screen every settings leaf is.
 //!
 //! A leaf is always the same screen: the presets a setting can take, the
-//! current one marked, and choosing applies at once. What differs between
+//! current choices marked, and choosing applies at once. What differs between
 //! brightness and a screen timeout is which table the rows come from and which
 //! setter runs, and that lives in [`Setting`] in the state crate where it can
 //! be tested. So there is one screen here, configured when it is opened.
@@ -39,6 +39,7 @@ pub const fn setting_of(screen: ScreenId) -> Option<Setting> {
         ScreenId::DimTimeout => Some(Setting::DimTimeout),
         ScreenId::OffTimeout => Some(Setting::OffTimeout),
         ScreenId::HeartRate => Some(Setting::HeartRate),
+        ScreenId::WakeGesture => Some(Setting::WakeGesture),
         ScreenId::WatchfaceSelect => Some(Setting::Watchface),
         _ => None,
     }
@@ -93,7 +94,8 @@ impl SettingPickerScreen {
 
     fn column(&self) -> MenuColumn<'static> {
         // A value outside the presets marks nothing rather than the first row.
-        MenuColumn::Selected(self.setting.selected(self.settings).unwrap_or(usize::MAX))
+        // Wake sources return several bits when several sources are active.
+        MenuColumn::Selections(self.setting.selection_mask(self.settings))
     }
 }
 
@@ -164,6 +166,7 @@ const fn describe(setting: Setting) -> &'static Menu {
         Setting::DimTimeout => &DIM_MENU,
         Setting::OffTimeout => &OFF_MENU,
         Setting::HeartRate => &HEART_RATE_MENU,
+        Setting::WakeGesture => &WAKE_GESTURE_MENU,
         Setting::Watchface => &WATCHFACE_MENU,
     }
 }
@@ -188,4 +191,5 @@ picker_menu!(BRIGHTNESS_MENU, BRIGHTNESS_ROWS, Setting::Brightness);
 picker_menu!(DIM_MENU, DIM_ROWS, Setting::DimTimeout);
 picker_menu!(OFF_MENU, OFF_ROWS, Setting::OffTimeout);
 picker_menu!(HEART_RATE_MENU, HEART_RATE_ROWS, Setting::HeartRate);
+picker_menu!(WAKE_GESTURE_MENU, WAKE_GESTURE_ROWS, Setting::WakeGesture);
 picker_menu!(WATCHFACE_MENU, WATCHFACE_ROWS, Setting::Watchface);
