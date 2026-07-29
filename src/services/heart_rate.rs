@@ -14,18 +14,17 @@ use crate::{
 };
 
 const SAMPLE_INTERVAL: Duration = Duration::from_millis(100);
-/// The shortest gap the continuous mode leaves between readings.
+/// The shortest gap before retrying a failed continuous measurement.
 ///
-/// Not to pace a working sensor - a reading takes seconds, so a second either
-/// side of it is immaterial - but to bound the loop when one is not working. A
-/// failed power-up returns straight away, and a zero wait would turn that into
-/// a spin that never lets anything else run.
+/// A working continuous measurement does not leave the acquisition loop: every
+/// newly validated BPM value is published while the sensor stays powered. This
+/// delay only bounds the retry loop when power-up fails immediately.
 const CONTINUOUS_GAP: Duration = Duration::from_secs(1);
 
 /// How long to wait before the next background reading.
 ///
-/// Zero is the continuous preset: start again as soon as the last one ended,
-/// give or take the floor above.
+/// Zero is the continuous preset and reaches this wait only after a failed
+/// acquisition; a working continuous acquisition does not end between values.
 const fn gap(interval_seconds: u32) -> Duration {
     if interval_seconds == 0 {
         CONTINUOUS_GAP
@@ -133,7 +132,11 @@ where
             UI_EVENTS
                 .send(AppEvent::HeartRateStateUpdated(session.start()))
                 .await;
-            let command = self.measure_once(&mut session).await;
+            // A one-shot remains finite even when the stored interval happens
+            // to be zero while background measurement is disabled. Continuous
+            // acquisition is specifically the enabled zero-interval preset.
+            let continuous = enabled && interval_seconds == 0;
+            let command = self.measure(&mut session, continuous).await;
             self.power_down().await;
             // Served, whatever it produced. A reading that found no signal is
             // still an answer to the question that was asked.
@@ -208,7 +211,11 @@ where
         true
     }
 
-    async fn measure_once(&mut self, session: &mut HeartRateSession) -> Option<HeartRateCommand> {
+    async fn measure(
+        &mut self,
+        session: &mut HeartRateSession,
+        continuous: bool,
+    ) -> Option<HeartRateCommand> {
         if self.sensor.power_up().await.is_err() {
             warn!("Heart-rate sensor power-up failed");
             self.power_down().await;
@@ -240,7 +247,15 @@ where
                                 .send(AppEvent::HeartRateStateUpdated(session.apply(analysis)))
                                 .await;
                         }
-                        if matches!(analysis, PpgAnalysis::HeartRate { .. }) || sample_count >= 200
+                        // Periodic and on-demand sessions answer one question:
+                        // stop at the first valid value, or give up after
+                        // twenty seconds. `CONT` instead behaves like
+                        // InfiniTime's foreground acquisition: keep the sensor
+                        // and processor running so each later validated window
+                        // can replace the BPM value on the watchface.
+                        if !continuous
+                            && (matches!(analysis, PpgAnalysis::HeartRate { .. })
+                                || sample_count >= 200)
                         {
                             return None;
                         }

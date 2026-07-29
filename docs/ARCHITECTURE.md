@@ -194,7 +194,13 @@ asks for a reading now with `MeasureNow` and gives up on one with `Stop`;
 neither disturbs the background setting. That setting is a single list, as
 InfiniTime presents it - off, continuous, then intervals from thirty seconds to
 thirty minutes - where continuous is an interval of zero rather than a mode
-beside them, so the service needs no second concept to honour it. The runner remains the sole sensor owner and always
+beside them, so the service needs no second persisted concept to honour it.
+Interval and on-demand sessions stop after their first validated result (or
+after the acquisition limit), but continuous mode keeps the sensor and PPG
+window active and publishes every later validated BPM result. The watchface
+therefore keeps updating after the first value without flashing back to a
+measuring state between estimates, matching InfiniTime's foreground
+acquisition behavior. The runner remains the sole sensor owner and always
 disables the conversion engine and LED when a session ends. This command
 boundary is independent from display rendering and can later accept persistent
 disabled, on-demand, continuous, or periodic measurement policy.
