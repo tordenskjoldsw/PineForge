@@ -59,7 +59,12 @@ pub static SYSTEM_POWER: Watch<CriticalSectionRawMutex, SystemPowerState, 3> = W
 
 pub type SystemPowerReceiver = Receiver<'static, CriticalSectionRawMutex, SystemPowerState, 3>;
 
-/// Reserves one of the fixed display, motion, and heart-rate subscriptions.
+/// Reserves one of the fixed subscriptions: the display and motion.
+///
+/// The heart-rate service held the third until background measurement stopped
+/// being conditional on the watch being awake. The capacity is left where it is
+/// rather than trimmed to what is currently taken - a spare costs nothing, and
+/// the next consumer would otherwise have to raise it before it could ask.
 pub fn system_power_receiver() -> SystemPowerReceiver {
     SYSTEM_POWER
         .receiver()

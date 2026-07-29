@@ -180,13 +180,21 @@ acquisition. The
 board startup uses one-shot Embassy signals to enforce touch, then motion, then
 heart-rate shared-bus initialization, matching PineTime's proven sequential
 peripheral bring-up rather than racing any clients at boot. The
-runner disables the conversion engine and LED during system sleep and performs
-a fresh settling delay after wake. Future settings and background-measurement
+runner is deliberately independent of the system power state: a reading has to
+be able to happen while the watch is asleep, or a background interval means
+nothing on a watch that sleeps twenty seconds after every touch. It used to
+abandon a measurement the moment the display went dark, in three places, which
+made the periodic setting effectively unreachable - the same shape of bug as a
+charger reading that only arrived while the panel was on. What limits the
+sensor now is the setting alone. Future settings and background-measurement
 policy belong above this runner rather than in the register driver.
 
-Heart-rate acquisition is command-driven and disabled by default. Entering the
-dedicated diagnostics screen sends `Start`; leaving it or entering system sleep
-sends or implies `Stop`. The runner remains the sole sensor owner and always
+Heart-rate acquisition is command-driven and disabled by default. The pulse app
+asks for a reading now with `MeasureNow` and gives up on one with `Stop`;
+neither disturbs the background setting. That setting is a single list, as
+InfiniTime presents it - off, continuous, then intervals from thirty seconds to
+thirty minutes - where continuous is an interval of zero rather than a mode
+beside them, so the service needs no second concept to honour it. The runner remains the sole sensor owner and always
 disables the conversion engine and LED when a session ends. This command
 boundary is independent from display rendering and can later accept persistent
 disabled, on-demand, continuous, or periodic measurement policy.

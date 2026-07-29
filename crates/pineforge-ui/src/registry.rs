@@ -91,7 +91,6 @@ impl Screens {
             | ScreenId::DimTimeout
             | ScreenId::OffTimeout
             | ScreenId::HeartRate
-            | ScreenId::HeartRateInterval
             | ScreenId::WatchfaceSelect => &self.picker,
             #[cfg(feature = "diagnostics")]
             ScreenId::TouchTest => &self.touch_test,
@@ -114,7 +113,6 @@ impl Screens {
             | ScreenId::DimTimeout
             | ScreenId::OffTimeout
             | ScreenId::HeartRate
-            | ScreenId::HeartRateInterval
             | ScreenId::WatchfaceSelect => &mut self.picker,
             #[cfg(feature = "diagnostics")]
             ScreenId::TouchTest => &mut self.touch_test,

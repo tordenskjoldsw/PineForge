@@ -46,7 +46,11 @@ const fn contains_version(version: u16) -> bool {
 pub const BRIGHTNESS_LEVELS: [u8; 3] = [1, 3, 7];
 pub const DIM_TIMEOUTS_MILLIS: [u32; 4] = [5_000, 10_000, 20_000, 30_000];
 pub const OFF_TIMEOUTS_MILLIS: [u32; 4] = [10_000, 20_000, 30_000, 60_000];
-pub const HEART_RATE_INTERVALS_SECONDS: [u32; 4] = [60, 300, 900, 1_800];
+/// The gaps between background readings a record may hold.
+///
+/// Zero is continuous: the service starts the next reading as soon as the last
+/// one ends. `InfiniTime` offers the same set and spells it `Cont`.
+pub const HEART_RATE_INTERVALS_SECONDS: [u32; 6] = [0, 30, 60, 300, 600, 1_800];
 
 // What a picker calls each preset. The arrays are as long as the presets they
 // name, so adding a value without naming it does not compile - which is the
@@ -55,10 +59,17 @@ pub const HEART_RATE_INTERVALS_SECONDS: [u32; 4] = [60, 300, 900, 1_800];
 pub const BRIGHTNESS_NAMES: [&str; BRIGHTNESS_LEVELS.len()] = ["LOW", "MED", "FULL"];
 pub const DIM_TIMEOUT_NAMES: [&str; DIM_TIMEOUTS_MILLIS.len()] = ["5 s", "10 s", "20 s", "30 s"];
 pub const OFF_TIMEOUT_NAMES: [&str; OFF_TIMEOUTS_MILLIS.len()] = ["10 s", "20 s", "30 s", "60 s"];
-pub const HEART_RATE_INTERVAL_NAMES: [&str; HEART_RATE_INTERVALS_SECONDS.len()] =
-    ["1 min", "5 min", "15 min", "30 min"];
-/// A toggle is a picker of two, so it is named like every other preset.
-pub const HEART_RATE_ENABLED_NAMES: [&str; 2] = ["OFF", "ON"];
+/// What the one heart-rate picker offers, off first and then every interval.
+///
+/// One list rather than a toggle beside an interval, which is how `InfiniTime`
+/// presents it and one settings row fewer. The record still keeps the two
+/// fields apart, so nothing about how it is stored changes - only how it is
+/// asked for.
+///
+/// The length is tied to the interval table, so adding an interval without
+/// naming it does not compile.
+pub const HEART_RATE_MODE_NAMES: [&str; HEART_RATE_INTERVALS_SECONDS.len() + 1] =
+    ["OFF", "CONT", "30 s", "1 min", "5 min", "10 min", "30 min"];
 
 const MIN_BRIGHTNESS: u8 = 1;
 const MAX_BRIGHTNESS: u8 = 7;
@@ -474,10 +485,16 @@ mod tests {
         assert_eq!(BRIGHTNESS_NAMES[0], "LOW");
         assert_eq!(DIM_TIMEOUT_NAMES.len(), DIM_TIMEOUTS_MILLIS.len());
         assert_eq!(OFF_TIMEOUT_NAMES.len(), OFF_TIMEOUTS_MILLIS.len());
+        // One name per interval, plus the off row the intervals do not have.
         assert_eq!(
-            HEART_RATE_INTERVAL_NAMES.len(),
-            HEART_RATE_INTERVALS_SECONDS.len()
+            HEART_RATE_MODE_NAMES.len(),
+            HEART_RATE_INTERVALS_SECONDS.len() + 1
         );
+        assert_eq!(HEART_RATE_MODE_NAMES[0], "OFF");
+        // Continuous is an interval of zero rather than a mode beside them, so
+        // the service needs no second concept to honour it.
+        assert_eq!(HEART_RATE_INTERVALS_SECONDS[0], 0);
+        assert_eq!(HEART_RATE_MODE_NAMES[1], "CONT");
     }
 
     #[test]

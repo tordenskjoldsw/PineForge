@@ -8,8 +8,8 @@
 
 use crate::{
     BRIGHTNESS_LEVELS, BRIGHTNESS_NAMES, DIM_TIMEOUT_NAMES, DIM_TIMEOUTS_MILLIS, DisplaySettings,
-    HEART_RATE_ENABLED_NAMES, HEART_RATE_INTERVAL_NAMES, HEART_RATE_INTERVALS_SECONDS,
-    OFF_TIMEOUT_NAMES, OFF_TIMEOUTS_MILLIS, WATCHFACES,
+    HEART_RATE_INTERVALS_SECONDS, HEART_RATE_MODE_NAMES, OFF_TIMEOUT_NAMES, OFF_TIMEOUTS_MILLIS,
+    WATCHFACES,
 };
 
 /// The faces' names, in the order a picker lists them.
@@ -32,7 +32,6 @@ pub enum Setting {
     DimTimeout,
     OffTimeout,
     HeartRate,
-    HeartRateInterval,
     Watchface,
 }
 
@@ -44,8 +43,7 @@ impl Setting {
             Self::Brightness => &BRIGHTNESS_NAMES,
             Self::DimTimeout => &DIM_TIMEOUT_NAMES,
             Self::OffTimeout => &OFF_TIMEOUT_NAMES,
-            Self::HeartRate => &HEART_RATE_ENABLED_NAMES,
-            Self::HeartRateInterval => &HEART_RATE_INTERVAL_NAMES,
+            Self::HeartRate => &HEART_RATE_MODE_NAMES,
             Self::Watchface => &WATCHFACE_NAMES,
         }
     }
@@ -58,7 +56,6 @@ impl Setting {
             Self::DimTimeout => "DIM AFTER",
             Self::OffTimeout => "SCREEN OFF",
             Self::HeartRate => "HEART RATE",
-            Self::HeartRateInterval => "HR INTERVAL",
             Self::Watchface => "WATCHFACE",
         }
     }
@@ -80,10 +77,18 @@ impl Setting {
             Self::OffTimeout => OFF_TIMEOUTS_MILLIS
                 .iter()
                 .position(|millis| *millis == settings.off_after_millis()),
-            Self::HeartRate => Some(usize::from(settings.heart_rate_enabled())),
-            Self::HeartRateInterval => HEART_RATE_INTERVALS_SECONDS
-                .iter()
-                .position(|seconds| *seconds == settings.heart_rate_interval_seconds()),
+            // Off is the first preset; every other one names an interval, so
+            // the record's two fields collapse onto one row here.
+            Self::HeartRate => {
+                if settings.heart_rate_enabled() {
+                    HEART_RATE_INTERVALS_SECONDS
+                        .iter()
+                        .position(|seconds| *seconds == settings.heart_rate_interval_seconds())
+                        .map(|interval| interval + 1)
+                } else {
+                    Some(0)
+                }
+            }
             Self::Watchface => WATCHFACES
                 .iter()
                 .position(|face| face.id == settings.watchface()),
@@ -103,10 +108,15 @@ impl Setting {
             Self::Brightness => settings.with_brightness(*BRIGHTNESS_LEVELS.get(entry)?),
             Self::DimTimeout => settings.with_dim_timeout(*DIM_TIMEOUTS_MILLIS.get(entry)?),
             Self::OffTimeout => settings.with_off_timeout(*OFF_TIMEOUTS_MILLIS.get(entry)?),
-            Self::HeartRate => settings.with_heart_rate_enabled(entry == 1),
-            Self::HeartRateInterval => {
-                settings.with_heart_rate_interval(*HEART_RATE_INTERVALS_SECONDS.get(entry)?)
-            }
+            // Choosing off leaves the interval where it was, so turning
+            // measurement back on returns to the rate that was picked rather
+            // than to a default.
+            Self::HeartRate => match entry.checked_sub(1) {
+                None => settings.with_heart_rate_enabled(false),
+                Some(interval) => settings
+                    .with_heart_rate_enabled(true)
+                    .with_heart_rate_interval(*HEART_RATE_INTERVALS_SECONDS.get(interval)?),
+            },
             Self::Watchface => settings.with_watchface(WATCHFACES.get(entry)?.id),
         };
         (updated != settings).then_some(updated)
@@ -134,7 +144,6 @@ mod tests {
             Setting::DimTimeout,
             Setting::OffTimeout,
             Setting::HeartRate,
-            Setting::HeartRateInterval,
             Setting::Watchface,
         ] {
             for entry in 0..setting.names().len() {
@@ -162,7 +171,7 @@ mod tests {
     fn one_picker_does_not_discard_another_pickers_change() {
         let settings = DisplaySettings::DEFAULT;
         let bright = choose(settings, Setting::Brightness, "LOW");
-        let both = choose(bright, Setting::HeartRate, "ON");
+        let both = choose(bright, Setting::HeartRate, "5 min");
 
         assert_eq!(
             both.brightness(),
@@ -188,14 +197,35 @@ mod tests {
         // The heart rate picker still holding `stale` produces a record whose
         // brightness is the old one - this is the data loss, and it is why the
         // display task keeps one canonical record instead of one per screen.
-        let from_stale = choose(stale, Setting::HeartRate, "ON");
+        let from_stale = choose(stale, Setting::HeartRate, "5 min");
         assert_eq!(from_stale.brightness(), stale.brightness());
         assert_ne!(from_stale.brightness(), current.brightness());
 
         // Applied to the current record instead, both changes stand.
-        let from_current = choose(current, Setting::HeartRate, "ON");
+        let from_current = choose(current, Setting::HeartRate, "5 min");
         assert_eq!(from_current.brightness(), current.brightness());
         assert!(from_current.heart_rate_enabled());
+    }
+
+    /// Off and the intervals share one list, so the two record fields it
+    /// stands for have to survive the round trip in both directions.
+    #[test]
+    fn turning_measurement_off_and_on_keeps_the_interval_that_was_picked() {
+        let every_ten = choose(DisplaySettings::DEFAULT, Setting::HeartRate, "10 min");
+        assert!(every_ten.heart_rate_enabled());
+        assert_eq!(every_ten.heart_rate_interval_seconds(), 600);
+
+        // Off leaves the interval alone, so coming back does not land on a
+        // default the user never chose.
+        let off = choose(every_ten, Setting::HeartRate, "OFF");
+        assert!(!off.heart_rate_enabled());
+        assert_eq!(off.heart_rate_interval_seconds(), 600);
+        assert_eq!(Setting::HeartRate.selected(off), Some(0));
+
+        // Continuous is an interval like any other, not a mode beside them.
+        let continuous = choose(off, Setting::HeartRate, "CONT");
+        assert!(continuous.heart_rate_enabled());
+        assert_eq!(continuous.heart_rate_interval_seconds(), 0);
     }
 
     #[test]

@@ -39,7 +39,6 @@ pub const fn setting_of(screen: ScreenId) -> Option<Setting> {
         ScreenId::DimTimeout => Some(Setting::DimTimeout),
         ScreenId::OffTimeout => Some(Setting::OffTimeout),
         ScreenId::HeartRate => Some(Setting::HeartRate),
-        ScreenId::HeartRateInterval => Some(Setting::HeartRateInterval),
         ScreenId::WatchfaceSelect => Some(Setting::Watchface),
         _ => None,
     }
@@ -165,7 +164,6 @@ const fn describe(setting: Setting) -> &'static Menu {
         Setting::DimTimeout => &DIM_MENU,
         Setting::OffTimeout => &OFF_MENU,
         Setting::HeartRate => &HEART_RATE_MENU,
-        Setting::HeartRateInterval => &HEART_RATE_INTERVAL_MENU,
         Setting::Watchface => &WATCHFACE_MENU,
     }
 }
@@ -190,9 +188,4 @@ picker_menu!(BRIGHTNESS_MENU, BRIGHTNESS_ROWS, Setting::Brightness);
 picker_menu!(DIM_MENU, DIM_ROWS, Setting::DimTimeout);
 picker_menu!(OFF_MENU, OFF_ROWS, Setting::OffTimeout);
 picker_menu!(HEART_RATE_MENU, HEART_RATE_ROWS, Setting::HeartRate);
-picker_menu!(
-    HEART_RATE_INTERVAL_MENU,
-    HEART_RATE_INTERVAL_ROWS,
-    Setting::HeartRateInterval
-);
 picker_menu!(WATCHFACE_MENU, WATCHFACE_ROWS, Setting::Watchface);

@@ -48,10 +48,6 @@ static MENU: Menu = Menu {
             target: ScreenId::HeartRate,
         },
         MenuRow::Navigate {
-            label: Setting::HeartRateInterval.title(),
-            target: ScreenId::HeartRateInterval,
-        },
-        MenuRow::Navigate {
             label: Setting::Watchface.title(),
             target: ScreenId::WatchfaceSelect,
         },

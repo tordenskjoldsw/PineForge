@@ -1,22 +1,38 @@
 use defmt::{info, warn};
-use embassy_futures::select::{Either, Either3, select, select3};
+use embassy_futures::select::{Either, select};
 use embassy_time::{Duration, Ticker, Timer};
 use embedded_hal_async::i2c::I2c;
 #[cfg(feature = "diagnostics")]
 use pineforge_state::HeartRateRawSample;
 use pineforge_state::{
     AppEvent, HeartRateCommand, HeartRateSensorKind, HeartRateSession, PpgAnalysis, PpgProcessor,
-    SystemPowerState,
 };
 
 use crate::{
     drivers::hrs3300::{Hrs3300, Hrs3300Kind},
-    ipc::{
-        HEART_RATE_COMMANDS, MOTION_READY, SystemPowerReceiver, UI_EVENTS, system_power_receiver,
-    },
+    ipc::{HEART_RATE_COMMANDS, MOTION_READY, UI_EVENTS},
 };
 
 const SAMPLE_INTERVAL: Duration = Duration::from_millis(100);
+/// The shortest gap the continuous mode leaves between readings.
+///
+/// Not to pace a working sensor - a reading takes seconds, so a second either
+/// side of it is immaterial - but to bound the loop when one is not working. A
+/// failed power-up returns straight away, and a zero wait would turn that into
+/// a spin that never lets anything else run.
+const CONTINUOUS_GAP: Duration = Duration::from_secs(1);
+
+/// How long to wait before the next background reading.
+///
+/// Zero is the continuous preset: start again as soon as the last one ended,
+/// give or take the floor above.
+const fn gap(interval_seconds: u32) -> Duration {
+    if interval_seconds == 0 {
+        CONTINUOUS_GAP
+    } else {
+        Duration::from_secs(interval_seconds as u64)
+    }
+}
 const SETTLING_DELAY: Duration = Duration::from_millis(100);
 #[cfg(feature = "diagnostics")]
 const UI_SAMPLE_DIVISOR: u8 = 10;
@@ -82,7 +98,6 @@ where
         MOTION_READY.wait().await;
         let available = self.initialize().await;
 
-        let mut power_receiver = system_power_receiver();
         let mut session = HeartRateSession::new();
         UI_EVENTS
             .send(AppEvent::HeartRateStateUpdated(session.state()))
@@ -115,28 +130,10 @@ where
                 }
                 continue;
             }
-            // A one-shot skips the sleep wait. It was asked for explicitly, and
-            // the screen that asks holds the watch awake anyway.
-            if !oneshot && power_receiver.get().await == SystemPowerState::Sleeping {
-                if let Either::First(command) =
-                    select(HEART_RATE_COMMANDS.receive(), power_receiver.changed()).await
-                {
-                    Self::apply(
-                        command,
-                        &mut enabled,
-                        &mut oneshot,
-                        &mut interval_seconds,
-                        &mut session,
-                    )
-                    .await;
-                }
-                continue;
-            }
-
             UI_EVENTS
                 .send(AppEvent::HeartRateStateUpdated(session.start()))
                 .await;
-            let command = self.measure_once(&mut power_receiver, &mut session).await;
+            let command = self.measure_once(&mut session).await;
             self.power_down().await;
             // Served, whatever it produced. A reading that found no signal is
             // still an answer to the question that was asked.
@@ -158,10 +155,9 @@ where
             if !enabled {
                 continue;
             }
-            if let Either3::First(command) = select3(
+            if let Either::First(command) = select(
                 HEART_RATE_COMMANDS.receive(),
-                power_receiver.changed(),
-                Timer::after(Duration::from_secs(u64::from(interval_seconds))),
+                Timer::after(gap(interval_seconds)),
             )
             .await
             {
@@ -212,11 +208,7 @@ where
         true
     }
 
-    async fn measure_once(
-        &mut self,
-        power_receiver: &mut SystemPowerReceiver,
-        session: &mut HeartRateSession,
-    ) -> Option<HeartRateCommand> {
+    async fn measure_once(&mut self, session: &mut HeartRateSession) -> Option<HeartRateCommand> {
         if self.sensor.power_up().await.is_err() {
             warn!("Heart-rate sensor power-up failed");
             self.power_down().await;
@@ -226,13 +218,7 @@ where
             return None;
         }
 
-        match select(power_receiver.changed(), Timer::after(SETTLING_DELAY)).await {
-            Either::First(SystemPowerState::Sleeping) => {
-                self.power_down().await;
-                return None;
-            }
-            Either::First(_) | Either::Second(()) => {}
-        }
+        Timer::after(SETTLING_DELAY).await;
 
         #[cfg(feature = "diagnostics")]
         let mut samples_until_ui_update = 1;
@@ -243,17 +229,9 @@ where
             .send(AppEvent::HeartRateStateUpdated(session.collecting()))
             .await;
         loop {
-            match select3(
-                HEART_RATE_COMMANDS.receive(),
-                power_receiver.changed(),
-                sample_ticker.next(),
-            )
-            .await
-            {
-                Either3::First(command) => return Some(command),
-                Either3::Second(SystemPowerState::Sleeping) => return None,
-                Either3::Second(_) => {}
-                Either3::Third(()) => {
+            match select(HEART_RATE_COMMANDS.receive(), sample_ticker.next()).await {
+                Either::First(command) => return Some(command),
+                Either::Second(()) => {
                     if let Ok(sample) = self.sensor.read_sample().await {
                         sample_count = sample_count.saturating_add(1);
                         let analysis = ppg.push(sample.hrs, sample.als);
