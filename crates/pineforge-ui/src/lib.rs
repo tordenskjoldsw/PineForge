@@ -26,6 +26,7 @@ pub mod about;
 pub mod canvas;
 pub mod dfu;
 pub mod firmware;
+pub mod flashlight;
 pub mod font;
 pub mod icons;
 pub mod launcher;

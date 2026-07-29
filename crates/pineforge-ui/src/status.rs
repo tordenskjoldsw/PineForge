@@ -260,5 +260,12 @@ impl Paint for WithStatus<'_> {
 /// whole surface and shows what its own design calls for.
 #[must_use]
 pub const fn wears_status(screen: pineforge_state::ScreenId) -> bool {
-    !matches!(screen, pineforge_state::ScreenId::Watchface)
+    !matches!(
+        screen,
+        pineforge_state::ScreenId::Watchface
+            // The lamp wears nothing: the corner would be a dark blob in the
+            // middle of the light, and every pixel it covers is light the watch
+            // is not giving.
+            | pineforge_state::ScreenId::Flashlight
+    )
 }

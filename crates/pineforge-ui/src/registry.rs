@@ -24,6 +24,7 @@ use crate::{
     about::AboutScreen,
     canvas::{Canvas, CanvasError},
     firmware::FirmwareScreen,
+    flashlight::FlashlightScreen,
     launcher::LauncherScreen,
     notifications::NotificationScreen,
     screen::{Paint, Screen},
@@ -50,6 +51,9 @@ pub struct Screens {
     picker: SettingPickerScreen,
     pub firmware: FirmwareScreen,
     pub about: AboutScreen,
+    /// Holds whether the lamp is lit, which the display task reads when it
+    /// decides how bright the panel should be.
+    pub flashlight: FlashlightScreen,
     #[cfg(feature = "diagnostics")]
     pub touch_test: TestScreen,
 }
@@ -75,6 +79,7 @@ impl Screens {
             ScreenId::DisplaySettings => &self.settings,
             ScreenId::Firmware => &self.firmware,
             ScreenId::About => &self.about,
+            ScreenId::Flashlight => &self.flashlight,
             // Every leaf is the same screen; `enter` has pointed it at the one
             // this id names before it can be drawn or touched.
             ScreenId::Brightness
@@ -96,6 +101,7 @@ impl Screens {
             ScreenId::DisplaySettings => &mut self.settings,
             ScreenId::Firmware => &mut self.firmware,
             ScreenId::About => &mut self.about,
+            ScreenId::Flashlight => &mut self.flashlight,
             // Every leaf is the same screen; `enter` has pointed it at the one
             // this id names before it can be drawn or touched.
             ScreenId::Brightness
@@ -125,6 +131,10 @@ impl Screens {
     pub fn enter(&mut self, active: ScreenId, settings: DisplaySettings) {
         if let Some(setting) = setting_of(active) {
             self.picker.open(setting, settings);
+        }
+        // The lamp opens dark, whichever way it was left.
+        if active == ScreenId::Flashlight {
+            self.flashlight.put_out();
         }
         // This is what carries a dismissal back to the face: the notification
         // screen changes the inbox, and leaving it is when the face is told.

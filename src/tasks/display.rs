@@ -18,7 +18,7 @@ use crate::{
 };
 use pineforge_state::{
     AppEffect, AppEvent, AppState, DisplaySettings, HeartRateCommand, ModalOutcome, ModalState,
-    Notification, PowerCommand, ScreenId, SystemPowerState, VibrationPattern,
+    Notification, PowerCommand, ScreenId, SystemPowerState, VibrationPattern, panel_backlight,
 };
 use pineforge_ui::{
     about::BuildInfo,
@@ -35,8 +35,6 @@ static DISPLAY_BUFFER: StaticCell<[u8; 512]> = StaticCell::new();
 #[cfg(feature = "ui-animations")]
 static UI_SCRATCH: StaticCell<UiScratch> = StaticCell::new();
 
-const DIMMED_BRIGHTNESS: u8 = 1;
-
 /// Backstop for how long input is disowned after waking.
 ///
 /// What actually has to be swallowed is the *rest of the touch that did the
@@ -49,6 +47,14 @@ const DIMMED_BRIGHTNESS: u8 = 1;
 /// time to be deaf. A swipe is a thing people do immediately after lighting up
 /// the screen, and every one of them inside that window was dropped.
 const WAKE_INPUT_GUARD: Duration = Duration::from_millis(250);
+
+/// Whether the lamp app is showing and lit.
+///
+/// The one question the backlight decision has to put to a screen. Every other
+/// input to it - the power state, the settings - the task already holds.
+fn lamp_lit(app: &AppState, screens: &Screens) -> bool {
+    app.active_screen() == ScreenId::Flashlight && screens.flashlight.is_lit()
+}
 
 enum DisplayEvent {
     Ui(AppEvent),
@@ -144,7 +150,12 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
     };
     watchdog.pet();
     let mut settings = DisplaySettings::DEFAULT;
-    backlight.set_level(settings.brightness());
+    // Interactive and unlit by construction: nothing has been navigated to yet.
+    backlight.set_level(panel_backlight(
+        SystemPowerState::Interactive,
+        false,
+        settings,
+    ));
 
     let started_at = Instant::now();
     let mut next_tick = started_at + Duration::from_secs(1);
@@ -189,13 +200,9 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
         &mut Canvas::new(&mut display),
         &mut || watchdog.pet(),
     );
-    match power {
-        SystemPowerState::Interactive => backlight.set_level(settings.brightness()),
-        SystemPowerState::Idle => backlight.set_level(DIMMED_BRIGHTNESS),
-        SystemPowerState::Sleeping => {
-            backlight.set_level(0);
-            let _ = display.sleep(&mut delay);
-        }
+    backlight.set_level(panel_backlight(power, lamp_lit(&app, &screens), settings));
+    if power == SystemPowerState::Sleeping {
+        let _ = display.sleep(&mut delay);
     }
 
     loop {
@@ -262,9 +269,7 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
             DisplayEvent::Ui(event) => event,
             DisplayEvent::Settings(snapshot) => {
                 settings = snapshot;
-                if power == SystemPowerState::Interactive {
-                    backlight.set_level(settings.brightness());
-                }
+                backlight.set_level(panel_backlight(power, lamp_lit(&app, &screens), settings));
                 AppEvent::DisplaySettingsUpdated(snapshot)
             }
             DisplayEvent::Power(next) => {
@@ -303,12 +308,16 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                                 &mut || watchdog.pet(),
                             );
                         }
-                        backlight.set_level(settings.brightness());
+                        backlight.set_level(panel_backlight(
+                            power,
+                            lamp_lit(&app, &screens),
+                            settings,
+                        ));
                         ignore_input_until = Instant::now() + WAKE_INPUT_GUARD;
                         next_tick = Instant::now() + Duration::from_secs(1);
                     }
-                    SystemPowerState::Interactive => backlight.set_level(settings.brightness()),
-                    SystemPowerState::Idle => backlight.set_level(DIMMED_BRIGHTNESS),
+                    SystemPowerState::Interactive | SystemPowerState::Idle => backlight
+                        .set_level(panel_backlight(power, lamp_lit(&app, &screens), settings)),
                     SystemPowerState::Sleeping => {
                         backlight.set_level(0);
                         let _ = display.sleep(&mut delay);
@@ -386,7 +395,11 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
         match modal_outcome {
             ModalOutcome::Show(showing) | ModalOutcome::Refresh(showing) => {
                 let _ = display.wake(&mut delay);
-                backlight.set_level(settings.brightness());
+                backlight.set_level(panel_backlight(
+                    SystemPowerState::Interactive,
+                    lamp_lit(&app, &screens),
+                    settings,
+                ));
                 if showing.renews_activity() {
                     POWER_COMMANDS.send(PowerCommand::UserActivity).await;
                 }
@@ -434,6 +447,19 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
         if power == SystemPowerState::Sleeping {
             continue;
         }
+
+        // The lamp holds the watch awake for as long as it is open, not only
+        // while it is lit - a light that went out on its own timeout partway
+        // through being used would be worse than no light. `InfiniTime` takes
+        // the same lock for the lifetime of its flashlight screen.
+        //
+        // A tick arrives every second while awake, so renewing here keeps the
+        // idle deadline permanently out of reach. Never awaited: the request is
+        // idempotent, and a full queue already means activity is being reported.
+        if app.active_screen().keeps_awake() {
+            let _ = POWER_COMMANDS.try_send(PowerCommand::UserActivity);
+        }
+
         if now < ignore_input_until {
             // The lift that ends the waking touch is what the guard was really
             // waiting for, so seeing it retires the guard early instead of
@@ -580,5 +606,11 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                 );
             }
         }
+
+        // Settled after the effect rather than inside it, because two different
+        // things reach here: navigating onto or off the lamp, and the tap that
+        // lights it. Three GPIO writes is cheaper than an argument about which
+        // arm owns the backlight.
+        backlight.set_level(panel_backlight(power, lamp_lit(&app, &screens), settings));
     }
 }

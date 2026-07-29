@@ -194,6 +194,51 @@ impl SystemPowerPolicy {
     }
 }
 
+/// The brightest the panel goes.
+///
+/// Taken from the top of the presets rather than written out again, so a lamp
+/// cannot ask for a level the settings screen has no way to return from.
+pub const BRIGHTNESS_MAX: u8 = BRIGHTNESS_LEVELS[BRIGHTNESS_LEVELS.len() - 1];
+
+/// What the backlight shows while the watch is idle but not yet asleep.
+pub const DIMMED_BRIGHTNESS: u8 = 1;
+
+/// How bright the panel should be, given everything that has a say.
+///
+/// One answer in one place. This used to be spelled out at eight call sites in
+/// the display task - every power transition, every settings change, the wake
+/// path, and the modal path - which is fine until a ninth thing has an opinion,
+/// and a lamp is exactly that.
+///
+/// A lit lamp outranks both the brightness setting and idle dimming, because
+/// the panel is the light: dimming it is not a power saving, it is the feature
+/// failing. Sleep still wins, but the lamp screen holds the watch awake so that
+/// case does not arise while it is open.
+#[must_use]
+pub const fn panel_backlight(
+    power: SystemPowerState,
+    lamp_lit: bool,
+    settings: DisplaySettings,
+) -> u8 {
+    match power {
+        SystemPowerState::Sleeping => 0,
+        SystemPowerState::Idle => {
+            if lamp_lit {
+                BRIGHTNESS_MAX
+            } else {
+                DIMMED_BRIGHTNESS
+            }
+        }
+        SystemPowerState::Interactive => {
+            if lamp_lit {
+                BRIGHTNESS_MAX
+            } else {
+                settings.brightness()
+            }
+        }
+    }
+}
+
 /// Connection state of the BLE stack, published for status display.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum BleState {
@@ -633,6 +678,8 @@ pub enum ScreenId {
     Firmware,
     /// Which build this is: release, commit, and date.
     About,
+    /// The watch used as a lamp: the panel itself is the light.
+    Flashlight,
     #[cfg(feature = "diagnostics")]
     TouchTest,
 }
@@ -640,9 +687,9 @@ pub enum ScreenId {
 impl ScreenId {
     /// How many screens this build has.
     pub const COUNT: usize = if cfg!(feature = "diagnostics") {
-        13
+        14
     } else {
-        12
+        13
     };
 
     /// Every screen, so anything that has to hold for all of them can be
@@ -668,9 +715,24 @@ impl ScreenId {
         Self::WatchfaceSelect,
         Self::Firmware,
         Self::About,
+        Self::Flashlight,
         #[cfg(feature = "diagnostics")]
         Self::TouchTest,
     ];
+
+    /// Whether this screen holds the watch awake while it is showing.
+    ///
+    /// The lamp does, for as long as the app is open rather than only while it
+    /// is lit: a light that went out on its own timeout partway through being
+    /// used would be worse than no light. `InfiniTime` takes the same wake lock
+    /// for the lifetime of its flashlight screen.
+    ///
+    /// This is the one screen that may do it. Anything else holding the panel
+    /// on indefinitely would be a battery bug wearing a feature's name.
+    #[must_use]
+    pub const fn keeps_awake(self) -> bool {
+        matches!(self, Self::Flashlight)
+    }
 
     /// This screen's slot in [`Self::ALL`].
     ///
@@ -693,8 +755,9 @@ impl ScreenId {
             Self::WatchfaceSelect => 9,
             Self::Firmware => 10,
             Self::About => 11,
+            Self::Flashlight => 12,
             #[cfg(feature = "diagnostics")]
-            Self::TouchTest => 12,
+            Self::TouchTest => 13,
         }
     }
 }
@@ -1229,6 +1292,79 @@ mod tests {
         assert_eq!(at(0, false), ChargeLevel::Critical);
         // On the charger the number is climbing, so nothing is urgent.
         assert_eq!(at(0, true), ChargeLevel::Good);
+    }
+
+    /// A lamp outranks the setting and the idle dimming, but never sleep.
+    #[test]
+    fn a_lit_lamp_beats_the_brightness_setting_and_the_idle_dimming() {
+        // Explicitly the dimmest preset. The default happens to be the
+        // brightest, which would make a lamp indistinguishable from an ordinary
+        // screen and prove nothing.
+        let dim = DisplaySettings::DEFAULT.with_brightness(BRIGHTNESS_LEVELS[0]);
+        assert!(dim.brightness() < BRIGHTNESS_MAX);
+
+        assert_eq!(
+            panel_backlight(SystemPowerState::Interactive, true, dim),
+            BRIGHTNESS_MAX
+        );
+        // Dimming a lamp is not a power saving, it is the feature failing.
+        assert_eq!(
+            panel_backlight(SystemPowerState::Idle, true, dim),
+            BRIGHTNESS_MAX
+        );
+        // Sleep still wins. The lamp screen keeps the watch awake so this does
+        // not arise while it is open, but a dark panel must never be lit by a
+        // flag left over from before.
+        assert_eq!(panel_backlight(SystemPowerState::Sleeping, true, dim), 0);
+    }
+
+    /// Without a lamp the answer is exactly what it was before the lamp
+    /// existed, which is what makes gathering the decision safe.
+    #[test]
+    fn without_a_lamp_the_panel_follows_the_setting_and_the_power_state() {
+        for &level in &BRIGHTNESS_LEVELS {
+            let settings = DisplaySettings::DEFAULT.with_brightness(level);
+            assert_eq!(settings.brightness(), level, "a preset is always accepted");
+
+            assert_eq!(
+                panel_backlight(SystemPowerState::Interactive, false, settings),
+                level
+            );
+            assert_eq!(
+                panel_backlight(SystemPowerState::Idle, false, settings),
+                DIMMED_BRIGHTNESS
+            );
+            assert_eq!(
+                panel_backlight(SystemPowerState::Sleeping, false, settings),
+                0
+            );
+        }
+    }
+
+    /// The lamp is the only screen allowed to hold the panel on. Anything else
+    /// doing it would be a battery bug wearing a feature's name, so this is
+    /// checked against every screen rather than asserted about one.
+    #[test]
+    fn only_the_lamp_keeps_the_watch_awake() {
+        for screen in ScreenId::ALL {
+            assert_eq!(
+                screen.keeps_awake(),
+                screen == ScreenId::Flashlight,
+                "{screen:?} disagrees about holding the watch awake"
+            );
+        }
+    }
+
+    /// The brightest a lamp can ask for has to be a level the user can also
+    /// choose, or leaving the lamp would strand the panel somewhere the
+    /// settings screen cannot describe.
+    #[test]
+    fn the_lamp_brightness_is_one_the_settings_screen_offers() {
+        assert!(BRIGHTNESS_LEVELS.contains(&BRIGHTNESS_MAX));
+        assert_eq!(BRIGHTNESS_MAX, *BRIGHTNESS_LEVELS.iter().max().unwrap());
+        // The backlight driver clamps at seven; asking for more would silently
+        // become this anyway.
+        assert!(BRIGHTNESS_MAX <= 7);
     }
 
     /// The rates are ordered rather than pinned to exact numbers, because the
