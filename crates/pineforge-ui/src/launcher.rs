@@ -55,20 +55,38 @@ const TILES: &[Tile] = &[
 ];
 
 const SLOTS: usize = 4;
-const MARGIN: i32 = 4;
-const GAP: i32 = 2;
-const TILE_WIDTH: i32 = 115;
-const TILE_HEIGHT: i32 = 106;
-const TOP: i32 = STATUS_HEIGHT + 2;
 
+// The grid deliberately does not reach the edges of the panel.
+//
+// It used to: four to a page at 115x106, with a two-pixel gap and a four-pixel
+// margin, came to exactly 240 across. Every tile was then as large as the
+// layout could make it, which is what made the launcher feel heavy rather than
+// any one tile being wrong. `InfiniTime` leaves 16 pixels across and 60 down
+// unused and reads as tidy at a much smaller tile.
+//
+// The count stays at four. `InfiniTime` shows six because it has around ten
+// applications; this build has three, four with diagnostics, so a six-slot page
+// would be mostly empty - borrowing the proportions is worth more here than
+// borrowing the grid.
+const MARGIN: i32 = 10;
+const GAP: i32 = 10;
+const TILE_WIDTH: i32 = 105;
+const TILE_HEIGHT: i32 = 88;
+/// Clear of the status corner rather than flush against it.
+const TOP: i32 = STATUS_HEIGHT + 10;
+
+/// Where the tiles stop, and the strip below them begins.
+const GRID_BOTTOM: i32 = TOP + 2 * TILE_HEIGHT + GAP;
 /// Centre line of the page rail, in the strip the tiles leave below them.
 /// Placed so the rail's thickness clears the bottom edge of the panel.
-const DOT_Y: i32 = TOP + 2 * TILE_HEIGHT + GAP + 3;
+const DOT_Y: i32 = GRID_BOTTOM + 14;
 /// Width of one character in the UI face, for centring a label by hand.
 const CHARACTER_WIDTH: i32 = JETBRAINS_MONO_10X22.cell.width.cast_signed();
 
-const ICON_TOP_OFFSET: i32 = 24;
-const LABEL_BASELINE_OFFSET: i32 = 78;
+// Kept proportional to the tile as it shrank, so the icon still sits above the
+// label with the label nearer the foot than the icon is to the head.
+const ICON_TOP_OFFSET: i32 = 18;
+const LABEL_BASELINE_OFFSET: i32 = 66;
 
 /// Where a slot sits on the page. Slot 0 is top-left, then across and down.
 const fn tile_bounds(slot: usize) -> ButtonBounds {
