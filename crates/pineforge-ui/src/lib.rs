@@ -38,6 +38,7 @@ pub mod notifications;
 pub mod pairing;
 #[cfg(test)]
 mod probe;
+pub mod pulse;
 pub mod registry;
 pub mod render;
 #[cfg(feature = "ui-animations")]

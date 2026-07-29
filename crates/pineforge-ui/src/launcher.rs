@@ -51,6 +51,11 @@ const TILES: &[Tile] = &[
         label: "LIGHT",
         target: ScreenId::Flashlight,
     },
+    Tile {
+        icon: &icons::HEART,
+        label: "PULSE",
+        target: ScreenId::Pulse,
+    },
     #[cfg(feature = "diagnostics")]
     Tile {
         icon: &icons::CROSSHAIR,

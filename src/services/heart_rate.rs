@@ -38,6 +38,46 @@ where
         }
     }
 
+    /// Applies one command, leaving the loop's state where the command says.
+    ///
+    /// Four places take a command - the idle wait, the sleep wait, the one that
+    /// interrupted a reading, and the interval wait - and all four mean the
+    /// same thing by it. Written once so a fifth cannot mean something subtly
+    /// different, and because saying it four times was already what pushed this
+    /// loop past being readable.
+    async fn apply(
+        command: HeartRateCommand,
+        enabled: &mut bool,
+        oneshot: &mut bool,
+        interval_seconds: &mut u32,
+        session: &mut HeartRateSession,
+    ) {
+        match command {
+            HeartRateCommand::Configure {
+                enabled: next,
+                interval_seconds: interval,
+            } => {
+                *enabled = next;
+                *interval_seconds = interval;
+                if !*enabled {
+                    UI_EVENTS
+                        .send(AppEvent::HeartRateStateUpdated(session.stop()))
+                        .await;
+                }
+            }
+            HeartRateCommand::MeasureNow => *oneshot = true,
+            // The reading in flight, if any, has already been abandoned by this
+            // command arriving; all that is left is to stop asking for another
+            // and to say so. The periodic setting is deliberately untouched.
+            HeartRateCommand::Stop => {
+                *oneshot = false;
+                UI_EVENTS
+                    .send(AppEvent::HeartRateStateUpdated(session.stop()))
+                    .await;
+            }
+        }
+    }
+
     pub async fn run(mut self) {
         MOTION_READY.wait().await;
         let available = self.initialize().await;
@@ -48,44 +88,47 @@ where
             .send(AppEvent::HeartRateStateUpdated(session.state()))
             .await;
         let mut enabled = false;
+        // Set by a one-shot request and cleared once it has been served. It is
+        // what lets the pulse app take a reading without disturbing the
+        // periodic setting either side of it.
+        let mut oneshot = false;
         let mut interval_seconds = 300;
         loop {
-            if !enabled {
-                let HeartRateCommand::Configure {
-                    enabled: next,
-                    interval_seconds: interval,
-                } = HEART_RATE_COMMANDS.receive().await;
-                enabled = next;
-                interval_seconds = interval;
-                if enabled && !available {
+            if !enabled && !oneshot {
+                let command = HEART_RATE_COMMANDS.receive().await;
+                Self::apply(
+                    command,
+                    &mut enabled,
+                    &mut oneshot,
+                    &mut interval_seconds,
+                    &mut session,
+                )
+                .await;
+                // Whichever way it was asked for, a sensor that never answered
+                // at boot cannot produce a reading.
+                if (enabled || oneshot) && !available {
                     UI_EVENTS
                         .send(AppEvent::HeartRateStateUpdated(session.fail()))
                         .await;
                     enabled = false;
-                    continue;
-                }
-                if !enabled {
-                    UI_EVENTS
-                        .send(AppEvent::HeartRateStateUpdated(session.stop()))
-                        .await;
+                    oneshot = false;
                 }
                 continue;
             }
-            if power_receiver.get().await == SystemPowerState::Sleeping {
-                match select(HEART_RATE_COMMANDS.receive(), power_receiver.changed()).await {
-                    Either::First(HeartRateCommand::Configure {
-                        enabled: next,
-                        interval_seconds: interval,
-                    }) => {
-                        enabled = next;
-                        interval_seconds = interval;
-                        if !enabled {
-                            UI_EVENTS
-                                .send(AppEvent::HeartRateStateUpdated(session.stop()))
-                                .await;
-                        }
-                    }
-                    Either::Second(_) => {}
+            // A one-shot skips the sleep wait. It was asked for explicitly, and
+            // the screen that asks holds the watch awake anyway.
+            if !oneshot && power_receiver.get().await == SystemPowerState::Sleeping {
+                if let Either::First(command) =
+                    select(HEART_RATE_COMMANDS.receive(), power_receiver.changed()).await
+                {
+                    Self::apply(
+                        command,
+                        &mut enabled,
+                        &mut oneshot,
+                        &mut interval_seconds,
+                        &mut session,
+                    )
+                    .await;
                 }
                 continue;
             }
@@ -95,43 +138,41 @@ where
                 .await;
             let command = self.measure_once(&mut power_receiver, &mut session).await;
             self.power_down().await;
-            if let Some(HeartRateCommand::Configure {
-                enabled: next,
-                interval_seconds: interval,
-            }) = command
-            {
-                enabled = next;
-                interval_seconds = interval;
-                if !enabled {
-                    UI_EVENTS
-                        .send(AppEvent::HeartRateStateUpdated(session.stop()))
-                        .await;
-                }
+            // Served, whatever it produced. A reading that found no signal is
+            // still an answer to the question that was asked.
+            oneshot = false;
+            if let Some(command) = command {
+                // A second request mid-reading sets the one-shot again, so the
+                // loop starts over rather than handing back a number gathered
+                // before the request.
+                Self::apply(
+                    command,
+                    &mut enabled,
+                    &mut oneshot,
+                    &mut interval_seconds,
+                    &mut session,
+                )
+                .await;
                 continue;
             }
             if !enabled {
                 continue;
             }
-            match select3(
+            if let Either3::First(command) = select3(
                 HEART_RATE_COMMANDS.receive(),
                 power_receiver.changed(),
                 Timer::after(Duration::from_secs(u64::from(interval_seconds))),
             )
             .await
             {
-                Either3::First(HeartRateCommand::Configure {
-                    enabled: next,
-                    interval_seconds: interval,
-                }) => {
-                    enabled = next;
-                    interval_seconds = interval;
-                    if !enabled {
-                        UI_EVENTS
-                            .send(AppEvent::HeartRateStateUpdated(session.stop()))
-                            .await;
-                    }
-                }
-                Either3::Second(_) | Either3::Third(()) => {}
+                Self::apply(
+                    command,
+                    &mut enabled,
+                    &mut oneshot,
+                    &mut interval_seconds,
+                    &mut session,
+                )
+                .await;
             }
         }
     }

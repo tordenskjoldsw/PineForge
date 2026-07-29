@@ -537,6 +537,18 @@ pub enum HeartRateCommand {
         enabled: bool,
         interval_seconds: u32,
     },
+    /// Take one reading now, whether or not periodic measurement is on.
+    ///
+    /// The sensor was reachable only on an interval, which is not how anyone
+    /// asks for their pulse. A one-shot leaves the periodic setting exactly as
+    /// it found it.
+    MeasureNow,
+    /// Abandon the reading in flight.
+    ///
+    /// Distinct from disabling: someone who gives up on a measurement has not
+    /// asked for periodic measurement to stop happening, and the setting is not
+    /// this command's to change.
+    Stop,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -680,6 +692,12 @@ pub enum ScreenId {
     About,
     /// The watch used as a lamp: the panel itself is the light.
     Flashlight,
+    /// An on-demand heart-rate reading.
+    ///
+    /// Named apart from [`Self::HeartRate`], which is the settings leaf that
+    /// turns periodic measurement on and picks its interval. This is the app
+    /// that takes one now and shows what came back.
+    Pulse,
     #[cfg(feature = "diagnostics")]
     TouchTest,
 }
@@ -687,9 +705,9 @@ pub enum ScreenId {
 impl ScreenId {
     /// How many screens this build has.
     pub const COUNT: usize = if cfg!(feature = "diagnostics") {
-        14
+        15
     } else {
-        13
+        14
     };
 
     /// Every screen, so anything that has to hold for all of them can be
@@ -716,6 +734,7 @@ impl ScreenId {
         Self::Firmware,
         Self::About,
         Self::Flashlight,
+        Self::Pulse,
         #[cfg(feature = "diagnostics")]
         Self::TouchTest,
     ];
@@ -727,11 +746,17 @@ impl ScreenId {
     /// used would be worse than no light. `InfiniTime` takes the same wake lock
     /// for the lifetime of its flashlight screen.
     ///
-    /// This is the one screen that may do it. Anything else holding the panel
-    /// on indefinitely would be a battery bug wearing a feature's name.
+    /// The pulse app does too, and not as a convenience: the heart-rate service
+    /// abandons a measurement the moment the system goes to sleep, and a
+    /// reading takes longer than the default twenty-second timeout. Without the
+    /// lock every measurement would be cut off just before it produced a
+    /// number.
+    ///
+    /// These two and nothing else. Anything else holding the panel on
+    /// indefinitely would be a battery bug wearing a feature's name.
     #[must_use]
     pub const fn keeps_awake(self) -> bool {
-        matches!(self, Self::Flashlight)
+        matches!(self, Self::Flashlight | Self::Pulse)
     }
 
     /// This screen's slot in [`Self::ALL`].
@@ -756,8 +781,9 @@ impl ScreenId {
             Self::Firmware => 10,
             Self::About => 11,
             Self::Flashlight => 12,
+            Self::Pulse => 13,
             #[cfg(feature = "diagnostics")]
-            Self::TouchTest => 13,
+            Self::TouchTest => 14,
         }
     }
 }
@@ -904,6 +930,10 @@ pub enum ScreenAction {
     /// Restart the watch from software. On an unconfirmed image this is a
     /// rollback; on a confirmed one it is a plain reboot.
     Reboot,
+    /// Ask for a heart-rate reading now.
+    MeasureHeartRate,
+    /// Give up on the reading in flight.
+    StopHeartRate,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -914,6 +944,8 @@ pub enum AppEffect {
     ApplySettings(DisplaySettings),
     ConfirmFirmware,
     Reboot,
+    MeasureHeartRate,
+    StopHeartRate,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1207,6 +1239,8 @@ impl AppState {
             ScreenAction::ApplySettings(settings) => AppEffect::ApplySettings(settings),
             ScreenAction::ConfirmFirmware => AppEffect::ConfirmFirmware,
             ScreenAction::Reboot => AppEffect::Reboot,
+            ScreenAction::MeasureHeartRate => AppEffect::MeasureHeartRate,
+            ScreenAction::StopHeartRate => AppEffect::StopHeartRate,
             ScreenAction::Back => self.pop(),
             ScreenAction::Push(screen) => self.push(screen, None),
         }
@@ -1341,15 +1375,21 @@ mod tests {
         }
     }
 
-    /// The lamp is the only screen allowed to hold the panel on. Anything else
-    /// doing it would be a battery bug wearing a feature's name, so this is
-    /// checked against every screen rather than asserted about one.
+    /// Holding the panel on is a privilege, and the list of screens with it is
+    /// checked against every screen rather than asserted about one - anything
+    /// that acquired it by accident would be a battery bug wearing a feature's
+    /// name.
+    ///
+    /// The lamp, because it *is* the light. The pulse app, because the service
+    /// abandons a measurement on sleep and a reading outlasts the default
+    /// timeout.
     #[test]
-    fn only_the_lamp_keeps_the_watch_awake() {
+    fn only_the_lamp_and_the_pulse_app_keep_the_watch_awake() {
         for screen in ScreenId::ALL {
+            let expected = matches!(screen, ScreenId::Flashlight | ScreenId::Pulse);
             assert_eq!(
                 screen.keeps_awake(),
-                screen == ScreenId::Flashlight,
+                expected,
                 "{screen:?} disagrees about holding the watch awake"
             );
         }

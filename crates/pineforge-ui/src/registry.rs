@@ -27,6 +27,7 @@ use crate::{
     flashlight::FlashlightScreen,
     launcher::LauncherScreen,
     notifications::NotificationScreen,
+    pulse::PulseScreen,
     screen::{Paint, Screen},
     setting_picker::{SettingPickerScreen, setting_of},
     settings::DisplaySettingsScreen,
@@ -54,6 +55,9 @@ pub struct Screens {
     /// Holds whether the lamp is lit, which the display task reads when it
     /// decides how bright the panel should be.
     pub flashlight: FlashlightScreen,
+    /// Holds the last heart-rate reading, fed from the event stream whatever is
+    /// showing - see [`Screens::absorb`].
+    pub pulse: PulseScreen,
     #[cfg(feature = "diagnostics")]
     pub touch_test: TestScreen,
 }
@@ -80,6 +84,7 @@ impl Screens {
             ScreenId::Firmware => &self.firmware,
             ScreenId::About => &self.about,
             ScreenId::Flashlight => &self.flashlight,
+            ScreenId::Pulse => &self.pulse,
             // Every leaf is the same screen; `enter` has pointed it at the one
             // this id names before it can be drawn or touched.
             ScreenId::Brightness
@@ -102,6 +107,7 @@ impl Screens {
             ScreenId::Firmware => &mut self.firmware,
             ScreenId::About => &mut self.about,
             ScreenId::Flashlight => &mut self.flashlight,
+            ScreenId::Pulse => &mut self.pulse,
             // Every leaf is the same screen; `enter` has pointed it at the one
             // this id names before it can be drawn or touched.
             ScreenId::Brightness
@@ -113,6 +119,35 @@ impl Screens {
             #[cfg(feature = "diagnostics")]
             ScreenId::TouchTest => &mut self.touch_test,
         }
+    }
+
+    /// Hands a reading to every screen that keeps one, and reports whether the
+    /// screen currently showing moved because of it.
+    ///
+    /// Readings are facts about the watch rather than messages to whichever
+    /// screen happens to be up, and more than one screen holds them: the face
+    /// shows a pulse alongside everything else, the pulse app shows the same
+    /// reading on its own. Feeding them here, once, is what keeps a number that
+    /// arrived while the face was up from going stale behind the app.
+    ///
+    /// The display task must not then hand the same event to the active screen
+    /// again - a second apply finds nothing changed and cancels the repaint the
+    /// first one earned. [`Self::holds_readings`] says which screens are
+    /// covered here and therefore must be skipped there.
+    pub fn absorb(&mut self, active: ScreenId, event: AppEvent) -> bool {
+        let _ = self.watchface.handle_event(event);
+        let _ = self.pulse.handle_event(event);
+        match active {
+            ScreenId::Watchface => self.watchface.moved(),
+            ScreenId::Pulse => self.pulse.moved(),
+            _ => false,
+        }
+    }
+
+    /// Whether this screen took its reading from [`Self::absorb`] already.
+    #[must_use]
+    pub const fn holds_readings(active: ScreenId) -> bool {
+        matches!(active, ScreenId::Watchface | ScreenId::Pulse)
     }
 
     pub fn handle(&mut self, active: ScreenId, event: AppEvent) -> ScreenAction {

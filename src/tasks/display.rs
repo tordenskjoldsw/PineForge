@@ -25,7 +25,6 @@ use pineforge_ui::{
     canvas::Canvas,
     modal,
     registry::Screens,
-    screen::Screen,
     status::{StatusCorner, wears_status},
 };
 #[cfg(feature = "ui-animations")]
@@ -352,10 +351,7 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
         // sat where it was at boot, and a charger on the pad never turned `BAT`
         // into `CHG`, because that reading arrives exactly when the panel is
         // off.
-        let reading_moved = event.is_reading() && {
-            let _ = screens.watchface.handle_event(event);
-            screens.watchface.moved()
-        };
+        let reading_moved = event.is_reading() && screens.absorb(app.active_screen(), event);
 
         if let AppEvent::DisplaySettingsUpdated(updated) = event {
             HEART_RATE_COMMANDS
@@ -489,10 +485,10 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
         // Any other screen keeps the ordinary path below. A notification tally
         // is a reading to the face and a reason to repaint to the inbox, and
         // only the screen itself can know that.
-        if event.is_reading() && app.active_screen() == ScreenId::Watchface {
+        if event.is_reading() && Screens::holds_readings(app.active_screen()) {
             if reading_moved {
                 let _ = screens.draw_dirty(
-                    ScreenId::Watchface,
+                    app.active_screen(),
                     &mut Canvas::new(&mut display),
                     &mut || watchdog.pet(),
                 );
@@ -541,6 +537,17 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                     &mut Canvas::new(&mut display),
                     &mut || watchdog.pet(),
                 );
+            }
+            AppEffect::MeasureHeartRate | AppEffect::StopHeartRate => {
+                // The service owns the sensor and decides what a request means
+                // while one is already running; this only forwards it.
+                let command = if matches!(effect, AppEffect::MeasureHeartRate) {
+                    HeartRateCommand::MeasureNow
+                } else {
+                    HeartRateCommand::Stop
+                };
+                HEART_RATE_COMMANDS.send(command).await;
+                let _ = VIBRATION_COMMANDS.try_send(VibrationPattern::Tap);
             }
             AppEffect::Reboot | AppEffect::RequestRollback => {
                 info!("Restart requested from software");
