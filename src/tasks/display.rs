@@ -505,7 +505,19 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                 AppEffect::None => app.transition(screens.handle(app.active_screen(), event)),
                 navigated => navigated,
             },
-            AppEvent::BackPressed => app.back(),
+            // At the root there is no screen to leave, so the press means the
+            // other thing a watch button means: put the panel out now rather
+            // than waiting out the timeout. Reached only when the watch was
+            // already awake - the guard above swallows the press that wakes it,
+            // so the button cannot turn the screen off in the act of turning it
+            // on.
+            AppEvent::BackPressed => match app.back() {
+                AppEffect::None => {
+                    let _ = POWER_COMMANDS.try_send(PowerCommand::SleepNow);
+                    AppEffect::None
+                }
+                left => left,
+            },
             _ => app.transition(screens.handle(app.active_screen(), event)),
         };
 

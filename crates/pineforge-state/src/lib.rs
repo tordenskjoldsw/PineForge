@@ -122,6 +122,8 @@ pub enum SystemPowerState {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PowerCommand {
     UserActivity,
+    /// Sleep now, because the user asked rather than because the timeout came.
+    SleepNow,
 }
 
 /// Deterministic system-power policy, independent from clocks and hardware.
@@ -129,6 +131,12 @@ pub struct SystemPowerPolicy {
     config: PowerConfig,
     state: SystemPowerState,
     last_activity_millis: u64,
+    /// Set when sleep was asked for rather than waited for, and cleared by the
+    /// next activity. Held as a flag rather than by winding the idle clock back
+    /// past the timeout, because that arithmetic saturates: a watch that has
+    /// been up for less time than the timeout is long cannot be backdated far
+    /// enough, and the next tick would decide it had just been used.
+    sleep_requested: bool,
 }
 
 impl SystemPowerPolicy {
@@ -138,6 +146,7 @@ impl SystemPowerPolicy {
             config,
             state: SystemPowerState::Interactive,
             last_activity_millis: now_millis,
+            sleep_requested: false,
         }
     }
 
@@ -155,11 +164,28 @@ impl SystemPowerPolicy {
     /// Records user activity and returns a state change, if any.
     pub fn on_activity(&mut self, now_millis: u64) -> Option<SystemPowerState> {
         self.last_activity_millis = now_millis;
+        // Activity is what a requested sleep is waiting for. Clearing it here
+        // rather than on wake means one rule governs both: whatever wakes the
+        // watch also ends the request that put it to sleep.
+        self.sleep_requested = false;
         self.set_state(SystemPowerState::Interactive)
+    }
+
+    /// Sleeps at once, at the user's request rather than the timeout's.
+    ///
+    /// Holds until the next activity, which is also what wakes the watch, so
+    /// the panel stays dark through every tick in between.
+    pub fn on_sleep_request(&mut self) -> Option<SystemPowerState> {
+        self.sleep_requested = true;
+        self.set_state(SystemPowerState::Sleeping)
     }
 
     /// Advances inactivity policy and returns a state change, if any.
     pub fn advance(&mut self, now_millis: u64) -> Option<SystemPowerState> {
+        if self.sleep_requested {
+            // Nothing the clock says can lighten a sleep that was asked for.
+            return self.set_state(SystemPowerState::Sleeping);
+        }
         let idle = now_millis.saturating_sub(self.last_activity_millis);
         let next = if idle >= self.config.off_after_millis() {
             SystemPowerState::Sleeping
@@ -1517,6 +1543,41 @@ mod tests {
         );
         assert_eq!(policy.state(), SystemPowerState::Interactive);
         assert_eq!(policy.next_deadline_millis(), Some(35_000));
+    }
+
+    /// A requested sleep has to survive the tick that follows it.
+    ///
+    /// The state is derived from the idle clock, so setting it without winding
+    /// that clock back would leave `advance` - which runs at least once a
+    /// second - deciding the watch had just been used and lighting the panel
+    /// again. The button would appear not to work.
+    #[test]
+    fn a_requested_sleep_is_not_undone_by_the_next_tick() {
+        let mut policy = SystemPowerPolicy::new(1_000, PowerConfig::DEFAULT);
+
+        assert_eq!(policy.on_sleep_request(), Some(SystemPowerState::Sleeping));
+        assert_eq!(policy.state(), SystemPowerState::Sleeping);
+        assert_eq!(policy.next_deadline_millis(), None);
+
+        assert_eq!(policy.advance(5_001), None);
+        assert_eq!(policy.advance(6_000), None);
+        assert_eq!(policy.state(), SystemPowerState::Sleeping);
+
+        // And the watch still wakes normally afterwards.
+        assert_eq!(
+            policy.on_activity(7_000),
+            Some(SystemPowerState::Interactive)
+        );
+    }
+
+    /// Asking for sleep while already asleep reports no change, so the display
+    /// task has nothing to act on and does not re-run its sleep sequence.
+    #[test]
+    fn requesting_sleep_twice_reports_one_change() {
+        let mut policy = SystemPowerPolicy::new(0, PowerConfig::DEFAULT);
+
+        assert_eq!(policy.on_sleep_request(), Some(SystemPowerState::Sleeping));
+        assert_eq!(policy.on_sleep_request(), None);
     }
 
     #[test]

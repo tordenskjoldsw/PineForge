@@ -54,6 +54,7 @@ pub async fn run() {
         let now_millis = Instant::now().duration_since(started_at).as_millis();
         let next = match input {
             Input::Command(PowerCommand::UserActivity) => policy.on_activity(now_millis),
+            Input::Command(PowerCommand::SleepNow) => policy.on_sleep_request(),
             // A shortened timeout must take effect against current idle time.
             Input::ConfigChanged | Input::DeadlineReached => policy.advance(now_millis),
         };
