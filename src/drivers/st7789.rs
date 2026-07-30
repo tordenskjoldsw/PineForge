@@ -179,6 +179,80 @@ where
         Ok(())
     }
 
+    /// Streams a whole rectangle through one window.
+    ///
+    /// Without this, `embedded-graphics`' default sends the pixels to
+    /// [`Self::draw_iter`], whose runs break at every row boundary because a run
+    /// is defined as consecutive `x` on one `y`. Each of those runs then sets
+    /// its own address window: two commands with four bytes each, a memory-write
+    /// command, and the CS and DC transitions around them. A 10x22 glyph cell
+    /// therefore cost 22 windows to deliver 22 rows of ten pixels - roughly 240
+    /// bytes of addressing for 440 bytes of picture, in 88 SPI transactions
+    /// rather than a handful.
+    ///
+    /// The contract makes the one-window form correct: `fill_contiguous` is
+    /// documented to yield colours row by row across the area, which is exactly
+    /// the order the panel's own memory write consumes them in. So the window is
+    /// set once and the pixels stream through it.
+    ///
+    /// Nothing about the resulting picture changes. This is the addressing
+    /// around the pixels, not the pixels.
+    fn fill_contiguous<I>(&mut self, area: &Rectangle, colors: I) -> Result<(), Self::Error>
+    where
+        I: IntoIterator<Item = Self::Color>,
+    {
+        let visible = area.intersection(&self.bounding_box());
+        if visible.size.width == 0 || visible.size.height == 0 {
+            // Nothing to draw, and the colours are never asked for: an area
+            // fully off-panel costs nothing rather than a discarded pixel each.
+            return Ok(());
+        }
+
+        let left = visible.top_left.x;
+        let top = visible.top_left.y;
+        let right = left + i32::try_from(visible.size.width).unwrap_or(0);
+        let bottom = top + i32::try_from(visible.size.height).unwrap_or(0);
+
+        self.begin_pixels(&visible)?;
+
+        let mut colors = colors.into_iter();
+        let mut buffer = [0_u8; 480];
+        let mut filled = 0_usize;
+
+        // Walks the area the caller named, not the clipped one, because that is
+        // the order the colours arrive in; only the pixels inside the panel are
+        // kept. Iterating the clipped area instead would take colours meant for
+        // a neighbouring column and shear the image.
+        'rows: for y in
+            area.top_left.y..area.top_left.y + i32::try_from(area.size.height).unwrap_or(0)
+        {
+            for x in
+                area.top_left.x..area.top_left.x + i32::try_from(area.size.width).unwrap_or(0)
+            {
+                // A short iterator is allowed to end the fill early; the panel
+                // simply keeps whatever it already had beyond that point.
+                let Some(color) = colors.next() else {
+                    break 'rows;
+                };
+                if x < left || x >= right || y < top || y >= bottom {
+                    continue;
+                }
+                let raw = RawU16::from(color).into_inner().to_be_bytes();
+                buffer[filled..filled + 2].copy_from_slice(&raw);
+                filled += 2;
+                if filled == buffer.len() {
+                    self.spi.write(&buffer).map_err(Error::Spi)?;
+                    filled = 0;
+                }
+            }
+        }
+
+        if filled > 0 {
+            self.spi.write(&buffer[..filled]).map_err(Error::Spi)?;
+        }
+        self.finish_pixels()
+    }
+
     fn fill_solid(&mut self, area: &Rectangle, color: Self::Color) -> Result<(), Self::Error> {
         let area = area.intersection(&self.bounding_box());
         if area.size.width == 0 || area.size.height == 0 {
