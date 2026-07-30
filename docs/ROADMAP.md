@@ -10,9 +10,10 @@ milestone should leave the sealed PineTime in a testable and recoverable state.
   button as back button, persistent BLE pairing
 - `v0.2.1`: released gesture and memory fixes - a gesture consumes its own
   touch, and static RAM meets its design target
-- `v0.3.0`: unreleased, on `main` - the navigation shell v0.2.0 shipped without.
-  The application launcher, a notifications screen, and the first applications
-  (flashlight, on-demand pulse) are in the tree; quick settings is not.
+- `v0.3.0`: the navigation shell v0.2.0 shipped without, and the first
+  applications to stand on it - launcher, notifications, flashlight, pulse,
+  settings split into a root and a leaf per setting, and a watch that says which
+  build it is running
 
 Work that has landed on `main` since `v0.2.1` is marked *unreleased* below.
 Everything else in a **Complete** section shipped in a tagged release.
@@ -158,7 +159,6 @@ than as a firmware experiment. It is not reached.
 - one polished watchface. `Terminal` is the only production face and is a
   bring-up aesthetic, not a chosen one.
 - an explicit self-test before a release build invites confirmation
-- quick settings, the one screen of the navigation shell still missing
 - measured battery life over a normal day
 
 ## Later milestones

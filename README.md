@@ -35,11 +35,12 @@ reboots and updates. `v0.2.1` follows with a gesture no longer activating the
 control under the finger, and static RAM inside its design target - see
 [`docs/releases/v0.2.1.md`](docs/releases/v0.2.1.md).
 
-Unreleased work on `main` adds the application launcher, a notifications screen,
-flashlight and pulse applications, background heart-rate measurement, and
-selectable wake gestures. Quick settings is the one screen of the navigation
-shell still missing. [`docs/ROADMAP.md`](docs/ROADMAP.md) records what is done
-and what is not.
+`v0.3.0` completes the navigation shell and puts the first applications on it:
+the launcher, a notifications screen, flashlight and pulse, settings split into
+a root and a leaf per setting, background heart-rate measurement, selectable
+wake gestures, and a watch that says which build it is running - see
+[`docs/releases/v0.3.0.md`](docs/releases/v0.3.0.md).
+[`docs/ROADMAP.md`](docs/ROADMAP.md) records what is done and what is not.
 
 Wearing it myself every day is one watch's worth of evidence, and it does
 **not** establish general safety across PineTime hardware revisions, bootloader

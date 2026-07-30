@@ -1156,9 +1156,12 @@ const fn route(from: ScreenId, swipe: SwipeDirection) -> Option<ScreenId> {
         // Pulling down brings what arrived down with it, the way a phone's
         // shade does.
         (ScreenId::Watchface, SwipeDirection::Down) => Some(ScreenId::Notifications),
-        // Left is spoken for by quick settings; the screen is not built yet, so
-        // the gesture leads nowhere rather than somewhere temporary that would
-        // have to be unlearned.
+        // Left is deliberately unassigned. It was once reserved for a quick
+        // settings panel, which was dropped: the launcher is already one swipe
+        // from the face and already carries the torch and the settings gear, so
+        // a second grid of tiles beside it had nothing left to do. Whatever
+        // claims this gesture should come from something the watch turns out to
+        // need, not from holding it empty for a screen nobody specified.
         _ => None,
     }
 }
@@ -1650,8 +1653,8 @@ mod tests {
     fn the_root_ignores_gestures_that_route_nowhere() {
         let mut app = AppState::new(ScreenId::Watchface);
 
-        // Left belongs to quick settings, which does not exist yet; right is
-        // the way back, and the root cannot be popped.
+        // Left is unassigned; right is the way back, and the root cannot be
+        // popped.
         for swipe in [SwipeDirection::Left, SwipeDirection::Right] {
             assert_eq!(app.navigate(swipe), AppEffect::None);
             assert_eq!(app.active_screen(), ScreenId::Watchface);

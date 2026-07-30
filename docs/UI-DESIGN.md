@@ -162,27 +162,33 @@ Four tiles per page, two by two, below the status strip:
 ```text
 +------------------------------ 240 --+
 |                          [BT] [BAT] |  16
-|  +-------------+  +-------------+   |
-|  |    [icon]   |  |    [icon]   |   |
-|  |  SETTINGS   |  |  FIRMWARE   |   |  106
-|  |             |  |             |   |
-|  +-------------+  +-------------+   |
-|  +-------------+  +-------------+   |
-|  |             |  |             |   |
-|  |             |  |             |   |  106
-|  |             |  |             |   |
-|  +-------------+  +-------------+   |
-|              o  .                   |  page indicator
+|   +-----------+   +-----------+     |
+|   |  [icon]   |   |  [icon]   |     |
+|   | SETTINGS  |   | FIRMWARE  |     |  88
+|   +-----------+   +-----------+     |
+|   +-----------+   +-----------+     |
+|   |  [icon]   |   |  [icon]   |     |
+|   |   ABOUT   |   |   LIGHT   |     |  88
+|   +-----------+   +-----------+     |
+|              o  .                   |  page rail
 +-------------------------------------+
 ```
 
-Two tiles today, a third under `diagnostics`. The grid is drawn at its full
-four slots because that is what the geometry reserves; the apps to fill it are
-the roadmap's business, not this document's.
+Five tiles today across two pages - settings, firmware, about, light, pulse -
+and a sixth under `diagnostics`. The grid always draws its full four slots: an
+empty slot still paints, because the surface has to be opaque or the previous
+page shows through.
 
-Tiles are 115 x 106 with a two-pixel gap and a four-pixel margin, leaving room
-under the second row for the page rail. The launcher is opened by swiping up, so
-navigation owns the vertical axis and **pages turn horizontally**.
+Tiles are 105 x 88 with a ten-pixel gap and a ten-pixel margin, starting ten
+pixels below the status strip and leaving room under the second row for the page
+rail. The grid deliberately does not reach the edges of the panel; it used to,
+at 115 x 106, and being as large as the layout allowed is what made the launcher
+feel heavy. The launcher is opened by swiping up, so navigation owns the
+vertical axis and **pages turn horizontally**.
+
+Four to a page rather than six. `InfiniTime` shows six because it has around ten
+applications; borrowing its proportions is worth more here than borrowing its
+grid.
 
 ## The page rail
 
