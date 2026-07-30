@@ -30,35 +30,37 @@ an official InfiniTime recovery package available.
    and general stability have been tested. Confirmation is intentionally
    required later if you want to use PineForge's OTA service.
 
-## 2. Build environment on Arch Linux
+## 2. Build environment
+
+Install `git`, `python3` and [`rustup`](https://rustup.rs) with your
+distribution's package manager. On Arch Linux:
 
 ```bash
 sudo pacman -S --needed base-devel git python python-pip rustup
 rustup default stable
-rustup target add thumbv7em-none-eabihf
-rustup component add llvm-tools
-cargo install cargo-binutils --locked
-# The linker for the firmware target. It places the stack below the statics so
-# that an overflow faults instead of quietly overwriting them; without it every
-# firmware link fails. See docs/ARCHITECTURE.md.
-cargo install flip-link --locked
-python -m venv .venv
-source .venv/bin/activate
-pip install adafruit-nrfutil
 ```
 
-## 3. Set up the MCUBoot imgtool
-
-The build requires `scripts/imgtool.py` from the official MCUBoot repository:
+Then run the setup script, which installs everything else at pinned versions:
 
 ```bash
-git clone --depth 1 https://github.com/mcu-tools/mcuboot.git tools/mcuboot-src
-mkdir -p tools/mcuboot
-cp tools/mcuboot-src/scripts/imgtool.py tools/mcuboot/imgtool.py
-pip install -r tools/mcuboot-src/scripts/requirements.txt
+./scripts/setup-build-tools.sh
 ```
 
-## 4. Check the project
+It installs:
+
+- the toolchain, target and components pinned by `rust-toolchain.toml`;
+- `flip-link`, the linker for the firmware target. It places the stack below the
+  statics so that an overflow faults instead of quietly overwriting them;
+  without it every firmware link fails. See `docs/ARCHITECTURE.md`;
+- `cargo-binutils`, used by the size budget and to produce the raw binary;
+- MCUBoot at a pinned commit in `tools/mcuboot-src`, for `imgtool`;
+- a `.venv` with the pinned Python tooling in `tools/requirements.txt`,
+  including `adafruit-nrfutil`.
+
+The script is safe to re-run and does not modify anything outside the repository
+except the Cargo binaries in `~/.cargo/bin`.
+
+## 3. Check the project
 
 ```bash
 cargo fmt --all -- --check
@@ -68,46 +70,47 @@ cargo build --release --target thumbv7em-none-eabihf
 
 Do not flash if any command fails.
 
-## 5. Create the DFU ZIP
+## 4. Create the DFU ZIP
 
-The default and recommended artifact is the production image:
+The default and recommended artifact is the production image. Called without an
+argument, the script names the package after the version in `Cargo.toml`:
 
 ```bash
-./scripts/build-dfu.sh 0.1.0
+./scripts/build-dfu.sh
 ```
 
 Only enable diagnostic screens for a deliberately labeled hardware test:
 
 ```bash
-PINEFORGE_FEATURES=diagnostics ./scripts/build-dfu.sh 0.1.0
+PINEFORGE_FEATURES=diagnostics ./scripts/build-dfu.sh
 ```
 
-Expected file:
+Expected file, for the `0.2.1` in `Cargo.toml`:
 
 ```text
-dist/pineforge-mcuboot-app-dfu-0.1.0.zip
+dist/pineforge-mcuboot-app-dfu-0.2.1.zip
 ```
 
-## 6. Inspect before flashing
+## 5. Inspect before flashing
 
 ```bash
-unzip -l dist/pineforge-mcuboot-app-dfu-0.1.0.zip
-sha256sum dist/pineforge-mcuboot-app-dfu-0.1.0.zip
+unzip -l dist/pineforge-mcuboot-app-dfu-0.2.1.zip
+sha256sum dist/pineforge-mcuboot-app-dfu-0.2.1.zip
 ```
 
 The ZIP must contain at least the manifest and application payload of the Nordic Legacy DFU package.
 
-## 7. Install through Gadgetbridge
+## 6. Install through Gadgetbridge
 
 1. Open Gadgetbridge and verify the connection to the PineTime.
 2. Open the Android file manager.
-3. Tap `pineforge-mcuboot-app-dfu-0.1.0.zip`.
+3. Tap `pineforge-mcuboot-app-dfu-0.2.1.zip`.
 4. Open it with the Gadgetbridge firmware installer.
 5. Read the warning and start the installation.
 6. Keep the watch and phone close together and do not disable Bluetooth during the transfer.
 7. Inspect the Rust test interface after the reboot.
 
-## 8. Confirm PineForge and use OTA
+## 7. Confirm PineForge and use OTA
 
 Only continue after testing the unconfirmed image and deciding to give up its
 automatic rollback:
@@ -122,7 +125,7 @@ automatic rollback:
 Confirmation cannot be undone by an ordinary reset. After confirmation, the
 side button only reboots PineForge.
 
-## 9. Return to InfiniTime
+## 8. Return to InfiniTime
 
 Before confirming PineForge:
 
@@ -136,7 +139,7 @@ After confirming PineForge:
 2. Wait for 100%, validation, and reboot.
 3. InfiniTime should start as the newly staged image.
 
-## 10. If InfiniTime does not start
+## 9. If InfiniTime does not start
 
 - Do not repeatedly install additional experimental ZIP files.
 - If PineForge is still unconfirmed, try the side-button rollback again.

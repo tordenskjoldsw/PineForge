@@ -27,7 +27,7 @@ jobs:
       # every link of the binary fails, so it is installed before anything that
       # builds - `cargo check` gets away without it, `cargo clippy` does not.
       - name: Install flip-link
-        run: cargo install flip-link --locked
+        run: cargo install flip-link --version 0.1.12 --locked
       - name: Check formatting
         run: cargo fmt --all -- --check
       # Cheap and first: a layer violation is a design regression, and finding
@@ -115,7 +115,7 @@ jobs:
         run: cargo install cargo-binutils --version 0.4.0 --locked
       # `cargo size` links the binary, so this job needs the linker too.
       - name: Install flip-link
-        run: cargo install flip-link --locked
+        run: cargo install flip-link --version 0.1.12 --locked
       - name: Enforce size budget
         run: >-
           ./scripts/check-size.sh

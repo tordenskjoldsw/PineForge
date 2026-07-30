@@ -73,21 +73,23 @@ missing features, bugs, slow OTA transfers, resets, and possible recovery work.
 
 ## Build
 
+`setup-build-tools.sh` installs the Rust components, a pinned MCUBoot checkout
+for `imgtool`, and a `.venv` with pinned Python tooling. It is safe to re-run.
+
 ```bash
-rustup target add thumbv7em-none-eabihf
-cargo install cargo-binutils
-rustup component add llvm-tools
-pip install adafruit-nrfutil
-mkdir -p tools/mcuboot
-# Copy the official MCUBoot imgtool.py to tools/mcuboot/imgtool.py
-./scripts/build-dfu.sh 0.1.0
+./scripts/setup-build-tools.sh
+./scripts/build-dfu.sh
 ```
+
+`build-dfu.sh` takes the version from `Cargo.toml` when called without an
+argument. Pass one to add build metadata that distinguishes two packages of the
+same release, for example `./scripts/build-dfu.sh 0.2.1+7`.
 
 The DFU script builds the production profile with normal UI animations by
 default. Diagnostic screens and render metrics are opt-in:
 
 ```bash
-PINEFORGE_FEATURES=diagnostics ./scripts/build-dfu.sh 0.1.0
+PINEFORGE_FEATURES=diagnostics ./scripts/build-dfu.sh
 ```
 
 Release artifacts and routine OTA tests must use the default production build
@@ -96,7 +98,7 @@ unless the artifact is explicitly labeled as diagnostic.
 Output:
 
 ```text
-dist/pineforge-mcuboot-app-dfu-0.1.0.zip
+dist/pineforge-mcuboot-app-dfu-0.2.1.zip
 ```
 
 This ZIP can be installed through the Gadgetbridge firmware installer.

@@ -4,7 +4,7 @@ This variant is intentionally an **unconfirmed MCUBoot test image**.
 
 ## Procedure
 
-1. Build a Gadgetbridge DFU ZIP with `scripts/build-dfu.sh 0.1.0`.
+1. Build a Gadgetbridge DFU ZIP with `scripts/build-dfu.sh`.
 2. Open the ZIP on Android with the Gadgetbridge firmware installer.
 3. The Rust test firmware starts after the firmware swap.
 4. Test touch input. The most recently read coordinates are displayed.
