@@ -79,17 +79,19 @@ allows, which is usually quick - an intention, not a commitment. See
 
 On the watch:
 
-- a watchface with the time, date, battery and charging state
-- an application launcher, reached by swiping up
-- notifications from the phone, counted on the watchface and readable on their
-  own screen
-- settings for brightness, dim and display-off timeouts, watchface and wake
-  gesture, all surviving a reboot
+- a watchface showing time, date, battery and charge source, step count, heart
+  rate, and Bluetooth state
+- an application launcher, reached by swiping up from the watchface
+- notifications from the phone, read one per screen by pulling down from the
+  watchface, and dismissed with a swipe
+- settings for brightness, dim and display-off timeouts, heart-rate interval,
+  wake gesture and watchface, all surviving a reboot
 - a flashlight, and an on-demand heart-rate reading
 - step counting, and heart-rate measurement on a background interval
-- a firmware screen: which build this is, image confirmation, and a software
-  restart
+- a firmware screen for image confirmation and a software restart, and an about
+  screen naming the running build by release, commit and date
 - the side button as back; held for two seconds, a reset
+- haptic feedback on activation, pairing, and the end of a firmware transfer
 
 Over Bluetooth, with Gadgetbridge:
 

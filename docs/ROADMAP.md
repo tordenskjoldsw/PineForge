@@ -168,7 +168,9 @@ than as a firmware experiment. It is not reached.
 - step counting exposed as service events
 - heart-rate sampling: an on-demand reading and a background interval
 - a first pair of applications - flashlight and pulse - behind the launcher
-- notifications received, counted, and readable on a screen of their own
+- notifications received and read on a screen of their own, one per page, with
+  dismissal. Deliberately no tally on the watchface: a count there would be a
+  second place to keep the same fact right.
 
 ### Open
 
