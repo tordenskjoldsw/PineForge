@@ -2,8 +2,9 @@
 
 ## Scope and status
 
-PineForge is experimental firmware and has not had a security review. It is not
-suitable for any use where a compromise would matter. In particular:
+PineForge has never had a security review, and being usable day to day says
+nothing about that. It is not suitable for any use where a compromise would
+matter. In particular:
 
 - **Firmware images are not signed or verified by PineForge.** The MCUBoot
   header written by `imgtool` carries no signature in this configuration, and

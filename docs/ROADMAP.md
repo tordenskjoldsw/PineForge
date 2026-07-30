@@ -104,6 +104,10 @@ into `v0.3`. It is a design record, not a plan for current work.
 - bounded transactions and error reporting across the shared bus. Recovery after
   a motion-sensor reset exists; a general policy for a bus that stops answering
   does not.
+- validate and tune step counting against a counted walk. The count is produced
+  and shown, and has never been checked against anything.
+- validate heart-rate readings against a reference monitor, and measure what the
+  background sampling interval costs in battery life. Both are unknown.
 
 ## Milestone 4 — persistent settings
 

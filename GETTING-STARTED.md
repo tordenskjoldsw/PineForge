@@ -2,11 +2,11 @@
 
 ## Status
 
-This repository contains experimental proof-of-concept firmware, not a
-production release. A complete PineForge-to-InfiniTime OTA replacement path
-has succeeded on real hardware, but coverage is limited to the tested setup.
-Only flash a DFU ZIP that has been built successfully and inspected, and keep
-an official InfiniTime recovery package available.
+PineForge works as an everyday watch firmware — it has run on my own watch since
+late July 2026 — but coverage is limited to that one tested setup, and a sealed
+PineTime is awkward to recover. Only flash a DFU ZIP that has been built
+successfully and inspected, and keep an official InfiniTime recovery package
+available.
 
 ## Safety principle
 
@@ -141,7 +141,7 @@ After confirming PineForge:
 
 ## 9. If InfiniTime does not start
 
-- Do not repeatedly install additional experimental ZIP files.
+- Do not repeatedly install further untested ZIP files.
 - If PineForge is still unconfirmed, try the side-button rollback again.
 - If PineForge was confirmed and still boots, retry the known-good official
   InfiniTime package through its OTA service.
@@ -152,14 +152,16 @@ After confirming PineForge:
 - Afterwards, install the previously saved official InfiniTime DFU through
   Gadgetbridge if a working DFU firmware is available.
 
-## Still experimental or not broadly validated
+## Not broadly validated
 
 - compatibility across PineTime hardware and external-flash revisions
 - watchdog takeover with every bootloader version
 - OTA behavior across Android devices and Gadgetbridge versions
 - recovery behavior for interrupted or corrupt transfers
-- long-term stability and power consumption
+- stability and power consumption beyond a few days
+- step-count and heart-rate accuracy, neither compared against a reference
 
-The complete confirmed-PineForge-to-InfiniTime OTA path has been validated once on a
-sealed PineTime: the transfer reached 100%, validated, rebooted, and returned
-to InfiniTime. Treat that as proof of concept, not a general safety guarantee.
+The complete confirmed-PineForge-to-InfiniTime OTA path has been validated once
+on a sealed PineTime: the transfer reached 100%, validated, rebooted, and
+returned to InfiniTime. One success on one watch is not a general safety
+guarantee. See [`docs/TESTED-CONFIGURATIONS.md`](docs/TESTED-CONFIGURATIONS.md).

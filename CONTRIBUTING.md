@@ -1,13 +1,31 @@
 # Contributing to PineForge
 
-Thanks for looking. PineForge is experimental firmware for a device that can be
-difficult to recover, so this document is mostly about what that costs.
+Thanks for looking. PineForge runs a PineTime as an everyday watch, on hardware
+that is awkward to recover when something goes wrong — so this document is
+mostly about what that second part costs.
 
 ## Support expectation
 
-Best effort, by one person, on an experimental project. Issues and pull requests
-are read and appreciated. There is no response-time commitment, and no support
-for running PineForge as the only firmware on a watch you depend on.
+Best effort, by one person, in the evenings around a day job. Issues and pull
+requests are read and answered as fast as I can manage, which is usually quick.
+That is an intention rather than a commitment: some weeks there is no time at
+all.
+
+PineForge is past being a proof of concept. It has been the firmware on my own
+PineTime since late July 2026, and the everyday paths hold up — the time, the
+watchface, settings that survive a reboot, notifications, pairing, OTA.
+
+What it is not is broadly proven. Every claim above rests on one watch, one
+bootloader version, one phone. Nobody has run it for a month, measured its
+battery life, or tried it on a second unit. And two features are further along
+in the menu than in the evidence: **step counting and heart-rate measurement
+have never been compared against a reference**, so read both as indications
+rather than as measurements. See
+[`docs/TESTED-CONFIGURATIONS.md`](docs/TESTED-CONFIGURATIONS.md) for what the
+evidence actually covers.
+
+So: worth using, worth reporting bugs against, and still not something to put on
+the only watch you own without keeping a way back.
 
 ## Before you flash anything
 
@@ -27,6 +45,28 @@ leave a new image unconfirmed until you have used it.
 This installs the pinned toolchain, `flip-link`, `cargo-binutils`, a pinned
 MCUBoot checkout for `imgtool`, and a `.venv` with pinned Python tooling. It is
 safe to re-run.
+
+## Debugging, and why so much is host-tested
+
+A sealed PineTime exposes no SWD pads. Until now the only way to get code onto
+mine has been an OTA update, and the only way to learn what it did has been to
+watch the screen — no breakpoints, no logs, one attempt per DFU transfer.
+
+That constraint is why so much of this codebase is arranged the way it is.
+Product policy lives in `pineforge-state` and screens render into any surface,
+so both can be tested on a laptop in milliseconds. It was not primarily an
+aesthetic choice; it was the only fast feedback available.
+
+The firmware is already wired for a probe: `.cargo/config.toml` sets a
+`probe-rs run --chip nRF52832_xxAA` runner, and `defmt` logs over RTT with
+`DEFMT_LOG=info`. None of it is reachable on a sealed watch.
+
+From 2026-07-31 a second PineTime means the first can be opened, giving SWD and
+therefore RTT. Some questions that have been left deliberately open are waiting
+on exactly that — the input task logs every touch report at `info!`, and what
+the CST816S puts in its coordinate registers on the report that ends a touch has
+never been measured. Expect answers to arrive faster once that capture exists,
+and expect the host-side testing to stay anyway: it is quicker than a probe.
 
 ## What CI will check
 

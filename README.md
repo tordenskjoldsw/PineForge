@@ -1,16 +1,20 @@
 > [!CAUTION]
-> **PineForge is experimental proof-of-concept firmware, not a production
-> release.** Flashing may leave a sealed PineTime unusable or require recovery.
-> Keep an official InfiniTime DFU package available, read
+> **Flashing PineForge may leave a sealed PineTime unusable or require
+> recovery.** A sealed watch has no exposed SWD pads, so an image that neither
+> boots nor reaches the bootloader's recovery path can only be waited out until
+> the battery runs flat. Keep an official InfiniTime DFU package available, read
 > [`GETTING-STARTED.md`](GETTING-STARTED.md), and use released binaries at your
 > own risk.
 
-# PineForge — Experimental Rust Firmware for PineTime
+# PineForge — Rust Firmware for PineTime
 
-PineForge is an experimental, hardware-tested Rust/Embassy firmware platform for
-the PineTime, built to run on a **sealed** watch through the existing InfiniTime
-MCUBoot bootloader. It is intended for developers and early hardware testers,
-not as a daily-use replacement for InfiniTime.
+PineForge is a Rust/Embassy firmware platform for the PineTime, running on a
+**sealed** watch through the existing InfiniTime MCUBoot bootloader.
+
+It is past the proof-of-concept stage: it has been the firmware on my own watch
+since late July 2026. It is not, however, broadly validated — the evidence
+behind that sentence is one watch, one bootloader version and one phone, which
+is why the warning above stands unchanged.
 
 PineForge is an independent ground-up reimplementation informed by earlier PineTime Rust projects.
 
@@ -18,12 +22,11 @@ PineForge is an independent community project. It is not affiliated with, suppor
 
 ## Project status
 
-PineForge is an early hardware-tested proof of concept. The `v0.1.0` milestone
-demonstrates a Rust/Embassy firmware that can boot through the InfiniTime
-MCUBoot bootloader, use the PineTime hardware, and perform a
-Gadgetbridge-compatible OTA update. A complete PineForge-to-InfiniTime OTA
-transfer reached 100%, validated, rebooted, and returned to InfiniTime on real
-hardware.
+The `v0.1.0` milestone established the foundation: a Rust/Embassy firmware that
+boots through the InfiniTime MCUBoot bootloader, uses the PineTime hardware, and
+performs a Gadgetbridge-compatible OTA update. A complete PineForge-to-InfiniTime
+OTA transfer reached 100%, validated, rebooted, and returned to InfiniTime on
+real hardware.
 
 `v0.2.0` turns that bring-up into a platform: product policy moved into a
 host-tested state crate, the side button became the back button once a software
@@ -38,20 +41,24 @@ selectable wake gestures. Quick settings is the one screen of the navigation
 shell still missing. [`docs/ROADMAP.md`](docs/ROADMAP.md) records what is done
 and what is not.
 
-The hardware testing behind those releases does **not** establish general safety
-across PineTime hardware revisions, bootloader versions, phones, or future
-images. Expect missing features, bugs, slow OTA transfers, resets, and possible
-recovery work.
+Wearing it myself every day is one watch's worth of evidence, and it does
+**not** establish general safety across PineTime hardware revisions, bootloader
+versions, phones, or future images. Expect bugs, slow OTA transfers, and
+possible recovery work.
 [`docs/TESTED-CONFIGURATIONS.md`](docs/TESTED-CONFIGURATIONS.md) records exactly
 which setup the evidence comes from and which questions are still open.
 
+Two features are usable but unvalidated: **step counting and heart-rate
+measurement** have never been compared against a reference instrument, so the
+numbers they show are indicative rather than trustworthy. Both are still being
+tested and are likely to change.
+
 ## Support expectation
 
-PineForge is a developer preview maintained on a best-effort basis by one
-person. It is a firmware platform for developers and early hardware testers, not
-a daily-use replacement for InfiniTime. Issues and pull requests are welcome and
-will be read; there is no response-time commitment and no support for running it
-as your only watch firmware. See [`CONTRIBUTING.md`](CONTRIBUTING.md).
+Maintained on a best-effort basis by one person, in the evenings around a day
+job. Issues and pull requests are welcome and are answered as fast as that
+allows, which is usually quick — an intention, not a commitment. See
+[`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## Safety and recovery model
 

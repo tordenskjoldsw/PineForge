@@ -5,8 +5,9 @@ body:
   - type: markdown
     attributes:
       value: |
-        PineForge is experimental firmware. Before reporting, please confirm you
-        have a known-good official InfiniTime DFU package available — see
+        A sealed PineTime is awkward to recover. Before reporting, please
+        confirm you have a known-good official InfiniTime DFU package
+        available — see
         [GETTING-STARTED.md](https://github.com/tordenskjoldsw/PineForge/blob/main/GETTING-STARTED.md).
 
   - type: textarea
