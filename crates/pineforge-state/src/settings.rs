@@ -15,18 +15,12 @@ const SETTINGS_VERSION: u16 = 5;
 const READABLE_VERSIONS: [u16; 5] = [1, 2, 3, 4, SETTINGS_VERSION];
 const CRC_OFFSET: usize = 28;
 
-/// Constant so the default is reachable from `DisplaySettings::DEFAULT`, which
-/// is a `const` and cannot call `WatchfaceId::default`.
-const DEFAULT_WATCHFACE: WatchfaceId = {
-    #[cfg(feature = "diagnostics")]
-    {
-        WatchfaceId::Diagnostics
-    }
-    #[cfg(not(feature = "diagnostics"))]
-    {
-        WatchfaceId::Terminal
-    }
-};
+/// The face a record without a usable choice falls back to.
+///
+/// Named here for readability but owned by `WatchfaceId`: this file used to
+/// spell the answer out a second time, and the copies drifted apart as soon as
+/// the default changed.
+const DEFAULT_WATCHFACE: WatchfaceId = WatchfaceId::DEFAULT;
 
 const fn contains_version(version: u16) -> bool {
     let mut index = 0;

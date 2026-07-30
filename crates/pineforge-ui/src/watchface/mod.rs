@@ -8,6 +8,7 @@
 
 #[cfg(feature = "diagnostics")]
 mod diagnostics;
+mod forge;
 mod row;
 mod terminal;
 
@@ -17,6 +18,7 @@ use crate::canvas::{Canvas, CanvasError};
 use crate::screen::{Paint, Screen};
 #[cfg(feature = "diagnostics")]
 pub use diagnostics::DiagnosticsWatchface;
+pub use forge::ForgeWatchface;
 pub use terminal::TerminalWatchface;
 
 /// Renders the watch state in one particular style.
@@ -51,6 +53,7 @@ pub trait Watchface {
 /// its largest variant, which is why faces hold no readings.
 enum ActiveWatchface {
     Terminal(TerminalWatchface),
+    Forge(ForgeWatchface),
     #[cfg(feature = "diagnostics")]
     Diagnostics(DiagnosticsWatchface),
 }
@@ -62,6 +65,7 @@ impl ActiveWatchface {
     const fn new(id: WatchfaceId) -> Self {
         match id {
             WatchfaceId::Terminal => Self::Terminal(TerminalWatchface),
+            WatchfaceId::Forge => Self::Forge(ForgeWatchface),
             #[cfg(feature = "diagnostics")]
             WatchfaceId::Diagnostics => Self::Diagnostics(DiagnosticsWatchface),
         }
@@ -70,6 +74,7 @@ impl ActiveWatchface {
     const fn id(&self) -> WatchfaceId {
         match self {
             Self::Terminal(_) => WatchfaceId::Terminal,
+            Self::Forge(_) => WatchfaceId::Forge,
             #[cfg(feature = "diagnostics")]
             Self::Diagnostics(_) => WatchfaceId::Diagnostics,
         }
@@ -85,6 +90,7 @@ impl Watchface for ActiveWatchface {
     ) -> Result<(), CanvasError> {
         match self {
             Self::Terminal(face) => face.draw_full(state, canvas, keep_alive),
+            Self::Forge(face) => face.draw_full(state, canvas, keep_alive),
             #[cfg(feature = "diagnostics")]
             Self::Diagnostics(face) => face.draw_full(state, canvas, keep_alive),
         }
@@ -99,6 +105,7 @@ impl Watchface for ActiveWatchface {
     ) -> Result<(), CanvasError> {
         match self {
             Self::Terminal(face) => face.draw_changed(state, changed, canvas, keep_alive),
+            Self::Forge(face) => face.draw_changed(state, changed, canvas, keep_alive),
             #[cfg(feature = "diagnostics")]
             Self::Diagnostics(face) => face.draw_changed(state, changed, canvas, keep_alive),
         }

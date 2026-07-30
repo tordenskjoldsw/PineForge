@@ -12,28 +12,43 @@
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WatchfaceId {
     Terminal,
+    /// `PineForge`'s own face: the time in numerals built from rectangles.
+    Forge,
     /// Raw sensor readings for bring-up, in diagnostics builds only.
     #[cfg(feature = "diagnostics")]
     Diagnostics,
 }
 
-// Derivable in a build carrying one face, but not in one carrying two.
-#[allow(clippy::derivable_impls)]
 impl Default for WatchfaceId {
     fn default() -> Self {
+        Self::DEFAULT
+    }
+}
+
+impl WatchfaceId {
+    /// The face a watch with no stored choice opens with.
+    ///
+    /// A `const` rather than only the [`Default`] impl because
+    /// `DisplaySettings::DEFAULT` is itself a `const` and cannot call a trait
+    /// method. It used to keep its own copy of this answer, and the two drifted
+    /// the moment one of them changed - so `Default` defers to this and there is
+    /// one answer again.
+    ///
+    /// Only a watch with no stored settings sees it: a record naming a face
+    /// keeps that face, so an existing watch stays on whatever it was set to.
+    pub const DEFAULT: Self = {
         // A diagnostics build exists to be diagnosed with.
         #[cfg(feature = "diagnostics")]
         {
             Self::Diagnostics
         }
+        // Otherwise `PineForge`'s own face, not the one it borrowed.
         #[cfg(not(feature = "diagnostics"))]
         {
-            Self::Terminal
+            Self::Forge
         }
-    }
-}
+    };
 
-impl WatchfaceId {
     /// Every face this build carries.
     ///
     /// Exists so that checks over the faces are driven by the list rather than
@@ -48,6 +63,7 @@ impl WatchfaceId {
     /// requires the face behind it to appear in this list.
     pub const ALL: &'static [Self] = &[
         Self::Terminal,
+        Self::Forge,
         #[cfg(feature = "diagnostics")]
         Self::Diagnostics,
     ];
@@ -58,6 +74,7 @@ impl WatchfaceId {
     pub const fn to_byte(self) -> u8 {
         match self {
             Self::Terminal => 0,
+            Self::Forge => 2,
             #[cfg(feature = "diagnostics")]
             Self::Diagnostics => 1,
         }
@@ -69,6 +86,7 @@ impl WatchfaceId {
     pub const fn from_byte(byte: u8) -> Option<Self> {
         match byte {
             0 => Some(Self::Terminal),
+            2 => Some(Self::Forge),
             #[cfg(feature = "diagnostics")]
             1 => Some(Self::Diagnostics),
             _ => None,
@@ -89,6 +107,11 @@ const TERMINAL: WatchfaceDescriptor = WatchfaceDescriptor {
     name: "TERMINAL",
 };
 
+const FORGE: WatchfaceDescriptor = WatchfaceDescriptor {
+    id: WatchfaceId::Forge,
+    name: "FORGE",
+};
+
 #[cfg(feature = "diagnostics")]
 const DIAGNOSTICS: WatchfaceDescriptor = WatchfaceDescriptor {
     id: WatchfaceId::Diagnostics,
@@ -97,9 +120,9 @@ const DIAGNOSTICS: WatchfaceDescriptor = WatchfaceDescriptor {
 
 /// Every face this build can show, in the order a picker lists them.
 #[cfg(not(feature = "diagnostics"))]
-pub const WATCHFACES: &[WatchfaceDescriptor] = &[TERMINAL];
+pub const WATCHFACES: &[WatchfaceDescriptor] = &[TERMINAL, FORGE];
 #[cfg(feature = "diagnostics")]
-pub const WATCHFACES: &[WatchfaceDescriptor] = &[TERMINAL, DIAGNOSTICS];
+pub const WATCHFACES: &[WatchfaceDescriptor] = &[TERMINAL, FORGE, DIAGNOSTICS];
 
 #[cfg(test)]
 mod tests {
