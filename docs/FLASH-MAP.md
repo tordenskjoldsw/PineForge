@@ -3,6 +3,13 @@
 The PineTime carries a 4 MiB XT25F32B SPI-NOR flash (4 KiB erase sectors,
 256 B program pages) shared on SPIM0 with the ST7789 LCD.
 
+The bootloader-owned ranges below are those of
+`InfiniTimeOrg/pinetime-mcuboot-bootloader` **1.0.1**, the only version this has
+been verified against — see
+[`TESTED-CONFIGURATIONS.md`](TESTED-CONFIGURATIONS.md). A bootloader that placed
+its assets or secondary slot differently would make this table wrong, so check
+it before assuming PineForge is safe on another version.
+
 While PineForge is an unconfirmed image with stock InfiniTime as the rollback
 target, InfiniTime's littlefs region remains read-only. On the first boot after
 PineForge is confirmed as the primary firmware, PineForge initializes that

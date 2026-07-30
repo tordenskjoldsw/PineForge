@@ -1,0 +1,53 @@
+# Tested Configurations
+
+What PineForge has actually been run on, and what it has not. This is a record
+of evidence, not a compatibility promise: every row below describes a single
+setup, and nothing here generalises to PineTime hardware revisions, bootloader
+versions, phones or Android releases that are not named.
+
+If a row says **not recorded**, nobody has written the value down — treat it as
+unknown rather than as working.
+
+## Hardware and companion software
+
+| Area | Tested |
+|---|---|
+| Watch | Sealed PineTime. The revision is unknown and largely unknowable without opening the case: nothing on a sealed unit reports it, and the hardware-revision string PineForge advertises over BLE is a constant in the firmware, not a reading. |
+| Number of units | One. No second watch has run this firmware. |
+| Bootloader | `InfiniTimeOrg/pinetime-mcuboot-bootloader` **1.0.1**. Not the same versioning as upstream `mcu-tools/mcuboot`, from which PineForge uses only `imgtool` as a host build tool. |
+| Prior firmware | InfiniTime **1.16.1**, the release PineForge replaced and the one the rollback and OTA-return paths were tested against. |
+| Phone | Android, kept current. Device model and exact OS version not recorded. |
+| Companion app | Gadgetbridge, running the current release as of July 2026. Exact version string not recorded. |
+| External flash | XT25F32 as fitted; alternative parts on later revisions untested. |
+
+## Paths that have been exercised
+
+| Path | Status |
+|---|---|
+| InfiniTime → PineForge over Gadgetbridge DFU | Repeatedly, and it is the normal install route. |
+| Boot through the stock MCUBoot bootloader | Repeatedly. |
+| Unconfirmed image rolled back by a reset | Repeatedly. |
+| Image confirmation writing `image_ok` | Yes. |
+| Confirmed PineForge → InfiniTime OTA | Once, end to end with the InfiniTime 1.16.1 package: 100%, validated, rebooted, returned to InfiniTime. |
+| Bootloader recovery image over Bluetooth | Documented and available; not exercised from a genuinely unbootable state. |
+| Passkey pairing and bonds surviving a reboot or update | Yes. |
+| Time synchronisation from Gadgetbridge | Yes. |
+
+## Not established
+
+| Area | Why it is open |
+|---|---|
+| Long-term stability | No multi-day wear test has been run. |
+| Battery life | Current consumption has never been measured in either the active or the sleeping state. |
+| Other PineTime revisions | Only one unit has ever run this firmware. |
+| Other bootloader versions | Everything here rests on bootloader `1.0.1`. The watchdog handover, the flash map and the trial-boot and rollback behaviour have not been checked against `1.0.2` or against anything older. |
+| Other phones or Gadgetbridge versions | The DFU path has one known-good combination. |
+| Interrupted or corrupt OTA transfers | Recovery behaviour has not been deliberately provoked. |
+| Sensor accuracy | Step counts and heart-rate readings are produced but have not been compared against a reference. |
+
+## Reporting a configuration
+
+If you run PineForge on a setup that is not listed here, please open an issue
+with the watch revision, bootloader version, phone, Android version and
+Gadgetbridge version — whether it worked or not. A failure on a named
+configuration is more useful to this table than a success on an unnamed one.

@@ -10,11 +10,16 @@ milestone should leave the sealed PineTime in a testable and recoverable state.
   button as back button, persistent BLE pairing
 - `v0.2.1`: released gesture and memory fixes — a gesture consumes its own
   touch, and static RAM meets its design target
-- `v0.3.0`: the navigation shell v0.2.0 shipped without — application launcher,
-  quick settings, and the two acceptance criteria carried forward with them
+- `v0.3.0`: unreleased, on `main` — the navigation shell v0.2.0 shipped without.
+  The application launcher, a notifications screen, and the first applications
+  (flashlight, on-demand pulse) are in the tree; quick settings is not.
 
-The concrete scope and acceptance criteria for the active milestone live in
-[`V0.2-PLATFORM-FOUNDATION.md`](V0.2-PLATFORM-FOUNDATION.md).
+Work that has landed on `main` since `v0.2.1` is marked *unreleased* below.
+Everything else in a **Complete** section shipped in a tagged release.
+
+[`V0.2-PLATFORM-FOUNDATION.md`](V0.2-PLATFORM-FOUNDATION.md) holds the scope and
+acceptance criteria that shaped `v0.2`, and the two criteria carried forward
+into `v0.3`. It is a design record, not a plan for current work.
 
 ## Milestone 0 — reproducible bring-up baseline
 
@@ -30,28 +35,46 @@ The concrete scope and acceptance criteria for the active milestone live in
 - touch press/release events and partial display updates
 - current stable Rust, Embassy, and display dependencies
 - initialized Git repository
+- a version tag per baseline: `v0.1.0`, `v0.2.0`, `v0.2.1`
+- recorded flash, RAM, and stack usage, enforced as CI budgets rather than only
+  documented — see [`ARCHITECTURE.md`](ARCHITECTURE.md)
+- a repeatable sealed-device test procedure —
+  see [`SEALED-PINETIME-TESTING.md`](SEALED-PINETIME-TESTING.md)
+- reproducible build tooling *(unreleased)*: pinned toolchain, pinned MCUBoot
+  checkout for `imgtool`, pinned Python tooling, and a committed `Cargo.lock`.
+  The MCUBoot image is byte-reproducible from a given commit; the DFU archive
+  around it is not, because `adafruit-nrfutil` records timestamps.
 
 ### Remaining
 
-- preserve the bring-up baseline with a version tag
-- make build dependencies and the DFU process reproducible
-- inspect and record flash, RAM, and stack usage
-- replace intentionally ignored hardware errors with explicit product policy
-- keep a repeatable sealed-device hardware test checklist
+- explicit product policy for sensor and bus errors. The system paths — DFU,
+  storage, pairing, modal precedence — are modelled in the state crate and
+  host-tested; I²C and sensor failures below them are still handled locally at
+  the driver.
 
 ## Milestone 1 — UI foundation
 
-- reusable button component with pressed, released, and disabled states
+### Complete
+
 - centralized dirty-region rendering
 - screen stack and typed navigation actions
 - reusable status bar and layout primitives
-- simple application launcher
 - consistent side-button navigation behavior
 - display timeout, sleep, wake, and redraw behavior
 - touch gesture filtering and debouncing
 - host-side tests for hit testing, state transitions, and navigation
+- simple application launcher *(unreleased)*
+
+### Superseded
+
+- reusable button component with pressed, released, and disabled states. The
+  screens are built from menu rows, launcher tiles and setting pickers, each
+  host-tested against a recording surface; a general button never earned its
+  place.
 
 ## Milestone 2 — power and time
+
+### Complete
 
 - battery voltage measurement through SAADC
 - charging-state GPIO support
@@ -60,25 +83,42 @@ The concrete scope and acceptance criteria for the active milestone live in
 - backlight levels and brightness policy
 - inactivity and display timeout policy
 - low-power sleep and wake behavior
-- measured current consumption in active and sleeping states
+
+### Remaining
+
+- measured current consumption in active and sleeping states. Nothing here has
+  been measured on hardware, so PineForge makes no battery-life claim.
 
 ## Milestone 3 — shared buses and motion sensor
 
+### Complete
+
 - shared I2C bus manager for touch, accelerometer, and heart-rate sensor
-- bounded transactions, error reporting, and bus recovery
 - BMA421 device detection and initialization
 - interrupt-driven motion samples
 - basic step and wake-gesture data exposed as service events
 - SPI ownership plan for the LCD and external flash
 
+### Remaining
+
+- bounded transactions and error reporting across the shared bus. Recovery after
+  a motion-sensor reset exists; a general policy for a bus that stops answering
+  does not.
+
 ## Milestone 4 — persistent settings
 
-- documented external-flash memory map that preserves MCUBoot and InfiniTime data
+### Complete
+
+- documented external-flash memory map that preserves MCUBoot and InfiniTime
+  data — see [`FLASH-MAP.md`](FLASH-MAP.md)
 - external SPI-flash driver and arbitration
 - versioned settings format
 - atomic or recoverable settings updates
 - persistence for brightness, timeouts, and watchface selection
-- validation and migration of stored settings
+- validation and migration of stored settings. Every format version back to the
+  first is still read and migrated on decode, with a test per version; a record
+  whose CRC or version does not check out falls back to defaults rather than
+  being misread.
 
 ## Milestone 5 — BLE, time synchronization, and OTA
 
@@ -94,8 +134,12 @@ The concrete scope and acceptance criteria for the active milestone live in
 
 ## Milestone 6 — daily-use MVP
 
+This is the milestone that decides whether PineForge is usable as a watch rather
+than as a firmware experiment. It is not reached.
+
+### Complete
+
 - time and date display
-- one polished watchface
 - battery and charging status
 - reliable touch and side-button interaction
 - display timeout and low-power sleep
@@ -103,15 +147,31 @@ The concrete scope and acceptance criteria for the active milestone live in
 - BLE time synchronization
 - safe firmware updates
 - separate unconfirmed bring-up and confirmable release build policies
-- explicit self-test and image-confirmation flow for release builds
+- image-confirmation flow for release builds
+
+### Remaining
+
+- one polished watchface. `Terminal` is the only production face and is a
+  bring-up aesthetic, not a chosen one.
+- an explicit self-test before a release build invites confirmation
+- quick settings, the one screen of the navigation shell still missing
+- measured battery life over a normal day
 
 ## Later milestones
+
+### Complete *(unreleased)*
+
+- step counting exposed as service events
+- heart-rate sampling: an on-demand reading and a background interval
+- a first pair of applications — flashlight and pulse — behind the launcher
+- notifications received, counted, and readable on a screen of their own
+
+### Open
 
 - notification text in a face the panel can show — the screen reads the ASCII
   range the atlas covers, so accented characters draw as gaps
 - alarms, timers, and stopwatch
-- step counting and activity summaries
-- heart-rate sampling
+- activity summaries over time; steps are counted but not retained
 - weather
 - music controls
 - additional watchfaces and applications

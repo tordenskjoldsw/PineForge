@@ -26,13 +26,21 @@ hardware.
 host-tested state crate, the side button became the back button once a software
 restart existed to replace it as the recovery path, and BLE pairings survive
 reboots and updates. `v0.2.1` follows with a gesture no longer activating the
-control under the finger, and static RAM inside its design target. The launcher
-and quick-settings screens are still outstanding — see
+control under the finger, and static RAM inside its design target — see
 [`docs/releases/v0.2.1.md`](docs/releases/v0.2.1.md).
 
-That successful test does **not** establish general safety across PineTime
-hardware revisions, bootloader versions, phones, or future images. Expect
-missing features, bugs, slow OTA transfers, resets, and possible recovery work.
+Unreleased work on `main` adds the application launcher, a notifications screen,
+flashlight and pulse applications, background heart-rate measurement, and
+selectable wake gestures. Quick settings is the one screen of the navigation
+shell still missing. [`docs/ROADMAP.md`](docs/ROADMAP.md) records what is done
+and what is not.
+
+The hardware testing behind those releases does **not** establish general safety
+across PineTime hardware revisions, bootloader versions, phones, or future
+images. Expect missing features, bugs, slow OTA transfers, resets, and possible
+recovery work.
+[`docs/TESTED-CONFIGURATIONS.md`](docs/TESTED-CONFIGURATIONS.md) records exactly
+which setup the evidence comes from and which questions are still open.
 
 ## Safety and recovery model
 
