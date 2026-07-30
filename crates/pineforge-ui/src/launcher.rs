@@ -18,7 +18,7 @@ use crate::font::{JETBRAINS_MONO_10X22, ui_text};
 use crate::{
     icons::{self, ICON_SIZE, Icon, draw_icon},
     render::{draw_mono_text_visible, draw_page_marks, draw_visible, round_corners},
-    screen::{Paint, Screen},
+    screen::{Dirty, Paint, Screen},
     status::STATUS_HEIGHT,
     theme,
 };
@@ -119,7 +119,7 @@ const fn layout_index(value: usize) -> i32 {
 
 pub struct LauncherScreen {
     slots: ListSlots<SLOTS>,
-    dirty: bool,
+    dirty: Dirty,
 }
 
 impl Default for LauncherScreen {
@@ -137,18 +137,23 @@ impl Default for LauncherScreen {
                 PageAxis::Horizontal,
                 TILES.len(),
             ),
-            dirty: false,
+            dirty: Dirty::Nothing,
         }
     }
 }
 
 impl LauncherScreen {
+    /// Paints the tiles `paint` covers, leaving the rest of the page alone.
     fn draw_tiles(
         &self,
+        paint: Dirty,
         canvas: &mut Canvas<'_>,
         keep_alive: &mut dyn FnMut(),
     ) -> Result<(), CanvasError> {
         for slot in 0..SLOTS {
+            if !paint.covers(slot) {
+                continue;
+            }
             let bounds = tile_bounds(slot);
             let area = Rectangle::new(
                 Point::new(bounds.x(), bounds.y()),
@@ -227,18 +232,24 @@ impl Paint for LauncherScreen {
     ) -> Result<(), CanvasError> {
         canvas.clear(theme::BACKGROUND)?;
         keep_alive();
-        self.draw_tiles(canvas, keep_alive)?;
+        self.draw_tiles(Dirty::Everything, canvas, keep_alive)?;
         self.draw_pages(canvas)
     }
 }
 
 impl Screen for LauncherScreen {
     fn handle_event(&mut self, event: AppEvent) -> ScreenAction {
-        self.dirty = false;
+        self.dirty = Dirty::Nothing;
         match self.slots.handle_event(event) {
             ListOutcome::Activated(entry) => ScreenAction::Push(TILES[entry].target),
-            ListOutcome::Redraw | ListOutcome::Paged => {
-                self.dirty = true;
+            // A press and its release each move one tile, and the list says
+            // which. Only a count it cannot attribute falls back to the page.
+            ListOutcome::Redraw(slot) => {
+                self.dirty = slot.map_or(Dirty::Everything, Dirty::Slot);
+                ScreenAction::None
+            }
+            ListOutcome::Paged => {
+                self.dirty = Dirty::Everything;
                 ScreenAction::None
             }
             ListOutcome::None => ScreenAction::None,
@@ -250,10 +261,101 @@ impl Screen for LauncherScreen {
         canvas: &mut Canvas<'_>,
         keep_alive: &mut dyn FnMut(),
     ) -> Result<(), CanvasError> {
-        if !self.dirty {
+        if self.dirty.is_clean() {
             return Ok(());
         }
-        self.draw_tiles(canvas, keep_alive)?;
-        self.draw_pages(canvas)
+        self.draw_tiles(self.dirty, canvas, keep_alive)?;
+        // Only paging moves the rail, and paging is the whole-page case. A tile
+        // taking or losing its pressed fill leaves it exactly as it was.
+        if self.dirty == Dirty::Everything {
+            self.draw_pages(canvas)?;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use embedded_graphics::{
+        geometry::{Point, Size},
+        primitives::Rectangle,
+    };
+    use pineforge_state::AppEvent;
+
+    use super::{LauncherScreen, SLOTS, tile_bounds};
+    use crate::{canvas::Canvas, probe::Probe, screen::Screen};
+
+    /// The panel area one tile occupies.
+    fn area_of(slot: usize) -> Rectangle {
+        let bounds = tile_bounds(slot);
+        Rectangle::new(
+            Point::new(bounds.x(), bounds.y()),
+            Size::new(
+                u32::try_from(bounds.width()).unwrap(),
+                u32::try_from(bounds.height()).unwrap(),
+            ),
+        )
+    }
+
+    /// A touch at the middle of a tile.
+    fn touch(slot: usize, pressed: bool) -> AppEvent {
+        let bounds = tile_bounds(slot);
+        AppEvent::Touch {
+            x: bounds.x() + bounds.width() / 2,
+            y: bounds.y() + bounds.height() / 2,
+            pressed,
+        }
+    }
+
+    /// What the finger costs.
+    ///
+    /// Nothing buffers pixels, so a repaint is an SPI transfer of exactly the
+    /// area it names. Pressing one tile changes one tile; repainting the page
+    /// was four times the transfer for the same picture, and at 8 MHz that is
+    /// tens of milliseconds the highlight visibly lags behind the finger.
+    #[test]
+    fn pressing_a_tile_repaints_that_tile_and_no_other() {
+        for pressed_slot in 0..SLOTS {
+            let mut launcher = LauncherScreen::default();
+            let _ = launcher.handle_event(touch(pressed_slot, true));
+
+            let mut probe = Probe::new();
+            launcher
+                .draw_dirty(&mut Canvas::new(&mut probe), &mut || {})
+                .expect("the probe accepts every operation");
+
+            assert!(
+                probe.painted_within(area_of(pressed_slot)),
+                "slot {pressed_slot} took the press and must be repainted"
+            );
+            for other in (0..SLOTS).filter(|slot| *slot != pressed_slot) {
+                assert!(
+                    !probe.painted_within(area_of(other)),
+                    "slot {other} did not move but was repainted \
+                     while slot {pressed_slot} was pressed"
+                );
+            }
+        }
+    }
+
+    /// Releasing un-presses the tile, which is again one tile's worth of work.
+    #[test]
+    fn releasing_repaints_only_the_tile_that_was_pressed() {
+        let mut launcher = LauncherScreen::default();
+        let _ = launcher.handle_event(touch(1, true));
+        let _ = launcher.handle_event(AppEvent::TouchCancelled);
+
+        let mut probe = Probe::new();
+        launcher
+            .draw_dirty(&mut Canvas::new(&mut probe), &mut || {})
+            .expect("the probe accepts every operation");
+
+        assert!(probe.painted_within(area_of(1)));
+        for other in [0, 2, 3] {
+            assert!(
+                !probe.painted_within(area_of(other)),
+                "slot {other} was repainted for a release it had no part in"
+            );
+        }
     }
 }

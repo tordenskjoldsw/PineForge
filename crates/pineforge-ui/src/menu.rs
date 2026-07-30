@@ -27,6 +27,7 @@ use crate::{
     canvas::{Canvas, CanvasError},
     font::ui_text,
     render::{ROW_HEIGHT, ROW_WIDTH, ROW_X, draw_mono_text_visible, draw_page_marks, draw_row},
+    screen::Dirty,
     theme,
 };
 
@@ -172,20 +173,25 @@ pub fn draw(
         keep_alive();
     }
 
-    draw_rows(menu, page, column, canvas, keep_alive)?;
+    draw_rows(Dirty::Everything, menu, page, column, canvas, keep_alive)?;
     draw_text(menu.hint, HINT_BASELINE_Y, canvas)
 }
 
-/// Repaints the rows and the page rail, for a screen whose values moved.
+/// Repaints the rows `paint` covers, for a screen whose values moved.
 ///
 /// The title and the hint do not change with state, so a value that ticks costs
 /// its rows and nothing else. Slots the page does not fill are cleared rather
 /// than skipped, so a short last page cannot leave the previous page's rows
 /// standing under it.
 ///
+/// `paint` is what keeps a tap from costing a page. Pressing a row changes that
+/// row's fill and nothing else, and nothing here buffers pixels, so painting the
+/// others is an SPI transfer that arrives at the picture already on the panel.
+///
 /// The rail belongs to this pass rather than to [`draw`]: turning a page is the
-/// one thing that moves it, and turning a page comes through here.
+/// one thing that moves it, and turning a page is the whole-page case.
 pub fn draw_rows(
+    paint: Dirty,
     menu: &Menu,
     page: MenuPage<'_>,
     column: MenuColumn<'_>,
@@ -193,6 +199,9 @@ pub fn draw_rows(
     keep_alive: &mut dyn FnMut(),
 ) -> Result<(), CanvasError> {
     for slot in 0..page.list.per_page() {
+        if !paint.covers(slot) {
+            continue;
+        }
         let y = menu.slot_y(slot);
         match page
             .list
@@ -210,7 +219,10 @@ pub fn draw_rows(
         }
         keep_alive();
     }
-    draw_page_marks(canvas, PageAxis::Vertical, page.list, PAGE_RAIL)
+    if paint == Dirty::Everything {
+        draw_page_marks(canvas, PageAxis::Vertical, page.list, PAGE_RAIL)?;
+    }
+    Ok(())
 }
 
 /// What a row's right-hand column reads, given what the screen supplied.
@@ -263,7 +275,7 @@ fn draw_text(text: &str, baseline: i32, canvas: &mut Canvas<'_>) -> Result<(), C
 /// without a framebuffer can afford.
 pub struct MenuState<const N: usize> {
     slots: ListSlots<N>,
-    dirty: bool,
+    dirty: Dirty,
 }
 
 impl<const N: usize> MenuState<N> {
@@ -278,7 +290,7 @@ impl<const N: usize> MenuState<N> {
                 PageAxis::Vertical,
                 menu.rows.len(),
             ),
-            dirty: false,
+            dirty: Dirty::Nothing,
         }
     }
 
@@ -298,7 +310,15 @@ impl<const N: usize> MenuState<N> {
     pub fn handle(&mut self, menu: &Menu, event: AppEvent) -> MenuOutcome {
         match self.slots.handle_event(event) {
             ListOutcome::Activated(entry) => {
-                self.dirty = true;
+                // The release that chose this row also un-presses it, and that
+                // is the only row it moved. A screen for which choosing changes
+                // more - a picker moving its marker off another row - says so
+                // by calling `mark_dirty` afterwards, which widens this again.
+                self.dirty = self
+                    .slots
+                    .visible()
+                    .find(|&(_, shown)| shown == entry)
+                    .map_or(Dirty::Everything, |(slot, _)| Dirty::Slot(slot));
                 match menu.rows.get(entry) {
                     Some(MenuRow::Navigate { target, .. }) => MenuOutcome::Navigate(*target),
                     Some(MenuRow::Value { .. } | MenuRow::Choice { .. }) => {
@@ -307,28 +327,38 @@ impl<const N: usize> MenuState<N> {
                     None => MenuOutcome::None,
                 }
             }
-            // A new page obviously needs painting, and so does a press: a row
-            // carries a pressed fill, so the finger going down changes what the
-            // rows look like even though nothing was chosen.
-            ListOutcome::Paged | ListOutcome::Redraw => {
-                self.dirty = true;
+            // A press needs painting even though nothing was chosen: a row
+            // carries a pressed fill. It needs painting in one slot, though,
+            // which is the difference between a tap costing a row and a tap
+            // costing the page.
+            ListOutcome::Redraw(slot) => {
+                self.dirty = slot.map_or(Dirty::Everything, Dirty::Slot);
+                MenuOutcome::None
+            }
+            // A new page moves every row and the rail with them.
+            ListOutcome::Paged => {
+                self.dirty = Dirty::Everything;
                 MenuOutcome::None
             }
             ListOutcome::None => {
-                self.dirty = false;
+                self.dirty = Dirty::Nothing;
                 MenuOutcome::None
             }
         }
     }
 
-    /// Marks the rows as needing a repaint, for state that arrives from
+    /// Marks every row as needing a repaint, for state that arrives from
     /// somewhere other than a touch.
+    ///
+    /// Deliberately the whole page: what came in is a new reading or a new
+    /// setting, and this cannot know how many rows read it.
     pub const fn mark_dirty(&mut self) {
-        self.dirty = true;
+        self.dirty = Dirty::Everything;
     }
 
+    /// What the next repaint has to cover.
     #[must_use]
-    pub const fn is_dirty(&self) -> bool {
+    pub const fn dirty(&self) -> Dirty {
         self.dirty
     }
 }

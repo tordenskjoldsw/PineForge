@@ -157,8 +157,16 @@ impl PagedList {
 pub enum ListOutcome {
     /// Nothing this list is responsible for.
     None,
-    /// A slot changed its pressed state; redraw the slots.
-    Redraw,
+    /// A slot changed how it draws.
+    ///
+    /// `Some(slot)` names the one that did, which is what a press and its
+    /// release each are: one slot takes the pressed fill, the others are
+    /// untouched. Repainting the rest costs a full-page SPI transfer for no
+    /// visible change, so the slot is carried rather than left to be guessed.
+    ///
+    /// `None` when more than one may have moved and drawing has to assume the
+    /// worst - a changed entry count shifts every slot's content at once.
+    Redraw(Option<usize>),
     /// The visible page changed; redraw the page and its indicator.
     Paged,
     /// The user chose this entry.
@@ -206,7 +214,9 @@ impl<const N: usize> ListSlots<N> {
         if self.list.set_len(len) {
             ListOutcome::Paged
         } else {
-            ListOutcome::Redraw
+            // A different entry count can change what every slot shows, so this
+            // one cannot name a single slot.
+            ListOutcome::Redraw(None)
         }
     }
 
@@ -229,11 +239,13 @@ impl<const N: usize> ListSlots<N> {
             AppEvent::Swipe(direction) => self.turn_page(direction),
             AppEvent::Touch { pressed, .. } => self.touch(event, pressed),
             AppEvent::TouchCancelled => {
-                if self.pressed.is_none() {
+                // Read before releasing: the slot losing the press is the one
+                // that has to be repainted, and `release` forgets which it was.
+                let Some(owner) = self.pressed else {
                     return ListOutcome::None;
-                }
+                };
                 self.release();
-                ListOutcome::Redraw
+                ListOutcome::Redraw(Some(owner))
             }
             _ => ListOutcome::None,
         }
@@ -272,7 +284,9 @@ impl<const N: usize> ListSlots<N> {
                 (ButtonOutcome::None, _) => ListOutcome::None,
                 (ButtonOutcome::Activated, Some(entry)) => ListOutcome::Activated(entry),
                 // The entry went away mid-press, so there is nothing to choose.
-                (ButtonOutcome::Activated | ButtonOutcome::Redraw, _) => ListOutcome::Redraw,
+                (ButtonOutcome::Activated | ButtonOutcome::Redraw, _) => {
+                    ListOutcome::Redraw(Some(owner))
+                }
             };
         }
 
@@ -289,7 +303,7 @@ impl<const N: usize> ListSlots<N> {
             let _ = self.slots[slot].handle_event(event);
             if self.slots[slot].state() == ButtonState::Pressed {
                 self.pressed = Some(slot);
-                return ListOutcome::Redraw;
+                return ListOutcome::Redraw(Some(slot));
             }
         }
         ListOutcome::None
@@ -509,7 +523,9 @@ mod tests {
                 y: 2,
                 pressed: true,
             }),
-            ListOutcome::Redraw
+            // Naming the slot is what lets drawing repaint one row instead of
+            // the page.
+            ListOutcome::Redraw(Some(0))
         );
         assert_eq!(slots.slot_state(0), Some(ButtonState::Pressed));
 
@@ -546,7 +562,8 @@ mod tests {
         // the release below would choose entry 1.
         assert_eq!(
             slots.handle_event(AppEvent::TouchCancelled),
-            ListOutcome::Redraw
+            // The slot losing the press is the one that has to be repainted.
+            ListOutcome::Redraw(Some(1))
         );
         assert_eq!(slots.slot_state(1), Some(ButtonState::Idle));
         assert_eq!(slots.handle_event(release), ListOutcome::None);

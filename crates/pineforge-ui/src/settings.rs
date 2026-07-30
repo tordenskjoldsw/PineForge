@@ -105,8 +105,10 @@ impl Screen for DisplaySettingsScreen {
         canvas: &mut Canvas<'_>,
         keep_alive: &mut dyn FnMut(),
     ) -> Result<(), CanvasError> {
-        if self.menu.is_dirty() {
+        let paint = self.menu.dirty();
+        if !paint.is_clean() {
             menu::draw_rows(
+                paint,
                 &MENU,
                 self.menu.page(),
                 MenuColumn::Values(&[]),

@@ -2,6 +2,43 @@ use pineforge_state::{AppEvent, ScreenAction};
 
 use crate::canvas::{Canvas, CanvasError};
 
+/// How much of a paged screen a repaint has to cover.
+///
+/// Nothing here buffers pixels, so a repaint is an SPI transfer of exactly the
+/// area it names and costs time proportional to it. Tapping one tile of a
+/// launcher page changes one tile; repainting the page is four times the
+/// transfer for the same picture, and the finger feels the difference. This is
+/// what lets a screen say which.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Dirty {
+    /// Showing the truth already.
+    #[default]
+    Nothing,
+    /// One slot, named by its position on the page. The page rail cannot have
+    /// moved, because only paging moves it.
+    Slot(usize),
+    /// Every slot, and the rail with them.
+    Everything,
+}
+
+impl Dirty {
+    /// Whether `slot` has to be painted in this pass.
+    #[must_use]
+    pub const fn covers(self, slot: usize) -> bool {
+        match self {
+            Self::Nothing => false,
+            Self::Slot(one) => one == slot,
+            Self::Everything => true,
+        }
+    }
+
+    /// Whether anything at all has to be painted.
+    #[must_use]
+    pub const fn is_clean(self) -> bool {
+        matches!(self, Self::Nothing)
+    }
+}
+
 /// Anything that can paint a complete surface.
 ///
 /// Separate from [`Screen`] because a transition composes the incoming surface
