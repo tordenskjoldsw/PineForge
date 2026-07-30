@@ -15,8 +15,12 @@ milestone should leave the sealed PineTime in a testable and recoverable state.
   settings split into a root and a leaf per setting, and a watch that says which
   build it is running
 
-Work that has landed on `main` since `v0.2.1` is marked *unreleased* below.
-Everything else in a **Complete** section shipped in a tagged release.
+Since `v0.3.0` was tagged, `main` has gained the FORGE watchface and made it the
+default, a side-button press that puts the panel out from the watchface, and two
+drawing changes that made every screen cheaper to paint.
+
+Work that has landed on `main` but not in a tagged release is marked
+*unreleased* below. Everything else in a **Complete** section has shipped.
 
 [`V0.2-PLATFORM-FOUNDATION.md`](V0.2-PLATFORM-FOUNDATION.md) holds the scope and
 acceptance criteria that shaped `v0.2`, and the two criteria carried forward
@@ -154,10 +158,14 @@ than as a firmware experiment. It is not reached.
 - separate unconfirmed bring-up and confirmable release build policies
 - image-confirmation flow for release builds
 
+### Complete *(unreleased)*
+
+- one polished watchface. FORGE is a designed face rather than a bring-up
+  aesthetic, and it is what a watch with no stored choice opens with; `Terminal`
+  remains as the borrowed one.
+
 ### Remaining
 
-- one polished watchface. `Terminal` is the only production face and is a
-  bring-up aesthetic, not a chosen one.
 - an explicit self-test before a release build invites confirmation
 - measured battery life over a normal day
 
@@ -168,6 +176,9 @@ than as a firmware experiment. It is not reached.
 - step counting exposed as service events
 - heart-rate sampling: an on-demand reading and a background interval
 - a first pair of applications - flashlight and pulse - behind the launcher
+- a second watchface, selectable and persisted: FORGE draws its numerals from
+  rectangles rather than from a glyph atlas, which is why it fits in 2.2 KB and
+  paints faster than a face made of text
 - notifications received and read on a screen of their own, one per page, with
   dismissal. Deliberately no tally on the watchface: a count there would be a
   second place to keep the same fact right.

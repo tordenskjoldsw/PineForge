@@ -163,7 +163,7 @@ is what InfiniTime's `GoToRunning()` does on the same event.
 
 What the pins *mean* is not decided in the task. `ChargerPins` in
 `pineforge-state` turns a pair of levels into `charging`, and `PowerSource`
-turns a `BatteryStatus` into the `CHG`/`PWR`/`BAT` tag both watchfaces show -
+turns a `BatteryStatus` into the `CHG`/`PWR`/`BAT` tag the watchfaces show -
 each with host tests over all four pin combinations, including the two that
 only occur when something is wrong. Charging requires *both* pins: the charge
 pin has no pull, so an unpowered charger can leave it floating, and that pair

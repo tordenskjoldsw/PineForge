@@ -40,6 +40,10 @@ the launcher, a notifications screen, flashlight and pulse, settings split into
 a root and a leaf per setting, background heart-rate measurement, selectable
 wake gestures, and a watch that says which build it is running - see
 [`docs/releases/v0.3.0.md`](docs/releases/v0.3.0.md).
+
+Unreleased work on `main` adds the FORGE watchface as the new default, a side
+button that puts the panel out from the watchface, and two drawing changes that
+made every screen cheaper to paint.
 [`docs/ROADMAP.md`](docs/ROADMAP.md) records what is done and what is not.
 
 Wearing it myself every day is one watch's worth of evidence, and it does
@@ -80,8 +84,11 @@ allows, which is usually quick - an intention, not a commitment. See
 
 On the watch:
 
-- a watchface showing time, date, battery and charge source, step count, heart
-  rate, and Bluetooth state
+- two watchfaces, selectable and remembered across reboots. **FORGE** is the
+  default: the time in large numerals drawn from rectangles rather than from a
+  font, with a bolt beside the charge while a charger is attached. `TERMINAL` is
+  the other, one labelled row per reading - time, date, battery and charge
+  source, steps, heart rate and Bluetooth state.
 - an application launcher, reached by swiping up from the watchface
 - notifications from the phone, read one per screen by pulling down from the
   watchface, and dismissed with a swipe
@@ -91,7 +98,8 @@ On the watch:
 - step counting, and heart-rate measurement on a background interval
 - a firmware screen for image confirmation and a software restart, and an about
   screen naming the running build by release, commit and date
-- the side button as back; held for two seconds, a reset
+- the side button as back; on the watchface it puts the panel out, and held for
+  two seconds it resets
 - haptic feedback on activation, pairing, and the end of a firmware transfer
 
 Over Bluetooth, with Gadgetbridge:
