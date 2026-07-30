@@ -12,7 +12,7 @@ matter. In particular:
   DFU transfer to the watch can replace the firmware.
 - **The DFU characteristics require no encryption or bonding.** Matching
   InfiniTime, they are plain writable characteristics. The only gate on starting
-  a transfer is that the running image must already be confirmed — a safety
+  a transfer is that the running image must already be confirmed - a safety
   interlock protecting the rollback image, not an access control.
 - **BLE pairing uses passkey entry**, which protects against passive
   eavesdropping and casual impostors, not against a determined local attacker.
@@ -35,7 +35,7 @@ baselines and are not updated.
 
 ## Reporting a vulnerability
 
-Report anything that breaks the model above — rather than merely describing it —
+Report anything that breaks the model above - rather than merely describing it -
 privately, through GitHub's **Report a vulnerability** button on the Security tab
 of this repository. Please do not open a public issue first.
 

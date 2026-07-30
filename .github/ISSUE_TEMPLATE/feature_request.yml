@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Please check [docs/ROADMAP.md](https://github.com/tordenskjoldsw/PineForge/blob/main/docs/ROADMAP.md) first — it
+        Please check [docs/ROADMAP.md](https://github.com/tordenskjoldsw/PineForge/blob/main/docs/ROADMAP.md) first - it
         records what is already done, what is deliberately open, and what was
         superseded.
 

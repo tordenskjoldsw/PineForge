@@ -6,19 +6,19 @@
 > [`GETTING-STARTED.md`](GETTING-STARTED.md), and use released binaries at your
 > own risk.
 
-# PineForge — Rust Firmware for PineTime
+# PineForge - Rust Firmware for PineTime
 
 PineForge is a Rust/Embassy firmware platform for the PineTime, running on a
 **sealed** watch through the existing InfiniTime MCUBoot bootloader.
 
 It is past the proof-of-concept stage: it has been the firmware on my own watch
-since late July 2026. It is not, however, broadly validated — the evidence
+since late July 2026. It is not, however, broadly validated - the evidence
 behind that sentence is one watch, one bootloader version and one phone, which
 is why the warning above stands unchanged.
 
-PineForge is an independent ground-up reimplementation informed by earlier PineTime Rust projects.
-
-PineForge is an independent community project. It is not affiliated with, supported by, or maintained by PINE64.
+PineForge is an independent ground-up reimplementation informed by earlier
+PineTime Rust projects. It is an independent community project, not affiliated
+with, supported by, or maintained by PINE64.
 
 ## Project status
 
@@ -32,7 +32,7 @@ real hardware.
 host-tested state crate, the side button became the back button once a software
 restart existed to replace it as the recovery path, and BLE pairings survive
 reboots and updates. `v0.2.1` follows with a gesture no longer activating the
-control under the finger, and static RAM inside its design target — see
+control under the finger, and static RAM inside its design target - see
 [`docs/releases/v0.2.1.md`](docs/releases/v0.2.1.md).
 
 Unreleased work on `main` adds the application launcher, a notifications screen,
@@ -57,7 +57,7 @@ tested and are likely to change.
 
 Maintained on a best-effort basis by one person, in the evenings around a day
 job. Issues and pull requests are welcome and are answered as fast as that
-allows, which is usually quick — an intention, not a commitment. See
+allows, which is usually quick - an intention, not a commitment. See
 [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## Safety and recovery model
@@ -75,27 +75,47 @@ allows, which is usually quick — an intention, not a commitment. See
 - Keep a known-good official InfiniTime DFU ZIP on the paired phone before
   testing PineForge.
 
-## Features
+## What it does
 
-- Embassy on the nRF52832
-- ST7789 display
-- CST816S touch controller over I²C
-- BMA421 motion and HRS3300 heart-rate hardware integration
-- persistent display settings and BLE bonding
-- Gadgetbridge-compatible pairing and time synchronization
-- Nordic Legacy DFU service with on-watch progress and failure reporting
-- MCUBoot image confirmation, OTA activation, reset, and rollback paths
-- physical side-button reset
-- watchdog feeding for the WDT started by the bootloader
-- MCUBoot linker layout starting at `0x8020`
-- reproducible script for generating a Gadgetbridge-compatible DFU ZIP
+On the watch:
 
-## Touch pin assignment
+- a watchface with the time, date, battery and charging state
+- an application launcher, reached by swiping up
+- notifications from the phone, counted on the watchface and readable on their
+  own screen
+- settings for brightness, dim and display-off timeouts, watchface and wake
+  gesture, all surviving a reboot
+- a flashlight, and an on-demand heart-rate reading
+- step counting, and heart-rate measurement on a background interval
+- a firmware screen: which build this is, image confirmation, and a software
+  restart
+- the side button as back; held for two seconds, a reset
 
-- SDA: P0.06
-- SCL: P0.07
-- Reset: P0.10
-- Interrupt: P0.28
+Over Bluetooth, with Gadgetbridge:
+
+- passkey pairing, with bonds that survive reboots and updates
+- time synchronisation
+- firmware updates through the Nordic Legacy DFU service, with progress and
+  failure reporting on the watch
+- Current Time, Battery and Device Information services
+
+Underneath:
+
+- Embassy on the nRF52832, no heap and no full-screen framebuffer
+- ST7789 display, CST816S touch, BMA421 motion, HRS3300 heart rate, XT25F32
+  external flash
+- product policy in a host-tested crate, and screens that render into any
+  surface - both testable on a laptop, see
+  [`CONTRIBUTING.md`](CONTRIBUTING.md)
+- MCUBoot image confirmation, OTA activation, reset and rollback paths, with the
+  stock bootloader and its recovery image left untouched
+- watchdog feeding for the WDT the bootloader starts
+- flash and static RAM held to budgets enforced in CI
+
+### Pin assignment
+
+Touch is SDA `P0.06`, SCL `P0.07`, reset `P0.10`, interrupt `P0.28`. The rest
+live in [`src/board/pins.rs`](src/board/pins.rs).
 
 ## Build
 
@@ -137,9 +157,9 @@ Before flashing, follow
 
 PineForge was written as a new codebase. It does not copy either earlier project's architecture wholesale, but their practical PineTime work informed hardware bring-up and the organization of this firmware:
 
-- [`dbrgn/pinetime-rtic`](https://github.com/dbrgn/pinetime-rtic) — PineTime pin assignments and proven display initialization details.
-- [`thecodechemist99/pinetime-rust`](https://github.com/thecodechemist99/pinetime-rust) — prior art for modular Rust peripheral drivers and asynchronous task organization.
-- [`InfiniTimeOrg/pinetime-mcuboot-bootloader`](https://github.com/InfiniTimeOrg/pinetime-mcuboot-bootloader) — the bootloader memory layout, DFU format, trial boot, and rollback behavior targeted by PineForge.
-- [`embassy-rs/embassy`](https://github.com/embassy-rs/embassy) — the modern asynchronous embedded Rust runtime used by PineForge.
+- [`dbrgn/pinetime-rtic`](https://github.com/dbrgn/pinetime-rtic) - PineTime pin assignments and proven display initialization details.
+- [`thecodechemist99/pinetime-rust`](https://github.com/thecodechemist99/pinetime-rust) - prior art for modular Rust peripheral drivers and asynchronous task organization.
+- [`InfiniTimeOrg/pinetime-mcuboot-bootloader`](https://github.com/InfiniTimeOrg/pinetime-mcuboot-bootloader) - the bootloader memory layout, DFU format, trial boot, and rollback behavior targeted by PineForge.
+- [`embassy-rs/embassy`](https://github.com/embassy-rs/embassy) - the modern asynchronous embedded Rust runtime used by PineForge.
 
 Thanks to these projects and the wider PineTime community for documenting and testing the hardware.

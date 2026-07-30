@@ -67,7 +67,7 @@ pub struct DfuService {
 }
 
 // Gadgetbridge identifies InfiniTime devices by these Device Information
-// strings — in particular the software revision "InfiniTime". They must match
+// strings - in particular the software revision "InfiniTime". They must match
 // stock InfiniTime for the companion to run its full init and sync the time.
 #[gatt_service(uuid = service::DEVICE_INFORMATION)]
 pub struct DeviceInformationService {

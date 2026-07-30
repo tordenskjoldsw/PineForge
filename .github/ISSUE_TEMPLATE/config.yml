@@ -4,7 +4,7 @@ contact_links:
     url: https://github.com/tordenskjoldsw/PineForge/security/advisories/new
     about: >-
       Report a vulnerability privately instead of opening a public issue. Read
-      SECURITY.md first — several properties listed there are known and by
+      SECURITY.md first - several properties listed there are known and by
       design.
   - name: Recovering a watch that will not boot
     url: https://github.com/tordenskjoldsw/PineForge/blob/main/GETTING-STARTED.md

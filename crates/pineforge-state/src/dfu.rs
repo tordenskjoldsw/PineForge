@@ -357,13 +357,13 @@ impl DfuEngine {
     /// Keeps the erase frontier one sector *ahead* of the write offset, capped
     /// at the slot end. The sector being programmed is therefore already blank,
     /// and the sector after it is erased in the background while the current one
-    /// fills — so the ~tens-of-milliseconds sector erase overlaps reception
+    /// fills - so the ~tens-of-milliseconds sector erase overlaps reception
     /// instead of stalling in the FIFO in front of the program that needs it.
     fn ensure_erased(&mut self, offset: u32, steps: &mut Steps) {
         let current = (offset / SECTOR_SIZE) * SECTOR_SIZE;
         // Cover `offset`'s own sector and the one after it, capped at the slot
         // end so no erase base ever lands at or beyond it. Starting at
-        // `max(frontier, current)` skips any gap left by a far jump — the
+        // `max(frontier, current)` skips any gap left by a far jump - the
         // trailer magic leaps to the slot end, and the sectors it skips are
         // never programmed, so they must not be erased. That bounds this to at
         // most two erases per call (only the first page and a far jump reach
@@ -789,7 +789,7 @@ mod tests {
         // 248-byte packet first completes and flushes that page (emitting the
         // erase-ahead for the *next* sector), then flushes its remaining eight
         // bytes and emits the completion notification: erase + program +
-        // program + notify — the exact maximum step bound.
+        // program + notify - the exact maximum step bound.
         const PREFIX_LEN: usize = SECTOR_SIZE as usize + 16;
         const FINAL_LEN: usize = 248;
         const IMAGE_LEN: usize = PREFIX_LEN + FINAL_LEN;

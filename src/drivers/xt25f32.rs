@@ -19,7 +19,7 @@ const STATUS_WRITE_IN_PROGRESS: u8 = 0x01;
 /// JEDEC identifications of the flash chips this driver supports. `PineTime`
 /// units ship with more than one, and they are command-compatible for the
 /// standard SPI-NOR operations used here (0x9F/0x03/0x02/0x20/0x06/0x05/0xAB,
-/// 256-byte page, 4 KiB sector, 4 MiB density — the shared `40 16` suffix):
+/// 256-byte page, 4 KiB sector, 4 MiB density - the shared `40 16` suffix):
 /// - `0b 40 16`: XTX XT25F32B, the original stock chip.
 /// - `68 40 16`: Boya BY25Q32, on later and replacement units.
 pub const SUPPORTED_JEDEC_IDS: [[u8; 3]; 2] = [[0x0b, 0x40, 0x16], [0x68, 0x40, 0x16]];

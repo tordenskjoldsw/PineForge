@@ -5,7 +5,7 @@ of evidence, not a compatibility promise: every row below describes a single
 setup, and nothing here generalises to PineTime hardware revisions, bootloader
 versions, phones or Android releases that are not named.
 
-If a row says **not recorded**, nobody has written the value down — treat it as
+If a row says **not recorded**, nobody has written the value down - treat it as
 unknown rather than as working.
 
 ## Hardware and companion software
@@ -32,7 +32,7 @@ unknown rather than as working.
 | Bootloader recovery image over Bluetooth | Documented and available; not exercised from a genuinely unbootable state. |
 | Passkey pairing and bonds surviving a reboot or update | Yes. |
 | Time synchronisation from Gadgetbridge | Yes. |
-| Daily wear | Since late July 2026, on my own watch — waking, timekeeping, notifications, settings and charging in ordinary use. Days, not months. |
+| Daily wear | Since late July 2026, on my own watch - waking, timekeeping, notifications, settings and charging in ordinary use. Days, not months. |
 
 ## Not established
 
@@ -40,7 +40,7 @@ unknown rather than as working.
 |---|---|
 | Long-term stability | A few days of daily wear is not a long-term test. Nothing is known about drift, leaks or wear over weeks. |
 | Battery life | Current consumption has never been measured in either the active or the sleeping state. |
-| Other PineTime revisions | Only one unit has run this firmware so far. A second arrives 2026-07-31, which will make a same-revision second data point possible — not a different-revision one. |
+| Other PineTime revisions | Only one unit has run this firmware so far. A second arrives 2026-07-31, which will make a same-revision second data point possible - not a different-revision one. |
 | Other bootloader versions | Everything here rests on bootloader `1.0.1`. The watchdog handover, the flash map and the trial-boot and rollback behaviour have not been checked against `1.0.2` or against anything older. |
 | Other phones or Gadgetbridge versions | The DFU path has one known-good combination. |
 | Interrupted or corrupt OTA transfers | Recovery behaviour has not been deliberately provoked. |
@@ -51,5 +51,5 @@ unknown rather than as working.
 
 If you run PineForge on a setup that is not listed here, please open an issue
 with the watch revision, bootloader version, phone, Android version and
-Gadgetbridge version — whether it worked or not. A failure on a named
+Gadgetbridge version - whether it worked or not. A failure on a named
 configuration is more useful to this table than a success on an unnamed one.

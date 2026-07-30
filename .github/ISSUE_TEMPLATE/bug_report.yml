@@ -7,7 +7,7 @@ body:
       value: |
         A sealed PineTime is awkward to recover. Before reporting, please
         confirm you have a known-good official InfiniTime DFU package
-        available — see
+        available - see
         [GETTING-STARTED.md](https://github.com/tordenskjoldsw/PineForge/blob/main/GETTING-STARTED.md).
 
   - type: textarea
@@ -24,7 +24,7 @@ body:
       label: Steps to reproduce
       description: >-
         Say whether it happens every time. An intermittent fault is still worth
-        reporting — say roughly how often.
+        reporting - say roughly how often.
       placeholder: |
         1. …
         2. …

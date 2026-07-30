@@ -1,9 +1,9 @@
-# Getting Started — Sealed PineTime
+# Getting Started - Sealed PineTime
 
 ## Status
 
-PineForge works as an everyday watch firmware — it has run on my own watch since
-late July 2026 — but coverage is limited to that one tested setup, and a sealed
+PineForge works as an everyday watch firmware - it has run on my own watch since
+late July 2026 - but coverage is limited to that one tested setup, and a sealed
 PineTime is awkward to recover. Only flash a DFU ZIP that has been built
 successfully and inspected, and keep an official InfiniTime recovery package
 available.

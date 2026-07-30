@@ -29,7 +29,7 @@ dark blues and deep saturated tones for anything that carries meaning.
 
 Defined in RGB565 because the panel stores 5-6-5 bits: green has finer steps
 than red and blue, so a colour picked as web hex shifts visibly. The values
-live in `crates/pineforge-ui/src/theme.rs` and nowhere else — a screen never
+live in `crates/pineforge-ui/src/theme.rs` and nowhere else - a screen never
 names a colour.
 
 | Role | RGB565 | Approximate | Used for |
@@ -47,20 +47,20 @@ names a colour.
 Verdigris is the accent because the product is called PineForge: it is what
 forged copper ages into and what a pine needle is in shade, so the one colour
 the firmware is recognised by says its name. The earlier indigo was not chosen
-so much as left over — the four semantic colours below spend red, yellow, green
+so much as left over - the four semantic colours below spend red, yellow, green
 and azure, and the accent had been pushed into the last unused sector of the
 wheel to keep it from reading as a warning.
 
 That constraint has not gone away, and the neighbour that matters is `OK`: a
 healthy battery is the one status colour on screen almost all the time, sitting
 in the corner above a menu full of accent. The two are held apart by hue, 58
-degrees of it, and both of them moved to get there — `OK` went from maximal
+degrees of it, and both of them moved to get there - `OK` went from maximal
 green to a leaf green shifted toward yellow, away from the accent rather than
 merely darker. Brightness alone would not have done it, because both want to be
 bright.
 
 Being green-blue also means the accent survives dimming, which is the harder
-test — green has six bits where red and blue have five, and pure blue is the
+test - green has six bits where red and blue have five, and pure blue is the
 first colour to vanish, which is why `LINK` is azure rather than `0x001F`.
 
 The four semantic colours exist because status has to be readable at a glance
@@ -72,7 +72,7 @@ the failure was visible rather than theoretical: a page rail drew one bright
 mark and, to the eye, nothing at all beside it, so a screen with two pages
 looked like a screen with one and a stray piece of decoration. It is a useful
 line to hold on a panel that also dims to a third of its brightness before it
-sleeps — the contrast measured here is the best case, not the typical one.
+sleeps - the contrast measured here is the best case, not the typical one.
 
 Components sit on `SURFACE` rather than on the background. Keeping the panel
 mostly black is what it is good at, but a tile that is only an outline reads as
@@ -91,9 +91,9 @@ font data, so the scale is deliberately short:
 
 | Size | Use |
 |---|---|
-| 10 x 22 monospace | rows, labels, titles, values — the UI face |
+| 10 x 22 monospace | rows, labels, titles, values - the UI face |
 | 6 x 14 monospace | hints and secondary lines |
-| large digits | the clock on a watchface, per face, digits `0-9:` only — not built |
+| large digits | the clock on a watchface, per face, digits `0-9:` only - not built |
 
 Both are JetBrains Mono, carrying **four bits of coverage per pixel** rather
 than one. `embedded-graphics`' own `MonoFont` stores a single bit, so every
@@ -120,7 +120,7 @@ everywhere:
 | selected | filled `ACCENT` like pressed, but held until the choice changes |
 
 Rows are rounded like tiles, not squared off against them. The distinction
-drawn here once — a tile is an object, a row is a line in a list — did not
+drawn here once - a tile is an object, a row is a line in a list - did not
 survive contact: an outline says "field", a filled and rounded shape says
 "press me", and pressing is the only thing a menu row is for. So a row carries
 the same face and the same curve a tile does, and darkens under a finger the
@@ -132,7 +132,7 @@ else and flash is the scarcer budget.
 
 Pressed inverts rather than merely recolouring because inversion is the only
 treatment that survives the lowest backlight level, and because a filled area
-is pure geometry — a stripe can compute it without knowing anything outside
+is pure geometry - a stripe can compute it without knowing anything outside
 itself.
 
 ## Status corner
@@ -195,7 +195,7 @@ there is more that way, while the same marks in a row underneath would point
 across a movement that never goes across. So the launcher's rail lies flat
 under the tiles and a menu's stands upright beside the rows.
 
-**The showing page is a bar, the rest are squares** — 24 pixels against 6,
+**The showing page is a bar, the rest are squares** - 24 pixels against 6,
 6 across, 6 apart. Two treatments rather than one, because the second is
 colour, and colour has to be seen accurately at backlight level 1 to carry
 anything; the long mark still reads as position when the palette barely does.
@@ -206,7 +206,7 @@ needs, and at four pixels the shapes are indistinguishable.
 
 Exactly one mark is long whichever page shows, so the run keeps its length and
 its box. That is what lets the component clear one fixed rectangle before
-drawing — without it, a page turn would move the bar within the run and a
+drawing - without it, a page turn would move the bar within the run and a
 partial redraw would leave the tail of its old position standing.
 
 Nothing is drawn for a single page. There is no position to report when there is
@@ -214,14 +214,14 @@ only one place to be, and a lone mark would read as a control.
 
 This shape stops working somewhere around ten pages, where the marks are too
 many to count and the rail runs out of edge to sit on. No screen is near that,
-but it is the boundary at which this component should become something else — a
-proportional thumb — rather than be made smaller.
+but it is the boundary at which this component should become something else - a
+proportional thumb - rather than be made smaller.
 
 ## Progress
 
 One bar, shared by the firmware update and the first-boot format. It is a
 filled **track** in `SURFACE` with the completed part in `ACCENT` over it, and
-both ends carry the same corner curve the rows do — 200 x 16 at x = 20.
+both ends carry the same corner curve the rows do - 200 x 16 at x = 20.
 
 A track rather than an outline around nothing. An empty box says where a bar
 would be; a track that is visible the whole way across says how far there is
@@ -249,7 +249,7 @@ rather than by a gesture.
 A menu is a description rather than drawing code: the rows, the rhythm, the
 title and the hint are a `'static` value, and one interpreter draws all of
 them. A row states its geometry once, so it cannot disagree with its own hit
-box — which is the failure the three-places-per-row arrangement kept producing.
+box - which is the failure the three-places-per-row arrangement kept producing.
 
 The page rail sits in the gutter to the right of the rows, centred on the panel
 rather than on them, so it stays put between screens that carry different
@@ -264,7 +264,7 @@ cost a second screen to read one.
 Which gestures the screen can use follows from how it is opened. Pulling down
 from the watchface brings it up, so up is spent leaving again, and what is left
 is down and the horizontal pair. Down browses to the next message and wraps at
-the oldest — the finger that opened the screen keeps going through it. Right
+the oldest - the finger that opened the screen keeps going through it. Right
 dismisses.
 
 **Browsing and dismissing sit on different axes deliberately.** Both are single

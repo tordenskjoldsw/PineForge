@@ -18,7 +18,7 @@ Once a build is trusted, it can be made permanent from **Settings > FW >
 CONFIRM** (swipe down on the watchface). Confirming writes `image_ok` to the
 primary-slot trailer via NVMC, after which:
 
-- a side-button reset no longer rolls back — PineForge is now the primary image;
+- a side-button reset no longer rolls back - PineForge is now the primary image;
 - the DFU service accepts updates, so the next firmware can be installed over
   the air with Gadgetbridge (see `GETTING-STARTED.md`);
 - InfiniTime can always be reinstalled later by feeding an InfiniTime DFU ZIP

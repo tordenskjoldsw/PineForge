@@ -11,7 +11,7 @@ acceptable answer; an inaccurate claim is not.
 
 - [ ] Tested on hardware. Setup:
       <!-- watch, bootloader version, phone, Gadgetbridge version -->
-- [ ] Not tested on hardware — host tests and CI only.
+- [ ] Not tested on hardware - host tests and CI only.
 
 ## Checks
 
@@ -26,7 +26,7 @@ acceptable answer; an inaccurate claim is not.
 <!--
 Delete if flash and static RAM are unaffected. If a budget in
 .github/workflows/ci.yml changed, it must change in this pull request, with the
-reason — quiet growth is the thing the budgets exist to catch.
+reason - quiet growth is the thing the budgets exist to catch.
 -->
 
 - [ ] Flash and static RAM are unaffected, or the budget change is justified below.
@@ -36,7 +36,7 @@ reason — quiet growth is the thing the budgets exist to catch.
 <!-- Delete any that do not apply to this change. -->
 
 - [ ] Does not alter the flash map, MCUBoot header, or DFU protocol.
-- [ ] Does not change the recovery path — side-button reset, rollback of an
+- [ ] Does not change the recovery path - side-button reset, rollback of an
       unconfirmed image, or the bootloader recovery entry.
 - [ ] Does not change a persisted record format. If it does, the format version
       was bumped and a migration test added.

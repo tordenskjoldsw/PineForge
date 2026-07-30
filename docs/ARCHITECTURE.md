@@ -5,18 +5,18 @@
 Three, and the split is what decides what can be tested without a watch.
 
 - `pineforge-state`: product state and protocol logic. No Embassy, no nRF, no
-  drawing. Every rule that fails silently — a settings invariant, a paginated
-  list's arithmetic, what a dismissal does to the notification cursor — lives
+  drawing. Every rule that fails silently - a settings invariant, a paginated
+  list's arithmetic, what a dismissal does to the notification cursor - lives
   here and is tested on the host.
 - `pineforge-ui`: every screen, drawn against `Canvas`, which borrows any
   `Surface`. On the watch that is the panel; in a test it is a recording buffer,
   so layout and the opaque-drawing contract are checked on the host too. The
   `diagnostics` feature is the only thing that pulls in Embassy, because timing
   a transition needs a clock. `registry::Screens` owns one of every screen and
-  answers which one a `ScreenId` names — the display task holds no screen table
+  answers which one a `ScreenId` names - the display task holds no screen table
   of its own, and the host tests walk `ScreenId::ALL` through the same registry,
   so a screen that exists is a screen they check.
-- `pineforge`: the firmware. Peripherals, tasks, and the composition root — the
+- `pineforge`: the firmware. Peripherals, tasks, and the composition root - the
   part that genuinely cannot run anywhere but the watch.
 
 **The rule the split enforces:** if a piece of logic can be wrong without being
@@ -28,7 +28,7 @@ able to fail a build instead of noticing on the wrist.
 
 - `board`: immutable PineTime hardware facts, especially pin assignments.
 - `drivers`: device-local state machines implementing `embedded-hal` boundaries.
-- `ipc`: the bus between tasks — channels, watches, signals, and the reasoning
+- `ipc`: the bus between tasks - channels, watches, signals, and the reasoning
   for each one's depth. Declarations only.
 - `services`: executor-independent runners. Generic over the `embedded-hal`
   traits they need; never name `embassy_nrf` and never declare a task.
@@ -39,17 +39,17 @@ able to fail a build instead of noticing on the wrist.
 **The rule between `services` and `tasks`, and which way it runs.** A service
 owns a subsystem's lifecycle and cadence and exposes `run()`; the task is the
 few lines that hand it a concrete bus and spawn it. `AccelerometerRunner` and
-`HeartRateRunner` are the shape — both are generic over `I2c`, so what a sensor
+`HeartRateRunner` are the shape - both are generic over `I2c`, so what a sensor
 does over time is readable without a watch attached.
 
 The rule is one-directional: a service may not reach down into the executor or
 the chip, but **a task needs no service half.** Where there is nothing portable
-to extract — a motor that pulses, a watchdog that is petted, deadline
-arithmetic that only `embassy-time` can do — the task is the whole subsystem
+to extract - a motor that pulses, a watchdog that is petted, deadline
+arithmetic that only `embassy-time` can do - the task is the whole subsystem
 and no wrapper is invented for symmetry.
 
 `scripts/check-layers.sh` holds this in CI, because it is otherwise a
-convention that erodes one convenient import at a time — which is exactly how
+convention that erodes one convenient import at a time - which is exactly how
 it eroded before: `services::power` and `services::settings` were both tasks,
 the second owning the external flash, and `services::events` was a message bus
 filed under product behavior. The script also fails a task module that
@@ -59,7 +59,7 @@ drift apart.
 ## RAM
 
 65,528 bytes, filled from both ends. Statics grow up from the bottom and are
-exact — the linker vends every byte, and CI holds the total to a budget. The
+exact - the linker vends every byte, and CI holds the total to a budget. The
 stack grows down from the top and is not exact: it moves with call depth, and
 the deepest it goes depends on which paths overlap.
 
@@ -73,8 +73,8 @@ Two decisions follow, and they are separate:
 - **The firmware measures its own high-water mark.** `src/boot/stack.rs` paints
   the region before `main` and the watchdog task reports the deepest point
   whenever it grows. Async is why the reserve can be modest at all: a task's
-  state across its await points lives in a static the compiler sized exactly —
-  `ble::run::POOL` is 11 KiB of it — so the stack only has to cover the deepest
+  state across its await points lives in a static the compiler sized exactly -
+  `ble::run::POOL` is 11 KiB of it - so the stack only has to cover the deepest
   synchronous chain plus interrupts, not a worst case per task the way
   per-task stacks would.
 
@@ -156,14 +156,14 @@ The battery task owns SAADC plus PineTime's two active-low charger inputs, and
 depends on how full it is: a flat one starts charging and moves both, but a
 nearly full one never enters constant current, so the charge indication stays
 put and external power is the only thing that changes. Watching one and merely
-reading the other — the charge pin here, the power pin in InfiniTime — misses
+reading the other - the charge pin here, the power pin in InfiniTime - misses
 one of those two cases each. A change on either pin also sends a
 `PowerCommand::UserActivity`, so the watch lights up when it is set down, which
 is what InfiniTime's `GoToRunning()` does on the same event.
 
 What the pins *mean* is not decided in the task. `ChargerPins` in
 `pineforge-state` turns a pair of levels into `charging`, and `PowerSource`
-turns a `BatteryStatus` into the `CHG`/`PWR`/`BAT` tag both watchfaces show —
+turns a `BatteryStatus` into the `CHG`/`PWR`/`BAT` tag both watchfaces show -
 each with host tests over all four pin combinations, including the two that
 only occur when something is wrong. Charging requires *both* pins: the charge
 pin has no pull, so an unpowered charger can leave it floating, and that pair
@@ -230,8 +230,8 @@ results then replace them in the same partial-redraw UI row.
 The task's event loop has two halves, and the order between them is a
 correctness property rather than a style.
 
-**Ingest** runs first and may never be skipped. Every model the task owns — the
-status corner, and the shared `WatchState` the watchface renders — absorbs the
+**Ingest** runs first and may never be skipped. Every model the task owns - the
+status corner, and the shared `WatchState` the watchface renders - absorbs the
 event here. An event is consumed from `UI_EVENTS` whichever way the rest of the
 loop goes, so a model that misses one never sees it again: a dropped reading is
 not shown late, it is not shown at all.
@@ -250,7 +250,7 @@ it is about to repaint, so no gate can drop it.
 
 This ordering is what a firmware bug came down to. The dispatch to the active
 screen sat below the sleep gate, and the one path that fed the face directly
-covered two event kinds and only while the face was *not* showing — so the
+covered two event kinds and only while the face was *not* showing - so the
 ordinary case, face showing and watch asleep, dropped every reading it
 received. With sleep at twenty seconds and a battery sample every ten minutes,
 that was nearly all of them: the percentage sat where it was at boot, and a

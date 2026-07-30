@@ -5,7 +5,7 @@ The PineTime carries a 4 MiB XT25F32B SPI-NOR flash (4 KiB erase sectors,
 
 The bootloader-owned ranges below are those of
 `InfiniTimeOrg/pinetime-mcuboot-bootloader` **1.0.1**, the only version this has
-been verified against — see
+been verified against - see
 [`TESTED-CONFIGURATIONS.md`](TESTED-CONFIGURATIONS.md). A bootloader that placed
 its assets or secondary slot differently would make this table wrong, so check
 it before assuming PineForge is safe on another version.
@@ -20,12 +20,12 @@ InfiniTime must then recreate its littlefs.
 
 | Range                 | Size      | Owner                                             | PineForge policy |
 | --------------------- | --------- | ------------------------------------------------- | ---------------- |
-| `0x000000`–`0x03FFFF` | 256 KiB   | MCUBoot bootloader graphics assets                | never write      |
-| `0x040000`–`0x0B3FFF` | 464 KiB   | MCUBoot secondary slot / DFU staging              | DFU service only  |
-| `0x0B4000`–`0x3FCFFF` | 3,364 KiB | **PineForge data/assets** after confirmation      | read/write; reserved while rollback exists |
-| `0x3FD000`–`0x3FDFFF` | 4 KiB     | **PineForge BLE bond**                            | read/write       |
-| `0x3FE000`–`0x3FEFFF` | 4 KiB     | **PineForge settings slot A**                     | read/write       |
-| `0x3FF000`–`0x3FFFFF` | 4 KiB     | **PineForge settings slot B**                     | read/write       |
+| `0x000000`-`0x03FFFF` | 256 KiB   | MCUBoot bootloader graphics assets                | never write      |
+| `0x040000`-`0x0B3FFF` | 464 KiB   | MCUBoot secondary slot / DFU staging              | DFU service only  |
+| `0x0B4000`-`0x3FCFFF` | 3,364 KiB | **PineForge data/assets** after confirmation      | read/write; reserved while rollback exists |
+| `0x3FD000`-`0x3FDFFF` | 4 KiB     | **PineForge BLE bond**                            | read/write       |
+| `0x3FE000`-`0x3FEFFF` | 4 KiB     | **PineForge settings slot A**                     | read/write       |
+| `0x3FF000`-`0x3FFFFF` | 4 KiB     | **PineForge settings slot B**                     | read/write       |
 
 The named constants mirroring this table live in `src/services/settings.rs`
 (`SETTINGS_SLOT_A_ADDRESS`, `SETTINGS_SLOT_B_ADDRESS`, `BOND_ADDRESS`). These
@@ -63,8 +63,8 @@ record also carries a 16-byte tag naming the layout it was written with.
 `build.rs` derives that tag from the locked `trouble-host` version and emits it
 as `PINEFORGE_BOND_SCHEMA`; a record whose tag differs is discarded in favour of
 re-pairing. Without the tag, a firmware update that changed the layout would
-read the old bytes as a valid record — `postcard` is not self-describing, so a
-same-length change deserializes into plausible nonsense — and install keys the
+read the old bytes as a valid record - `postcard` is not self-describing, so a
+same-length change deserializes into plausible nonsense - and install keys the
 phone cannot use, which on Android needs a manual unpair to escape. Records
 written before the tag existed (container version 1) are accepted only while the
 build still uses the layout they were written with, which stops being true by
@@ -107,10 +107,10 @@ live here; PineForge only reads it, apart from the one confirmation word.
 
 | Range                 | Owner                                        |
 | --------------------- | -------------------------------------------- |
-| `0x00000`–`0x07FFF`   | MCUBoot bootloader (never write)             |
-| `0x08000`–`0x7BFFF`   | Primary image slot (32-byte imgtool header)  |
+| `0x00000`-`0x07FFF`   | MCUBoot bootloader (never write)             |
+| `0x08000`-`0x7BFFF`   | Primary image slot (32-byte imgtool header)  |
 | `0x7BFE8`             | `image_ok` confirmation word (see below)     |
-| `0x7C000`–`0x7FFFF`   | MCUBoot scratch / bootloader data            |
+| `0x7C000`-`0x7FFFF`   | MCUBoot scratch / bootloader data            |
 
 Confirming a running image writes `1` to the `image_ok` word at `0x0007_BFE8`
 via NVMC (`src/boot/confirm.rs`), matching InfiniTime's `FirmwareValidator`.

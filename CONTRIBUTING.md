@@ -1,7 +1,7 @@
 # Contributing to PineForge
 
 Thanks for looking. PineForge runs a PineTime as an everyday watch, on hardware
-that is awkward to recover when something goes wrong — so this document is
+that is awkward to recover when something goes wrong - so this document is
 mostly about what that second part costs.
 
 ## Support expectation
@@ -12,7 +12,7 @@ That is an intention rather than a commitment: some weeks there is no time at
 all.
 
 PineForge is past being a proof of concept. It has been the firmware on my own
-PineTime since late July 2026, and the everyday paths hold up — the time, the
+PineTime since late July 2026, and the everyday paths hold up - the time, the
 watchface, settings that survive a reboot, notifications, pairing, OTA.
 
 What it is not is broadly proven. Every claim above rests on one watch, one
@@ -50,7 +50,7 @@ safe to re-run.
 
 A sealed PineTime exposes no SWD pads. Until now the only way to get code onto
 mine has been an OTA update, and the only way to learn what it did has been to
-watch the screen — no breakpoints, no logs, one attempt per DFU transfer.
+watch the screen - no breakpoints, no logs, one attempt per DFU transfer.
 
 That constraint is why so much of this codebase is arranged the way it is.
 Product policy lives in `pineforge-state` and screens render into any surface,
@@ -63,7 +63,7 @@ The firmware is already wired for a probe: `.cargo/config.toml` sets a
 
 From 2026-07-31 a second PineTime means the first can be opened, giving SWD and
 therefore RTT. Some questions that have been left deliberately open are waiting
-on exactly that — the input task logs every touch report at `info!`, and what
+on exactly that - the input task logs every touch report at `info!`, and what
 the CST816S puts in its coordinate registers on the report that ends a touch has
 never been measured. Expect answers to arrive faster once that capture exists,
 and expect the host-side testing to stay anyway: it is quicker than a probe.
@@ -117,7 +117,7 @@ happen most often:
   existing history.
 - Explain *why* in the body. The code says what.
 - Say in the pull request whether the change was tested on hardware, and on
-  which setup — see
+  which setup - see
   [`docs/TESTED-CONFIGURATIONS.md`](docs/TESTED-CONFIGURATIONS.md). "Not tested
   on hardware" is a perfectly good answer; a wrong claim is not.
 
