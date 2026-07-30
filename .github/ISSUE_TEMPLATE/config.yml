@@ -1,0 +1,13 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security report
+    url: https://github.com/tordenskjoldsw/PineForge/security/advisories/new
+    about: >-
+      Report a vulnerability privately instead of opening a public issue. Read
+      SECURITY.md first — several properties listed there are known and by
+      design.
+  - name: Recovering a watch that will not boot
+    url: https://github.com/tordenskjoldsw/PineForge/blob/main/GETTING-STARTED.md
+    about: >-
+      Hold the side button during boot until the logo turns red to reach the
+      bootloader's recovery image, then install a known-good DFU package.

@@ -1,0 +1,86 @@
+name: Bug report
+description: Something in PineForge behaves incorrectly on hardware or on the host.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        PineForge is experimental firmware. Before reporting, please confirm you
+        have a known-good official InfiniTime DFU package available — see
+        [GETTING-STARTED.md](https://github.com/tordenskjoldsw/PineForge/blob/main/GETTING-STARTED.md).
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you saw, and what you expected instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: >-
+        Say whether it happens every time. An intermittent fault is still worth
+        reporting — say roughly how often.
+      placeholder: |
+        1. …
+        2. …
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: PineForge version and commit
+      description: >-
+        From the About screen on the watch, or the release the DFU package came
+        from. Include the `-dirty` suffix if it is shown.
+      placeholder: "0.2.1, commit abc1234"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: build
+    attributes:
+      label: Build
+      options:
+        - Production (default)
+        - Diagnostics (PINEFORGE_FEATURES=diagnostics)
+        - Not sure
+    validations:
+      required: true
+
+  - type: input
+    id: watch
+    attributes:
+      label: Watch and bootloader
+      description: Sealed or dev-kit PineTime, hardware revision if known, and bootloader version.
+      placeholder: "Sealed PineTime, bootloader 1.0.0"
+    validations:
+      required: true
+
+  - type: input
+    id: phone
+    attributes:
+      label: Phone, Android version and Gadgetbridge version
+      description: Leave blank if the problem does not involve Bluetooth.
+      placeholder: "Pixel 6a, Android 14, Gadgetbridge 0.81.0"
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screen contents
+      description: >-
+        RTT output if you have it, or what the screen showed. Pasted text is
+        easier to search than a photograph.
+      render: text
+
+  - type: checkboxes
+    id: recovery
+    attributes:
+      label: Recovery
+      options:
+        - label: The watch still boots.
+        - label: I have an official InfiniTime DFU package available.

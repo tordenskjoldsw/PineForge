@@ -1,0 +1,73 @@
+name: Hardware or configuration report
+description: Report running PineForge on a setup not yet listed in TESTED-CONFIGURATIONS.md.
+labels: ["hardware-report"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Both outcomes are useful. A failure on a named configuration tells us
+        more than a success on an unnamed one. Results here feed
+        [docs/TESTED-CONFIGURATIONS.md](https://github.com/tordenskjoldsw/PineForge/blob/main/docs/TESTED-CONFIGURATIONS.md).
+
+  - type: input
+    id: version
+    attributes:
+      label: PineForge version and commit
+      placeholder: "0.2.1, commit abc1234"
+    validations:
+      required: true
+
+  - type: input
+    id: watch
+    attributes:
+      label: Watch
+      description: Sealed or dev-kit PineTime, and the hardware revision if you know it.
+    validations:
+      required: true
+
+  - type: input
+    id: bootloader
+    attributes:
+      label: Bootloader version
+      description: The version the watch reported before you flashed PineForge.
+    validations:
+      required: true
+
+  - type: input
+    id: previous
+    attributes:
+      label: Firmware previously installed
+      placeholder: "InfiniTime 1.14.0"
+
+  - type: input
+    id: phone
+    attributes:
+      label: Phone, Android version and Gadgetbridge version
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: paths
+    attributes:
+      label: What worked
+      description: Tick only what you actually observed.
+      options:
+        - label: Installed over Gadgetbridge DFU
+        - label: Booted through the MCUBoot bootloader
+        - label: Display and touch usable
+        - label: Paired with Gadgetbridge and synchronised the time
+        - label: Rolled back to the previous image by resetting an unconfirmed build
+        - label: Confirmed the image
+        - label: Installed InfiniTime again over PineForge's own OTA
+
+  - type: textarea
+    id: problems
+    attributes:
+      label: What did not work
+      description: Anything unticked above that you tried, and what happened instead.
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Other observations
+      description: Battery drain, stability over time, sensor behaviour, anything else worth recording.

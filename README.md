@@ -7,7 +7,10 @@
 
 # PineForge — Experimental Rust Firmware for PineTime
 
-A modern Rust and Embassy foundation for a **sealed PineTime** with the existing InfiniTime MCUBoot bootloader.
+PineForge is an experimental, hardware-tested Rust/Embassy firmware platform for
+the PineTime, built to run on a **sealed** watch through the existing InfiniTime
+MCUBoot bootloader. It is intended for developers and early hardware testers,
+not as a daily-use replacement for InfiniTime.
 
 PineForge is an independent ground-up reimplementation informed by earlier PineTime Rust projects.
 
@@ -41,6 +44,14 @@ images. Expect missing features, bugs, slow OTA transfers, resets, and possible
 recovery work.
 [`docs/TESTED-CONFIGURATIONS.md`](docs/TESTED-CONFIGURATIONS.md) records exactly
 which setup the evidence comes from and which questions are still open.
+
+## Support expectation
+
+PineForge is a developer preview maintained on a best-effort basis by one
+person. It is a firmware platform for developers and early hardware testers, not
+a daily-use replacement for InfiniTime. Issues and pull requests are welcome and
+will be read; there is no response-time commitment and no support for running it
+as your only watch firmware. See [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 ## Safety and recovery model
 

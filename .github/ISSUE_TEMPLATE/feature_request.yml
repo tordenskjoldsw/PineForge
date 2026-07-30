@@ -1,0 +1,51 @@
+name: Feature request
+description: Suggest something PineForge should do.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please check [docs/ROADMAP.md](https://github.com/tordenskjoldsw/PineForge/blob/main/docs/ROADMAP.md) first — it
+        records what is already done, what is deliberately open, and what was
+        superseded.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve
+      description: >-
+        Describe the situation rather than the implementation. What is awkward
+        or impossible today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you have in mind
+    validations:
+      required: true
+
+  - type: dropdown
+    id: layer
+    attributes:
+      label: Which layer does this touch, as best you can tell
+      description: See docs/ARCHITECTURE.md. "Not sure" is a fine answer.
+      options:
+        - Product policy (pineforge-state)
+        - Screens and rendering (pineforge-ui)
+        - A driver or new peripheral
+        - BLE, DFU or the bootloader relationship
+        - Build, CI or tooling
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: cost
+    attributes:
+      label: Cost
+      description: >-
+        Optional. PineForge is bounded by flash, static RAM and battery, and by
+        having no heap. If you have a sense of what this would cost in any of
+        those, say so.
