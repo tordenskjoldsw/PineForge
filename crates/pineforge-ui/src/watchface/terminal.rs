@@ -2,11 +2,7 @@
 
 use core::fmt::Write;
 
-use embedded_graphics::{
-    pixelcolor::Rgb565,
-    prelude::*,
-    primitives::{PrimitiveStyle, Rectangle},
-};
+use embedded_graphics::{pixelcolor::Rgb565, prelude::*, primitives::Rectangle};
 use heapless::String;
 use pineforge_state::{HeartRateState, WatchField, WatchFields, WatchState};
 
@@ -116,13 +112,17 @@ impl Watchface for TerminalWatchface {
         canvas: &mut Canvas<'_>,
         keep_alive: &mut dyn FnMut(),
     ) -> Result<(), CanvasError> {
-        // The rows draw in place, so the one blanking pass belongs here: a full
-        // redraw follows a modal or a screen change and repaints everything
-        // anyway.
-        SCREEN_AREA
-            .into_styled(PrimitiveStyle::with_fill(Rgb565::BLACK))
-            .draw(canvas)?;
+        // No blanking pass. Every row below covers its own rectangle, so a
+        // full-screen fill would paint most of the panel twice - it was two
+        // thirds of the cost of getting this face onto the screen. What is left
+        // is the two bands the rows do not reach, above the first and below the
+        // last, and those are filled here.
+        //
+        // The prompts are drawn over their band rather than fitted around,
+        // because a band is one transfer and the arithmetic to avoid overlapping
+        // 32 glyph cells would cost more than the pixels it saved.
         let prompt = ui_text(LIGHT_GRAY, Rgb565::BLACK);
+        row::fill_band(canvas, SCREEN_AREA.top_left.y, DATE_ROW.top_left.y)?;
         draw_mono_text_visible("user@watch:~ $ now", Point::new(0, 20), prompt, canvas)?;
         keep_alive();
 
@@ -139,6 +139,9 @@ impl Watchface for TerminalWatchface {
         Self::draw_status(state, canvas)?;
         keep_alive();
 
+        let below_rows = STATUS_ROW.top_left.y + row::ROW_HEIGHT.cast_signed();
+        let panel_bottom = SCREEN_AREA.top_left.y + SCREEN_AREA.size.height.cast_signed();
+        row::fill_band(canvas, below_rows, panel_bottom)?;
         draw_mono_text_visible("user@watch:~ $", Point::new(0, 226), prompt, canvas)?;
         keep_alive();
         Ok(())

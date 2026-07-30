@@ -34,6 +34,24 @@ impl Default for WatchfaceId {
 }
 
 impl WatchfaceId {
+    /// Every face this build carries.
+    ///
+    /// Exists so that checks over the faces are driven by the list rather than
+    /// by whichever one happens to be selected. A face is only as correct as the
+    /// tests that see it, and the opacity contract - a face must paint every
+    /// pixel, because the slide transition never clears behind one - is exactly
+    /// the kind of thing a second face gets wrong silently.
+    ///
+    /// A variant added above and forgotten here is caught rather than trusted:
+    /// [`Self::to_byte`] matches exhaustively, so a new face must be given a
+    /// byte, and `every_face_is_listed_in_all` walks every byte that decodes and
+    /// requires the face behind it to appear in this list.
+    pub const ALL: &'static [Self] = &[
+        Self::Terminal,
+        #[cfg(feature = "diagnostics")]
+        Self::Diagnostics,
+    ];
+
     /// The persisted encoding. These numbers are permanent: reusing one would
     /// silently switch a watch to a different face on the next boot.
     #[must_use]
@@ -115,5 +133,36 @@ mod tests {
         assert_eq!(WatchfaceId::from_byte(0xFF), None);
         #[cfg(not(feature = "diagnostics"))]
         assert_eq!(WatchfaceId::from_byte(1), None);
+    }
+
+    /// Guards [`WatchfaceId::ALL`] against a face that was added and forgotten.
+    ///
+    /// `to_byte` matches exhaustively, so a new variant cannot compile without
+    /// being given a byte. This then walks every byte that decodes and insists
+    /// the face behind it is listed - which is what keeps the rendering tests,
+    /// driven by that list, from quietly skipping a face nobody selected.
+    #[test]
+    fn every_face_is_listed_in_all() {
+        for byte in u8::MIN..=u8::MAX {
+            let Some(face) = WatchfaceId::from_byte(byte) else {
+                continue;
+            };
+            assert!(
+                WatchfaceId::ALL.contains(&face),
+                "{face:?} decodes from byte {byte} but is missing from WatchfaceId::ALL"
+            );
+        }
+    }
+
+    /// And nothing is listed twice, which would run a check on one face while
+    /// reporting the count of another.
+    #[test]
+    fn all_lists_each_face_once() {
+        for (index, face) in WatchfaceId::ALL.iter().enumerate() {
+            assert!(
+                !WatchfaceId::ALL[..index].contains(face),
+                "{face:?} appears twice in WatchfaceId::ALL"
+            );
+        }
     }
 }

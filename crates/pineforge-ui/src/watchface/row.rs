@@ -106,13 +106,74 @@ pub const fn ble_color(state: BleState) -> Rgb565 {
     }
 }
 
-/// Draws a row in place, without blanking it first.
+/// Fills a rectangle with the face's background, skipping empty ones.
 ///
-/// Every glyph paints its own background, so redrawing a row with unchanged
-/// text leaves the panel visually untouched; clearing the row first would flash
-/// it black for the duration of the SPI transfer. Only the span a longer
-/// previous value may have left behind is cleared, and that span is already
-/// black whenever the value did not shrink.
+/// Sizes arrive as signed edges from layout arithmetic and a negative width is
+/// simply nothing to paint, which is what makes the callers below readable.
+fn fill(
+    canvas: &mut Canvas<'_>,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+) -> Result<(), CanvasError> {
+    if width <= 0 || height <= 0 {
+        return Ok(());
+    }
+    Rectangle::new(
+        Point::new(x, y),
+        Size::new(
+            u32::try_from(width).unwrap_or(0),
+            u32::try_from(height).unwrap_or(0),
+        ),
+    )
+    .into_styled(PrimitiveStyle::with_fill(Rgb565::BLACK))
+    .draw(canvas)
+}
+
+/// Fills the full-width band between two `y` edges with the background.
+///
+/// The counterpart to [`draw`] for the strips a face leaves between or around
+/// its rows: together they let a face cover the panel without a blanking pass.
+/// Named by its edges rather than by a height because that is how a layout
+/// reads - the band runs from where the last thing ended to where the next
+/// begins, and getting that from a subtraction at the call site is how a seam
+/// of a few pixels appears.
+pub fn fill_band(canvas: &mut Canvas<'_>, from_y: i32, to_y: i32) -> Result<(), CanvasError> {
+    fill(
+        canvas,
+        SCREEN_AREA.top_left.x,
+        from_y,
+        SCREEN_AREA.size.width.cast_signed(),
+        to_y - from_y,
+    )
+}
+
+/// Draws a labelled row, covering **every pixel** of `area`.
+///
+/// Opacity is the contract, not a detail. [`Watchface::draw_full`] must leave no
+/// pixel untouched, because the slide transition composes a face stripe by
+/// stripe and never clears behind it. A face built from these rows inherits that
+/// guarantee here, which is what lets it skip blanking the panel first - the
+/// terminal face used to, and then painted most of those pixels a second time
+/// with the glyph backgrounds on top. Two thirds of a full repaint was the
+/// blanking pass.
+///
+/// Every glyph still paints its own background, so redrawing a row with
+/// unchanged text leaves the panel visually untouched; clearing the row first
+/// would flash it black for the length of the SPI transfer. What is filled here
+/// is only what no glyph covers:
+///
+/// - the slack above and below the glyph band, since the cell is shorter than
+///   the row;
+/// - the gap between the end of the label and the value column;
+/// - the tail a longer previous value may have left standing.
+///
+/// The band is derived from the font's own metrics rather than written out, so
+/// changing the face moves these fills with it instead of opening a seam that
+/// only shows up against a bright screen.
+///
+/// [`Watchface::draw_full`]: super::Watchface::draw_full
 pub fn draw(
     canvas: &mut Canvas<'_>,
     area: Rectangle,
@@ -123,18 +184,42 @@ pub fn draw(
     let baseline = area.top_left.y + BASELINE_OFFSET;
     let label_style = ui_text(Rgb565::WHITE, Rgb565::BLACK);
     let value_style = ui_text(value_color, Rgb565::BLACK);
-    draw_mono_text_visible(label, Point::new(0, baseline), label_style, canvas)?;
-    draw_mono_text_visible(value, Point::new(VALUE_X, baseline), value_style, canvas)?;
 
+    let left = area.top_left.x;
+    let top = area.top_left.y;
+    let width = i32::try_from(area.size.width).unwrap_or(0);
+    let bottom = top + i32::try_from(area.size.height).unwrap_or(0);
+    let right = left + width;
+
+    // Where the glyph cells actually sit, taken from the face being drawn in.
+    let band_top = baseline - JETBRAINS_MONO_10X22.baseline.cast_signed();
+    let band_bottom = band_top + JETBRAINS_MONO_10X22.cell.height.cast_signed();
+
+    // Above and below the text, full width.
+    fill(canvas, left, top, width, band_top - top)?;
+    fill(canvas, left, band_bottom, width, bottom - band_bottom)?;
+
+    draw_mono_text_visible(label, Point::new(left, baseline), label_style, canvas)?;
+    let label_end = left + i32::try_from(label.len()).unwrap_or(0) * GLYPH_WIDTH;
+    // Between the label and the value column.
+    fill(
+        canvas,
+        label_end,
+        band_top,
+        VALUE_X - label_end,
+        band_bottom - band_top,
+    )?;
+
+    draw_mono_text_visible(value, Point::new(VALUE_X, baseline), value_style, canvas)?;
     let value_end = VALUE_X + i32::try_from(value.len()).unwrap_or(0) * GLYPH_WIDTH;
-    let right_edge = area.top_left.x + i32::try_from(area.size.width).unwrap_or(0);
-    let tail = u32::try_from(right_edge - value_end).unwrap_or(0);
-    Rectangle::new(
-        Point::new(value_end, area.top_left.y),
-        Size::new(tail, area.size.height),
+    // Whatever a longer previous value may have left standing.
+    fill(
+        canvas,
+        value_end,
+        band_top,
+        right - value_end,
+        band_bottom - band_top,
     )
-    .into_styled(PrimitiveStyle::with_fill(Rgb565::BLACK))
-    .draw(canvas)
 }
 
 /// Redraws a row's value from the first character that differs, which for a

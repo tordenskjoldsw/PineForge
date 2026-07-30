@@ -104,6 +104,45 @@ mod tests {
         });
     }
 
+    /// The same contract, per face rather than per screen.
+    ///
+    /// `every_screen` reaches the watchface screen showing whichever face is
+    /// selected, so on its own it checks one face and silently skips the rest.
+    /// That was tolerable while there was one; it is how the second one would
+    /// ship with a seam. Driven by `WatchfaceId::ALL`, which has its own test
+    /// keeping it complete.
+    ///
+    /// The face is the whole panel here - a watchface wears no status corner,
+    /// so nothing else is going to cover a gap it leaves.
+    #[test]
+    fn every_watchface_paints_the_whole_panel() {
+        use pineforge_state::WatchfaceId;
+
+        for &face in WatchfaceId::ALL {
+            let mut screens = Screens::new();
+            screens.enter(ScreenId::Watchface, DisplaySettings::DEFAULT);
+            // Reports whether a repaint is owed, not whether the switch took:
+            // selecting the face already showing is legitimately `false`. An id
+            // this build lacks cannot be named here at all, because its variant
+            // does not exist to be written.
+            let _ = screens.watchface.select(face);
+
+            let mut probe = Probe::new();
+            screens
+                .watchface
+                .draw_full(&mut Canvas::new(&mut probe), &mut || {})
+                .expect("the probe accepts every operation");
+
+            let unpainted = probe.unpainted();
+            assert_eq!(unpainted, 0, "{face:?} left {unpainted} pixels unpainted");
+            let stray = probe.out_of_bounds();
+            assert!(
+                stray.is_empty(),
+                "{face:?} drew outside the panel: {stray:?}"
+            );
+        }
+    }
+
     /// A screen that draws past the panel is clipped by the display driver and
     /// looks almost right, which is what makes it worth failing a build over.
     #[test]
