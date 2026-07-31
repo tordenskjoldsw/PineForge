@@ -41,6 +41,15 @@ pub struct TestScreen {
     /// with no debugger attached.
     stack: Option<(usize, usize)>,
     previous_stack: Option<(usize, usize)>,
+    /// What the last paint straight onto the panel cost, in microseconds.
+    ///
+    /// The transition reports its own split above, and for a long time that was
+    /// the only render this screen could show a number for - which meant the
+    /// paths that actually cost the most, a wake and a face swap, were the ones
+    /// nothing measured. These are those: a full repaint and a partial one, kept
+    /// apart because the whole point is how far apart they are.
+    full_paint_us: Option<u64>,
+    dirty_paint_us: Option<u64>,
 }
 
 impl TestScreen {
@@ -80,6 +89,19 @@ impl TestScreen {
         )
     }
 
+    /// Records what a paint straight onto the panel cost.
+    ///
+    /// Fed by the registry, which is the one place every paint passes through,
+    /// rather than by each of the display task's call sites - a measurement that
+    /// depends on remembering to take it measures the sites somebody remembered.
+    pub const fn record_paint(&mut self, full: bool, micros: u64) {
+        if full {
+            self.full_paint_us = Some(micros);
+        } else {
+            self.dirty_paint_us = Some(micros);
+        }
+    }
+
     #[cfg(feature = "ui-animations")]
     pub const fn record_transition(
         &mut self,
@@ -106,13 +128,33 @@ impl TestScreen {
             190,
             style,
         )?;
-        let tiles = self
-            .forward_metrics
-            .or(self.backward_metrics)
-            .map_or(0, |metrics| metrics.stripe_count);
-        let mut tile_line = String::<24>::new();
-        let _ = write!(tile_line, "TILES {tiles}");
-        draw_mono_text_visible(&tile_line, Point::new(0, 206), style, canvas)?;
+        // Where the stripe count used to be. That number is `STRIPE_THICKNESS`
+        // divided into the panel and could never say anything a constant does
+        // not; these two can, and there is no fifth line in this band.
+        //
+        // Microseconds for both, and said so. A full repaint runs to six digits
+        // and a partial one to three or four, so the pair only reads as a
+        // comparison if it is in one unit - which is the whole reason they sit
+        // on the same line.
+        let mut paint_line = String::<32>::new();
+        let _ = paint_line.push_str("PAINT us");
+        match self.full_paint_us {
+            Some(micros) => {
+                let _ = write!(paint_line, " F{micros}");
+            }
+            None => {
+                let _ = paint_line.push_str(" F---");
+            }
+        }
+        match self.dirty_paint_us {
+            Some(micros) => {
+                let _ = write!(paint_line, " D{micros}");
+            }
+            None => {
+                let _ = paint_line.push_str(" D---");
+            }
+        }
+        draw_mono_text_visible(&paint_line, Point::new(0, 206), style, canvas)?;
         Ok(())
     }
 

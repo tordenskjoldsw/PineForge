@@ -16,6 +16,8 @@
 //! settings leaf, because nothing outside [`Screens::enter`] may point it
 //! anywhere.
 
+#[cfg(feature = "diagnostics")]
+use embassy_time::Instant;
 use pineforge_state::{AppEvent, DisplaySettings, ScreenAction, ScreenId};
 
 #[cfg(feature = "diagnostics")]
@@ -188,9 +190,14 @@ impl Screens {
         canvas: &mut Canvas<'_>,
         keep_alive: &mut dyn FnMut(),
     ) -> Result<(), CanvasError> {
+        #[cfg(feature = "diagnostics")]
+        let started = Instant::now();
         let painted = self.surface(active, status, &mut |surface| {
             surface.draw_full(canvas, keep_alive)
         });
+        #[cfg(feature = "diagnostics")]
+        self.touch_test
+            .record_paint(true, started.elapsed().as_micros());
         self.painted();
         painted
     }
@@ -201,7 +208,12 @@ impl Screens {
         canvas: &mut Canvas<'_>,
         keep_alive: &mut dyn FnMut(),
     ) -> Result<(), CanvasError> {
+        #[cfg(feature = "diagnostics")]
+        let started = Instant::now();
         let painted = self.active(active).draw_dirty(canvas, keep_alive);
+        #[cfg(feature = "diagnostics")]
+        self.touch_test
+            .record_paint(false, started.elapsed().as_micros());
         self.painted();
         painted
     }
