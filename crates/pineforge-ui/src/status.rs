@@ -17,7 +17,7 @@ use pineforge_state::{BatteryStatus, BleState};
 
 use crate::{
     canvas::{Canvas, CanvasError},
-    render::draw_visible,
+    render::{PANEL, draw_visible},
     screen::Paint,
     theme,
 };
@@ -25,7 +25,8 @@ use crate::{
 /// Height of the strip the corner lives in. Screen content starts below it.
 pub const STATUS_HEIGHT: i32 = 16;
 
-const SCREEN_WIDTH: i32 = 240;
+/// The panel's width, from the one place that says how big the panel is.
+const SCREEN_WIDTH: i32 = PANEL.size.width.cast_signed();
 const MARGIN: i32 = 4;
 
 const BATTERY_WIDTH: i32 = 22;
