@@ -136,7 +136,16 @@ fn populate(screens: &mut Screens, status: &mut StatusCorner) {
         AppEvent::BleUpdated(BleState::Connected),
     ];
     for event in events {
-        let _ = screens.handle(ScreenId::Watchface, event);
+        // Routed the way the display task routes it: a reading is a fact about
+        // the watch and reaches every screen that keeps one, while a tick is
+        // addressed to whichever screen is up. Sending everything to the
+        // watchface instead left the pulse and steps apps rendering their
+        // empty state, which is not what these sheets are for.
+        if event.is_reading() {
+            let _ = screens.absorb(ScreenId::Watchface, event);
+        } else {
+            let _ = screens.handle(ScreenId::Watchface, event);
+        }
     }
 
     status.set_battery(battery);
