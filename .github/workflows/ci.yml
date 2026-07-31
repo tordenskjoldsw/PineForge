@@ -86,17 +86,22 @@ jobs:
             # that does not produce a ZIP. Two thirds of what is used is the BLE
             # stack; a build without the `ble` feature is 125,708 bytes.
             flash: 430080
-            # 44 KiB, reserving 20 KiB of the 65,528-byte RAM region for stack
+            # 46 KiB, reserving 18 KiB of the 65,528-byte RAM region for stack
             # growth. Enforcing the target and not just the ceiling is what
             # keeps it from drifting back.
             #
-            # The 20 KiB is a guess and has always been one: this measures the
-            # statics, and the stack is simply whatever is left over. Since the
-            # firmware now reports its own high-water mark - see
-            # `src/boot/stack.rs` - the reserve can be set from what the deepest
-            # path actually costs. Until that reading exists for a device that
-            # has paired, taken a DFU and browsed every screen, the guess stands.
-            ram: 45056
+            # The reserve was 20 KiB and was a guess. It is now set against a
+            # reading: the diagnostics screen reports the stack's high-water
+            # mark - see `src/boot/stack.rs` - and a watch that had booted,
+            # navigated and run a transition showed 10,432 bytes. 18 KiB leaves
+            # that mark 76 % of headroom, which is a wider margin than the guess
+            # it replaces even though the number is smaller.
+            #
+            # What bought the 2 KiB is the display interface buffer, which grew
+            # to cut the number of SPI write calls a frame takes. That trade is
+            # the only reason to spend RAM here; spend it on anything else and
+            # this comment is wrong.
+            ram: 47104
           - name: diagnostics
             features: diagnostics
             # Diagnostics may grow closer to the slot, but retains 16 KiB.

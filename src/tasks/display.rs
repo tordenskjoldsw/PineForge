@@ -30,7 +30,22 @@ use pineforge_ui::{
 #[cfg(feature = "ui-animations")]
 use pineforge_ui::{scratch::UiScratch, transition::draw_slide_reveal};
 
-static DISPLAY_BUFFER: StaticCell<[u8; 512]> = StaticCell::new();
+/// Bytes the display interface gathers before it hands them to the SPI bus.
+///
+/// Eight `EasyDMA` transfers, and the eight is what the number is for. The
+/// nRF52832 caps a transfer at 255 bytes, so embassy splits anything longer -
+/// but the expensive part is not the split. Embassy's errata-109 workaround
+/// runs once per *write call*, not per chunk: a zero-length start, an
+/// interrupt, and a spin on an atomic before the real data moves. `InfiniTime`
+/// pays none of this, which is most of why our bus runs at two thirds of its
+/// nominal rate.
+///
+/// So the lever is how many write calls a frame takes. At 512 bytes a full
+/// panel took 225 of them; at 2040 it takes 57. Going from 512 to 510 was
+/// tried first, on the theory that the two-byte remainder of 255 + 255 + 2 was
+/// the cost - it changed the call count by one and moved nothing.
+const DISPLAY_BUFFER_BYTES: usize = 8 * 255;
+static DISPLAY_BUFFER: StaticCell<[u8; DISPLAY_BUFFER_BYTES]> = StaticCell::new();
 #[cfg(feature = "ui-animations")]
 static UI_SCRATCH: StaticCell<UiScratch> = StaticCell::new();
 
@@ -96,7 +111,7 @@ fn init_panel(
     spi: DisplaySpi,
     delay: &mut Delay,
 ) -> Option<Panel> {
-    let interface = SpiInterface::new(spi, dc, DISPLAY_BUFFER.init([0; 512]));
+    let interface = SpiInterface::new(spi, dc, DISPLAY_BUFFER.init([0; DISPLAY_BUFFER_BYTES]));
     let panel = mipidsi::Builder::new(mipidsi::models::ST7789, interface)
         .display_size(pins::DISPLAY_WIDTH, pins::DISPLAY_HEIGHT)
         .invert_colors(ColorInversion::Inverted)
