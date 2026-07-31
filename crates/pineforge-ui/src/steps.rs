@@ -308,11 +308,11 @@ impl Screen for StepsScreen {
         // changes what is shown. Everything else - a tick, a touch - leaves the
         // mark alone, so an event this screen does not care about cannot retire
         // a repaint that is still owed.
-        if let AppEvent::StepsUpdated(steps) = event {
-            if self.steps != Some(steps) {
-                self.steps = Some(steps);
-                self.dirty = true;
-            }
+        if let AppEvent::StepsUpdated(steps) = event
+            && self.steps != Some(steps)
+        {
+            self.steps = Some(steps);
+            self.dirty = true;
         }
         ScreenAction::None
     }

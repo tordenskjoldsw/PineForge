@@ -85,17 +85,23 @@ Only enable diagnostic screens for a deliberately labeled hardware test:
 PINEFORGE_FEATURES=diagnostics ./scripts/build-dfu.sh
 ```
 
-Expected file, for the `0.2.1` in `Cargo.toml`:
+The package is named after the `version` in `Cargo.toml`, so the file you get
+is:
 
 ```text
-dist/pineforge-mcuboot-app-dfu-0.2.1.zip
+dist/pineforge-mcuboot-app-dfu-<version>.zip
 ```
+
+For the 0.4.0 in `Cargo.toml` as this was written, that is
+`dist/pineforge-mcuboot-app-dfu-0.4.0.zip`. Substitute your own version in the
+commands below - they are written against the placeholder so they stay correct
+when the release moves on.
 
 ## 5. Inspect before flashing
 
 ```bash
-unzip -l dist/pineforge-mcuboot-app-dfu-0.2.1.zip
-sha256sum dist/pineforge-mcuboot-app-dfu-0.2.1.zip
+unzip -l dist/pineforge-mcuboot-app-dfu-<version>.zip
+sha256sum dist/pineforge-mcuboot-app-dfu-<version>.zip
 ```
 
 The ZIP must contain at least the manifest and application payload of the Nordic Legacy DFU package.
@@ -104,7 +110,7 @@ The ZIP must contain at least the manifest and application payload of the Nordic
 
 1. Open Gadgetbridge and verify the connection to the PineTime.
 2. Open the Android file manager.
-3. Tap `pineforge-mcuboot-app-dfu-0.2.1.zip`.
+3. Tap `pineforge-mcuboot-app-dfu-<version>.zip`.
 4. Open it with the Gadgetbridge firmware installer.
 5. Read the warning and start the installation.
 6. Keep the watch and phone close together and do not disable Bluetooth during the transfer.

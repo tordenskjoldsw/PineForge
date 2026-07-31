@@ -13,7 +13,7 @@ unknown rather than as working.
 | Area | Tested |
 |---|---|
 | Watch | Sealed PineTime. The revision is unknown and largely unknowable without opening the case: nothing on a sealed unit reports it, and the hardware-revision string PineForge advertises over BLE is a constant in the firmware, not a reading. |
-| Number of units | One. A second PineTime arrives 2026-07-31; the first can then be opened for SWD, which is what finally makes RTT logging and breakpoints available. Everything below this line was established without either. |
+| Number of units | One. Everything in this document was established on that single watch, without SWD and therefore without RTT logging or breakpoints. A second unit was ordered for 2026-07-31 so the first could be opened for SWD; **nothing here has yet been re-established on a second watch**, and this row is what to update when it has. |
 | Bootloader | `InfiniTimeOrg/pinetime-mcuboot-bootloader` **1.0.1**. Not the same versioning as upstream `mcu-tools/mcuboot`, from which PineForge uses only `imgtool` as a host build tool. |
 | Prior firmware | InfiniTime **1.16.1**, the release PineForge replaced and the one the rollback and OTA-return paths were tested against. |
 | Phone | Android, kept current. Device model and exact OS version not recorded. |
