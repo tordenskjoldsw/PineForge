@@ -32,6 +32,7 @@ use pineforge_state::{HeartRateState, WatchField, WatchFields, WatchState};
 
 use crate::canvas::{Canvas, CanvasError};
 use crate::font::{JETBRAINS_MONO_6X14, hint_text};
+use crate::segment::{Cell, SegmentSize, draw_cell};
 use crate::{
     render::draw_mono_text_visible,
     theme,
@@ -42,11 +43,13 @@ use crate::{
 };
 
 /// A digit's cell, and the thickness of the strokes inside it.
-const DIGIT_WIDTH: i32 = 70;
-const DIGIT_HEIGHT: i32 = 80;
-const STROKE: i32 = 12;
-/// Where the two strokes of a vertical pair meet.
-const WAIST: i32 = DIGIT_HEIGHT / 2;
+///
+/// The shape itself lives in [`crate::segment`], which the steps app draws the
+/// same numerals from at a third of this size. What is left here is how large
+/// this face wants them.
+const DIGIT: SegmentSize = SegmentSize::new(70, 80, 12);
+const DIGIT_WIDTH: i32 = DIGIT.width;
+const DIGIT_HEIGHT: i32 = DIGIT.height;
 
 /// Left edges of the two digits in a pair, centred across the panel.
 const LEFT_DIGIT_X: i32 = 40;
@@ -74,90 +77,12 @@ const FOOTER_TOP: i32 = MINUTES_Y + DIGIT_HEIGHT;
 const DATE_BASELINE: i32 = FOOTER_TOP + 20;
 const READINGS_BASELINE: i32 = FOOTER_TOP + 42;
 
-/// Which strokes each numeral lights, in the order [`strokes`] returns them.
-///
-/// The conventional seven-segment order, so the table reads the same as every
-/// other one: top, upper right, lower right, bottom, lower left, upper left,
-/// middle. Bit 0 is the top stroke, and the digit grouping is only the usual
-/// four-from-the-right - it does not line up with the strokes.
-const LIT: [u8; 10] = [
-    0b011_1111, // 0
-    0b000_0110, // 1
-    0b101_1011, // 2
-    0b100_1111, // 3
-    0b110_0110, // 4
-    0b110_1101, // 5
-    0b111_1101, // 6
-    0b000_0111, // 7
-    0b111_1111, // 8
-    0b110_1111, // 9
-];
-
-/// The seven strokes of a numeral whose cell begins at `x`, `y`.
-///
-/// Returned as a fixed array rather than drawn here so that the lit and unlit
-/// passes cannot disagree about where a stroke is.
-fn strokes(x: i32, y: i32) -> [Rectangle; 7] {
-    let rect = |x: i32, y: i32, width: i32, height: i32| {
-        Rectangle::new(
-            Point::new(x, y),
-            Size::new(
-                u32::try_from(width).unwrap_or(0),
-                u32::try_from(height).unwrap_or(0),
-            ),
-        )
-    };
-    let right = x + DIGIT_WIDTH - STROKE;
-    let middle = y + WAIST - STROKE / 2;
-    // From the middle stroke down to the bottom, so the lower pair meets both.
-    let lower = DIGIT_HEIGHT - WAIST + STROKE / 2;
-    [
-        rect(x, y, DIGIT_WIDTH, STROKE),                         // top
-        rect(right, y, STROKE, WAIST),                           // upper right
-        rect(right, middle, STROKE, lower),                      // lower right
-        rect(x, y + DIGIT_HEIGHT - STROKE, DIGIT_WIDTH, STROKE), // bottom
-        rect(x, middle, STROKE, lower),                          // lower left
-        rect(x, y, STROKE, WAIST),                               // upper left
-        rect(x, middle, DIGIT_WIDTH, STROKE),                    // middle
-    ]
-}
-
-/// The cell a numeral occupies, which is what a partial redraw repaints.
-fn cell(x: i32, y: i32) -> Rectangle {
-    Rectangle::new(
-        Point::new(x, y),
-        Size::new(
-            u32::try_from(DIGIT_WIDTH).unwrap_or(0),
-            u32::try_from(DIGIT_HEIGHT).unwrap_or(0),
-        ),
-    )
-}
-
 fn fill(canvas: &mut Canvas<'_>, area: Rectangle, color: Rgb565) -> Result<(), CanvasError> {
     if area.size.width == 0 || area.size.height == 0 {
         return Ok(());
     }
     area.into_styled(PrimitiveStyle::with_fill(color))
         .draw(canvas)
-}
-
-/// Paints one numeral over its whole cell.
-///
-/// Opaque by construction: the cell is filled before the strokes go on, so a
-/// caller repainting a single digit never has to know what was there before.
-fn draw_digit(canvas: &mut Canvas<'_>, x: i32, y: i32, value: u8) -> Result<(), CanvasError> {
-    fill(canvas, cell(x, y), theme::BACKGROUND)?;
-    let lit = LIT[usize::from(value.min(9))];
-    for (index, stroke) in strokes(x, y).into_iter().enumerate() {
-        let is_lit = lit & (1 << index) != 0;
-        let color = if is_lit {
-            theme::ACCENT
-        } else {
-            theme::SURFACE
-        };
-        fill(canvas, stroke, color)?;
-    }
-    Ok(())
 }
 
 /// A lightning bolt, stepped out of five rectangles.
@@ -237,7 +162,14 @@ impl ForgeWatchface {
     ) -> Result<(), CanvasError> {
         let digits = digits_of(state.clock_seconds());
         for (index, (x, y)) in PLACES.into_iter().enumerate() {
-            draw_digit(canvas, x, y, digits[index])?;
+            draw_cell(
+                canvas,
+                DIGIT,
+                x,
+                y,
+                Cell::Digit(digits[index]),
+                theme::ACCENT,
+            )?;
             keep_alive();
         }
         Ok(())
@@ -369,7 +301,7 @@ impl Watchface for ForgeWatchface {
             let now = digits_of(state.clock_seconds());
             for (index, (x, y)) in PLACES.into_iter().enumerate() {
                 if before[index] != now[index] {
-                    draw_digit(canvas, x, y, now[index])?;
+                    draw_cell(canvas, DIGIT, x, y, Cell::Digit(now[index]), theme::ACCENT)?;
                     keep_alive();
                 }
             }
