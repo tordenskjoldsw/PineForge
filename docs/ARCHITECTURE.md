@@ -272,7 +272,7 @@ Screens implement the `Screen` trait. A screen receives hardware-independent `Ui
 - release builds use LTO and size optimization
 
 CI enforces capacity budgets rather than early-project baseline sizes.
-Production is limited to 420 KiB flash and 44 KiB static RAM, diagnostics to
+Production is limited to 420 KiB flash and 46 KiB static RAM, diagnostics to
 448 KiB and 56 KiB. Size changes remain visible in CI output even when they
 stay below the limits.
 

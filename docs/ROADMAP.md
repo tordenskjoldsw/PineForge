@@ -14,10 +14,10 @@ milestone should leave the sealed PineTime in a testable and recoverable state.
   applications to stand on it - launcher, notifications, flashlight, pulse,
   settings split into a root and a leaf per setting, and a watch that says which
   build it is running
-
-Since `v0.3.0` was tagged, `main` has gained the FORGE watchface and made it the
-default, a side-button press that puts the panel out from the watchface, and two
-drawing changes that made every screen cheaper to paint.
+- `v0.4.0`: released look and speed - the FORGE watchface as the default and
+  finished in its own numerals, a steps application, notifications on a card, a
+  reading size for prose, and a set of drawing changes measured rather than
+  guessed at
 
 Work that has landed on `main` but not in a tagged release is marked
 *unreleased* below. Everything else in a **Complete** section has shipped.
@@ -45,7 +45,7 @@ into `v0.3`. It is a design record, not a plan for current work.
   documented - see [`ARCHITECTURE.md`](ARCHITECTURE.md)
 - a repeatable sealed-device test procedure -
   see [`SEALED-PINETIME-TESTING.md`](SEALED-PINETIME-TESTING.md)
-- reproducible build tooling *(unreleased)*: pinned toolchain, pinned MCUBoot
+- reproducible build tooling: pinned toolchain, pinned MCUBoot
   checkout for `imgtool`, pinned Python tooling, and a committed `Cargo.lock`.
   The MCUBoot image is byte-reproducible from a given commit; the DFU archive
   around it is not, because `adafruit-nrfutil` records timestamps.
@@ -68,7 +68,7 @@ into `v0.3`. It is a design record, not a plan for current work.
 - display timeout, sleep, wake, and redraw behavior
 - touch gesture filtering and debouncing
 - host-side tests for hit testing, state transitions, and navigation
-- simple application launcher *(unreleased)*
+- simple application launcher
 
 ### Superseded
 
@@ -158,11 +158,12 @@ than as a firmware experiment. It is not reached.
 - separate unconfirmed bring-up and confirmable release build policies
 - image-confirmation flow for release builds
 
-### Complete *(unreleased)*
+### Complete
 
 - one polished watchface. FORGE is a designed face rather than a bring-up
   aesthetic, and it is what a watch with no stored choice opens with; `Terminal`
-  remains as the borrowed one.
+  remains as the borrowed one. Its readings are set in the same numerals as its
+  clock, so the face carries no font at all.
 
 ### Remaining
 
@@ -171,24 +172,26 @@ than as a firmware experiment. It is not reached.
 
 ## Later milestones
 
-### Complete *(unreleased)*
+### Complete
 
-- step counting exposed as service events
+- step counting exposed as service events, and an application showing the day's
+  count against a goal
 - heart-rate sampling: an on-demand reading and a background interval
 - a first pair of applications - flashlight and pulse - behind the launcher
 - a second watchface, selectable and persisted: FORGE draws its numerals from
   rectangles rather than from a glyph atlas, which is why it fits in 2.2 KB and
   paints faster than a face made of text
-- notifications received and read on a screen of their own, one per page, with
-  dismissal. Deliberately no tally on the watchface: a count there would be a
-  second place to keep the same fact right.
+- notifications received and read on a screen of their own, one per page, on a
+  card, with dismissal. Deliberately no tally on the watchface: a count there
+  would be a second place to keep the same fact right.
 
 ### Open
 
 - notification text in a face the panel can show - the screen reads the ASCII
   range the atlas covers, so accented characters draw as gaps
 - alarms, timers, and stopwatch
-- activity summaries over time; steps are counted but not retained
+- activity summaries over time; steps are counted and shown for the day, but
+  not retained across days
 - weather
 - music controls
 - additional watchfaces and applications

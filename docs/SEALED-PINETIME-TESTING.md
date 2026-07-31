@@ -6,17 +6,28 @@ This variant is intentionally an **unconfirmed MCUBoot test image**.
 
 1. Build a Gadgetbridge DFU ZIP with `scripts/build-dfu.sh`.
 2. Open the ZIP on Android with the Gadgetbridge firmware installer.
-3. The Rust test firmware starts after the firmware swap.
-4. Test touch input. The most recently read coordinates are displayed.
-5. Press the physical side button when you want to leave the test firmware.
-6. The firmware performs only a system reset.
-7. Because the image was not confirmed, MCUBoot restores the previous InfiniTime image.
+3. PineForge starts after the firmware swap, on its watchface. The status corner
+   carries the unconfirmed mark, which is how you can tell the image is still on
+   trial.
+4. Try what you came to try. The **about** screen - swipe up, then `ABOUT` -
+   names the release, commit and date of the image actually running, which is
+   worth checking before trusting anything else you see.
+5. To leave it, hold the side button for two seconds. That resets the watch; a
+   short press is the back gesture and will not.
+6. Because the image was not confirmed, MCUBoot restores the previous InfiniTime
+   image on that reset.
+
+Everything above happens without confirming, so nothing here can cost you the
+rollback. That is the point of testing this way.
 
 ## Confirming the image
 
-Once a build is trusted, it can be made permanent from **Settings > FW >
-CONFIRM** (swipe down on the watchface). Confirming writes `image_ok` to the
-primary-slot trailer via NVMC, after which:
+Once a build is trusted, it can be made permanent from the **firmware** screen:
+swipe up from the watchface to reach the launcher, then tap **FIRMWARE** and
+confirm. Swiping *down* from the watchface opens notifications, not this - the
+route changed in v0.3.0 when the launcher replaced the provisional gestures.
+
+Confirming writes `image_ok` to the primary-slot trailer via NVMC, after which:
 
 - a side-button reset no longer rolls back - PineForge is now the primary image;
 - the DFU service accepts updates, so the next firmware can be installed over

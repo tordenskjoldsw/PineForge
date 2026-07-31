@@ -11,10 +11,11 @@
 PineForge is a Rust/Embassy firmware platform for the PineTime, running on a
 **sealed** watch through the existing InfiniTime MCUBoot bootloader.
 
-It is past the proof-of-concept stage: it has been the firmware on my own watch
-since late July 2026. It is not, however, broadly validated - the evidence
-behind that sentence is one watch, one bootloader version and one phone, which
-is why the warning above stands unchanged.
+It has been the firmware on my own watch since late July 2026: it keeps time,
+takes notifications, updates over the air and is worn daily. What it is not is
+broadly validated - the evidence behind that sentence is one watch, one
+bootloader version and one phone, which is why the warning above stands
+unchanged.
 
 PineForge is an independent ground-up reimplementation informed by earlier
 PineTime Rust projects. It is an independent community project, not affiliated
@@ -41,9 +42,12 @@ a root and a leaf per setting, background heart-rate measurement, selectable
 wake gestures, and a watch that says which build it is running - see
 [`docs/releases/v0.3.0.md`](docs/releases/v0.3.0.md).
 
-Unreleased work on `main` adds the FORGE watchface as the new default, a side
-button that puts the panel out from the watchface, and two drawing changes that
-made every screen cheaper to paint.
+`v0.4.0` is about look and speed: the FORGE watchface became the default and
+was finished in its own numerals, so the face carries no font at all; a steps
+application shows the day against a goal; notifications moved onto a card and
+gained a reading size for their text; and a set of drawing changes made every
+screen cheaper to paint - each one measured, several of them the opposite of
+what was predicted - see [`docs/releases/v0.4.0.md`](docs/releases/v0.4.0.md).
 [`docs/ROADMAP.md`](docs/ROADMAP.md) records what is done and what is not.
 
 Wearing it myself every day is one watch's worth of evidence, and it does
@@ -86,7 +90,9 @@ On the watch:
 
 - two watchfaces, selectable and remembered across reboots. **FORGE** is the
   default: the time in large numerals drawn from rectangles rather than from a
-  font, with a bolt beside the charge while a charger is attached. `TERMINAL` is
+  font, with the date and the charge under it set in the same numerals, so the
+  face carries no font at all. A bolt appears beside the charge while a charger
+  is attached. `TERMINAL` is
   the other, one labelled row per reading - time, date, battery and charge
   source, steps, heart rate and Bluetooth state.
 - an application launcher, reached by swiping up from the watchface
@@ -94,7 +100,8 @@ On the watch:
   watchface, and dismissed with a swipe
 - settings for brightness, dim and display-off timeouts, heart-rate interval,
   wake gesture and watchface, all surviving a reboot
-- a flashlight, and an on-demand heart-rate reading
+- a flashlight, an on-demand heart-rate reading, and a steps application
+  showing the day's count against a goal
 - step counting, and heart-rate measurement on a background interval
 - a firmware screen for image confirmation and a software restart, and an about
   screen naming the running build by release, commit and date
@@ -140,7 +147,7 @@ for `imgtool`, and a `.venv` with pinned Python tooling. It is safe to re-run.
 
 `build-dfu.sh` takes the version from `Cargo.toml` when called without an
 argument. Pass one to add build metadata that distinguishes two packages of the
-same release, for example `./scripts/build-dfu.sh 0.2.1+7`.
+same release, for example `./scripts/build-dfu.sh 0.4.0+7`.
 
 The DFU script builds the production profile with normal UI animations by
 default. Diagnostic screens and render metrics are opt-in:
@@ -155,8 +162,10 @@ unless the artifact is explicitly labeled as diagnostic.
 Output:
 
 ```text
-dist/pineforge-mcuboot-app-dfu-0.2.1.zip
+dist/pineforge-mcuboot-app-dfu-<version>.zip
 ```
+
+named after the `version` in `Cargo.toml` - `0.4.0` as this was written.
 
 This ZIP can be installed through the Gadgetbridge firmware installer.
 
