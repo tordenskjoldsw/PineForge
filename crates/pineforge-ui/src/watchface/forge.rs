@@ -20,25 +20,20 @@
 //! rectangles per digit and they are what makes the face read as an instrument
 //! rather than as a font that happens to be square.
 
-use core::fmt::Write;
-
 use embedded_graphics::{
     pixelcolor::Rgb565,
     prelude::*,
     primitives::{PrimitiveStyle, Rectangle},
 };
-use heapless::String;
-use pineforge_state::{HeartRateState, WatchField, WatchFields, WatchState};
+use pineforge_state::{WatchField, WatchFields, WatchState};
 
 use crate::canvas::{Canvas, CanvasError};
-use crate::font::{JETBRAINS_MONO_6X14, hint_text};
-use crate::segment::{Cell, SegmentSize, draw_cell};
+use crate::segment::{Cell, SegmentSize, draw_cell, right_aligned};
 use crate::{
-    render::draw_mono_text_visible,
     theme,
     watchface::{
         Watchface,
-        row::{SCREEN_AREA, UNSYNCHRONIZED_DATE, fill_band, format_date},
+        row::{SCREEN_AREA, UNSYNCHRONIZED_DATE, fill_band},
     },
 };
 
@@ -57,25 +52,54 @@ const RIGHT_DIGIT_X: i32 = 130;
 /// Top edges of the hour and minute pairs.
 const HOURS_Y: i32 = 18;
 const MINUTES_Y: i32 = 108;
-/// Advance of the smaller face, for placing text after text by hand.
-const HINT_WIDTH: i32 = JETBRAINS_MONO_6X14.cell.width.cast_signed();
-/// The bolt's slot, and where the charge reading starts when it is occupied.
-///
-/// The slot is not held open while discharging. Holding it open kept the line
-/// from shifting when a charger went on or off, which sounded right and was the
-/// wrong trade: the shift happens at the moment of plugging in, which nobody is
-/// reading the watch during, while the gap it left sat there the rest of the
-/// time. So the reading starts flush at [`BOLT_X`] with no charger, and moves
-/// right to make room for the bolt when there is one.
-const BOLT_X: i32 = 20;
-const BOLT_WIDTH: i32 = 9;
-const BOLT_HEIGHT: i32 = 13;
-const CHARGE_X: i32 = BOLT_X + BOLT_WIDTH + 4;
-
 /// Where the digits stop and the readings begin.
 const FOOTER_TOP: i32 = MINUTES_Y + DIGIT_HEIGHT;
-const DATE_BASELINE: i32 = FOOTER_TOP + 20;
-const READINGS_BASELINE: i32 = FOOTER_TOP + 42;
+
+/// The footer sits between the same edges the digits do.
+///
+/// It used to start at 20 while the digits ran from 40 to 200, so it hung off
+/// to the left against nothing. Sharing their edges is what makes the face read
+/// as one object rather than as a clock with a caption under it.
+const FOOTER_X: i32 = LEFT_DIGIT_X;
+const FOOTER_WIDTH: i32 = RIGHT_DIGIT_X + DIGIT_WIDTH - LEFT_DIGIT_X;
+const FOOTER_RIGHT: i32 = FOOTER_X + FOOTER_WIDTH;
+
+/// The footer's numerals: the clock's own shape, at a quarter of its size.
+///
+/// Segments, not type. This is the thing three earlier attempts at this footer
+/// got wrong by rearranging: a line of text under the clock is a different
+/// rendering technique from everything above it - an antialiased atlas against
+/// rectangles whose unlit strokes are drawn - and no amount of moving it about
+/// makes the two belong together. The face has no font on it at all now.
+const FOOTER_DIGIT: SegmentSize = SegmentSize::new(16, 22, 3);
+const FOOTER_GAP: i32 = 3;
+const FOOTER_DIGITS_Y: i32 = FOOTER_TOP + 12;
+
+/// Advance from one footer cell to the next.
+const CELL_STEP: i32 = FOOTER_DIGIT.width + FOOTER_GAP;
+
+/// The separator between month and day: one stroke, the same weight the
+/// numerals are drawn at, so it reads as part of them rather than as punctuation
+/// borrowed from somewhere else.
+const SEPARATOR_WIDTH: i32 = 8;
+const SEPARATOR_X: i32 = FOOTER_X + 2 * CELL_STEP;
+const DAY_X: i32 = SEPARATOR_X + SEPARATOR_WIDTH + FOOTER_GAP;
+
+/// The charge, right-aligned against the edge the digits end on.
+///
+/// Three places, because it reaches a hundred. The two it does not need most of
+/// the time stand as unlit cells rather than closing up - which is what the
+/// clock does with a leading zero and what makes a number here read as a
+/// reading rather than as a word.
+const CHARGE_PLACES: usize = 3;
+const CHARGE_CELLS: i32 = 3;
+const CHARGE_X: i32 = FOOTER_RIGHT - CHARGE_CELLS * CELL_STEP + FOOTER_GAP;
+
+/// The charging bolt, left of the charge and centred on its cells.
+const BOLT_WIDTH: i32 = 9;
+const BOLT_HEIGHT: i32 = 13;
+const BOLT_X: i32 = CHARGE_X - BOLT_WIDTH - 6;
+const BOLT_Y: i32 = FOOTER_DIGITS_Y + (FOOTER_DIGIT.height - BOLT_HEIGHT) / 2;
 
 fn fill(canvas: &mut Canvas<'_>, area: Rectangle, color: Rgb565) -> Result<(), CanvasError> {
     if area.size.width == 0 || area.size.height == 0 {
@@ -209,65 +233,87 @@ impl ForgeWatchface {
         Ok(())
     }
 
-    /// The date and the readings, under the clock.
+    /// Two cells of a number at `x`, most significant first.
+    fn draw_pair(
+        canvas: &mut Canvas<'_>,
+        x: i32,
+        value: u8,
+        ink: Rgb565,
+    ) -> Result<(), CanvasError> {
+        draw_cell(
+            canvas,
+            FOOTER_DIGIT,
+            x,
+            FOOTER_DIGITS_Y,
+            Cell::Digit(value / 10),
+            ink,
+        )?;
+        draw_cell(
+            canvas,
+            FOOTER_DIGIT,
+            x + CELL_STEP,
+            FOOTER_DIGITS_Y,
+            Cell::Digit(value % 10),
+            ink,
+        )
+    }
+
+    /// The date and the charge, in the clock's own numerals.
     ///
-    /// One line of text apiece, in the smaller face: the numerals are what this
-    /// watchface is for, and a reading competing with them for attention would
-    /// be the wrong trade.
+    /// The date is set in [`theme::TEXT`] rather than the accent: the clock is
+    /// what the accent is for here, and a second set of accent numerals would
+    /// be a second clock. The charge keeps the colour its level earns, because
+    /// that is the one reading whose colour is the message.
     fn draw_footer(state: &WatchState, canvas: &mut Canvas<'_>) -> Result<(), CanvasError> {
         let panel_bottom = SCREEN_AREA.top_left.y + SCREEN_AREA.size.height.cast_signed();
         fill_band(canvas, FOOTER_TOP, panel_bottom)?;
 
-        let style = hint_text(theme::TEXT, theme::BACKGROUND);
-        let date = format_date(state.date().unwrap_or(UNSYNCHRONIZED_DATE));
-        draw_mono_text_visible(&date, Point::new(20, DATE_BASELINE), style, canvas)?;
-
-        // The charge sits apart from the rest, because it is the one reading
-        // whose colour carries meaning: level while running on the battery, and
-        // the bolt beside it while current is going in.
-        let mut charge: String<16> = String::new();
-        let mut charge_color = theme::TEXT;
-        let mut charging = false;
-        match state.battery() {
-            Some(status) => {
-                // `PowerSource::label` rather than a tag spelled out here: it is
-                // the product's answer to what the three states are called, and
-                // the terminal face reads the same one.
-                let _ = write!(charge, "{}% {}", status.percent, status.source().label());
-                charge_color = theme::battery(status.level());
-                charging = status.charging;
-            }
-            None => {
-                let _ = charge.push_str("--%");
-            }
-        }
-        let charge_x = if charging {
-            draw_bolt(canvas, BOLT_X, READINGS_BASELINE - BOLT_HEIGHT)?;
-            CHARGE_X
-        } else {
-            BOLT_X
-        };
-        draw_mono_text_visible(
-            &charge,
-            Point::new(charge_x, READINGS_BASELINE),
-            hint_text(charge_color, theme::BACKGROUND),
+        // Day and month. The year is a third of the line for a number nobody
+        // checks on a watch.
+        let date = state.date().unwrap_or(UNSYNCHRONIZED_DATE);
+        Self::draw_pair(canvas, FOOTER_X, date.month, theme::TEXT)?;
+        fill(
             canvas,
+            Rectangle::new(
+                Point::new(
+                    SEPARATOR_X,
+                    FOOTER_DIGITS_Y + FOOTER_DIGIT.height / 2 - FOOTER_DIGIT.stroke / 2,
+                ),
+                Size::new(
+                    SEPARATOR_WIDTH.unsigned_abs(),
+                    FOOTER_DIGIT.stroke.unsigned_abs(),
+                ),
+            ),
+            theme::SURFACE,
         )?;
+        Self::draw_pair(canvas, DAY_X, date.day, theme::TEXT)?;
 
-        let mut rest: String<32> = String::new();
-        if let HeartRateState::Result(bpm) = state.heart_rate() {
-            let _ = write!(rest, " {bpm} BPM");
+        // Nothing reported yet leaves every place unlit, which says "no
+        // reading" the way an instrument does rather than by showing a zero.
+        let (percent, ink, charging) =
+            state
+                .battery()
+                .map_or((0, theme::SURFACE, false), |status| {
+                    (
+                        u32::from(status.percent),
+                        theme::battery(status.level()),
+                        status.charging,
+                    )
+                });
+        let reading = state.battery().is_some();
+        let places = right_aligned::<CHARGE_PLACES>(percent);
+        for (place, cell) in places.into_iter().enumerate() {
+            let x = CHARGE_X + i32::try_from(place).unwrap_or(0) * CELL_STEP;
+            let cell = if reading { cell } else { Cell::Blank };
+            draw_cell(canvas, FOOTER_DIGIT, x, FOOTER_DIGITS_Y, cell, ink)?;
         }
-        if let Some(steps) = state.steps() {
-            let _ = write!(rest, " {steps} ST");
+
+        // Current going in is a state the level cannot carry: a full battery is
+        // green whether or not a charger is attached.
+        if charging {
+            draw_bolt(canvas, BOLT_X, BOLT_Y)?;
         }
-        let rest_x = charge_x + i32::try_from(charge.len()).unwrap_or(0) * HINT_WIDTH;
-        draw_mono_text_visible(
-            &rest,
-            Point::new(rest_x, READINGS_BASELINE),
-            hint_text(theme::ACCENT, theme::BACKGROUND),
-            canvas,
-        )
+        Ok(())
     }
 }
 
@@ -308,11 +354,9 @@ impl Watchface for ForgeWatchface {
         }
         // The footer carries the date and every reading, so anything but the
         // clock moving is one line to repaint.
-        if changed.contains(WatchField::Date)
-            || changed.contains(WatchField::Battery)
-            || changed.contains(WatchField::Steps)
-            || changed.contains(WatchField::HeartRate)
-        {
+        // Steps and pulse are not shown here any more, so neither is a reason
+        // to send the footer again.
+        if changed.contains(WatchField::Date) || changed.contains(WatchField::Battery) {
             Self::draw_footer(state, canvas)?;
             keep_alive();
         }
@@ -328,18 +372,18 @@ mod tests {
     };
     use pineforge_state::{AppEvent, BatteryStatus, WatchState};
 
-    use super::{BOLT_HEIGHT, BOLT_WIDTH, BOLT_X, ForgeWatchface, READINGS_BASELINE};
+    use super::{
+        BOLT_HEIGHT, BOLT_WIDTH, BOLT_X, BOLT_Y, CHARGE_X, FOOTER_DIGIT, FOOTER_DIGITS_Y,
+        ForgeWatchface,
+    };
     use crate::{canvas::Canvas, probe::Probe, watchface::Watchface};
 
     /// The slot the bolt occupies, which is what a charging watch must fill and
     /// a discharging one must leave alone.
     fn bolt_slot() -> Rectangle {
         Rectangle::new(
-            Point::new(BOLT_X, READINGS_BASELINE - BOLT_HEIGHT),
-            Size::new(
-                u32::try_from(BOLT_WIDTH).unwrap(),
-                u32::try_from(BOLT_HEIGHT).unwrap(),
-            ),
+            Point::new(BOLT_X, BOLT_Y),
+            Size::new(BOLT_WIDTH.unsigned_abs(), BOLT_HEIGHT.unsigned_abs()),
         )
     }
 
@@ -348,7 +392,7 @@ mod tests {
         let _ = state.apply(AppEvent::BatteryUpdated(BatteryStatus {
             millivolts: 3_700,
             // Deliberately a Low level: `theme::battery` paints a Good battery
-            // in the same green as the bolt, so at 80% the reading's own text
+            // in the same green as the bolt, so at 80% the reading's own cells
             // would answer the colour question the bolt is being asked.
             percent: 30,
             charging,
@@ -372,26 +416,30 @@ mod tests {
         );
     }
 
-    /// And no bolt without a charger - which is not the same as an empty slot,
-    /// since the reading now starts there instead. Checked by the bolt's colour
-    /// rather than by coverage, because the text covers those pixels too.
+    /// And no bolt without a charger. Checked by the bolt's own colour rather
+    /// than by coverage, because the footer paints that band either way.
     #[test]
     fn a_discharging_watch_draws_no_bolt() {
-        let probe = painted_with(false);
         assert!(
-            !probe.painted_in(bolt_slot(), crate::theme::OK),
+            !painted_with(false).painted_in(bolt_slot(), crate::theme::OK),
             "a discharging watch drew a bolt"
         );
     }
 
-    /// The reading moves into the space the bolt vacates rather than leaving a
-    /// hole in front of itself.
+    /// The bolt has its own room. It used to sit where the charge reading began
+    /// and pushed it sideways; a reading that moves when a charger is plugged in
+    /// is a reading that cannot be compared with itself.
     #[test]
-    fn the_reading_starts_flush_when_nothing_is_charging() {
-        let probe = painted_with(false);
+    fn the_bolt_does_not_stand_in_the_charges_cells() {
         assert!(
-            probe.painted_other_than(bolt_slot(), crate::theme::BACKGROUND),
-            "the charge reading did not move into the empty bolt slot"
+            BOLT_X + BOLT_WIDTH < CHARGE_X,
+            "the bolt overlaps the first charge cell"
+        );
+        let cells = FOOTER_DIGIT.cell(CHARGE_X, FOOTER_DIGITS_Y);
+        assert_eq!(
+            bolt_slot().intersection(&cells).size,
+            Size::zero(),
+            "the bolt and the charge share pixels"
         );
     }
 }

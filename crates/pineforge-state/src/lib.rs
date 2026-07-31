@@ -65,6 +65,14 @@ pub use storage::{
 
 pub const SCREEN_STACK_CAPACITY: usize = 4;
 
+/// Steps in a day, and what every gauge showing progress divides against.
+///
+/// Product policy, so it lives here rather than in whichever screen happens to
+/// draw a bar: the steps app and the FORGE watchface both show progress toward
+/// it, and two copies of the number would let them disagree about what a full
+/// bar means.
+pub const DAILY_STEP_GOAL: u32 = 10_000;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PowerConfig {
     dim_after_millis: u64,

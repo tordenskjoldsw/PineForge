@@ -38,9 +38,8 @@ use crate::{
     theme,
 };
 
-/// Steps in a day, which is the goal every fitness tracker has settled on and
-/// the number this screen's gauge is divided against.
-pub const GOAL: u32 = 10_000;
+/// The day's goal, from the one place that decides product policy.
+use pineforge_state::DAILY_STEP_GOAL as GOAL;
 /// Cells in the gauge. Five at a two-thousand step each, so a glance reads
 /// thousands rather than a proportion.
 const GAUGE_CELLS: u32 = 5;
