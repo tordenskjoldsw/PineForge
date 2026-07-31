@@ -189,26 +189,46 @@ impl TextRenderer for AaTextStyle {
     {
         let blend = Blend::new(self.text_color, self.background_color);
         let top = self.top_of_cell(position, baseline);
-        let mut x = position.x;
+        let font = self.font;
 
-        for character in text.chars() {
-            // An unmapped character leaves its cell in the background colour
-            // rather than a substitute glyph: the atlas covers the printable
-            // range, and anything outside it is a bug worth seeing as a gap.
-            let offset = self.font.glyph_offset(character);
-            let area = Rectangle::new(Point::new(x, top), self.font.cell);
-            let font = self.font;
-            let colors = (0..font.cell.height).flat_map(|row| {
+        let characters = i32::try_from(text.chars().count()).unwrap_or(0);
+        let width = characters.saturating_mul(self.advance());
+        let next = Point::new(position.x.saturating_add(width), position.y);
+        if width <= 0 {
+            return Ok(next);
+        }
+
+        // One rectangle for the whole run, not one per character. A display
+        // driver turns each of these into an address window - two commands with
+        // four bytes of argument, plus the memory-write that follows - so a
+        // per-glyph rectangle spent that addressing 32 times on a line of 32
+        // characters, for pixels that are contiguous on the panel anyway. The
+        // terminal face is around 130 cells, which was around 900 SPI
+        // transactions where a few dozen carry the same picture.
+        //
+        // What makes one rectangle correct is the order below: `fill_contiguous`
+        // is documented to consume colours row by row across the area, so the
+        // outer loop walks the rows of the cell and the inner one hands each
+        // character its slice of that row before moving down.
+        let area = Rectangle::new(
+            Point::new(position.x, top),
+            Size::new(u32::try_from(width).unwrap_or(0), font.cell.height),
+        );
+        let colors = (0..font.cell.height).flat_map(move |row| {
+            text.chars().flat_map(move |character| {
+                // An unmapped character leaves its cell in the background colour
+                // rather than a substitute glyph: the atlas covers the printable
+                // range, and anything outside it is a bug worth seeing as a gap.
+                let offset = font.glyph_offset(character);
                 (0..font.cell.width).map(move |column| {
                     let coverage = offset.map_or(0, |offset| font.coverage(offset, column, row));
                     blend.get(coverage)
                 })
-            });
-            target.fill_contiguous(&area, colors)?;
-            x += self.advance();
-        }
+            })
+        });
+        target.fill_contiguous(&area, colors)?;
 
-        Ok(Point::new(x, position.y))
+        Ok(next)
     }
 
     fn draw_whitespace<D>(
