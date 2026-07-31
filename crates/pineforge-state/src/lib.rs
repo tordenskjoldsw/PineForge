@@ -727,6 +727,8 @@ pub enum ScreenId {
     /// turns periodic measurement on and picks its interval. This is the app
     /// that takes one now and shows what came back.
     Pulse,
+    /// The day's step count, and how far it is through the daily goal.
+    Steps,
     #[cfg(feature = "diagnostics")]
     TouchTest,
 }
@@ -734,9 +736,9 @@ pub enum ScreenId {
 impl ScreenId {
     /// How many screens this build has.
     pub const COUNT: usize = if cfg!(feature = "diagnostics") {
-        15
+        16
     } else {
-        14
+        15
     };
 
     /// Every screen, so anything that has to hold for all of them can be
@@ -764,6 +766,7 @@ impl ScreenId {
         Self::About,
         Self::Flashlight,
         Self::Pulse,
+        Self::Steps,
         #[cfg(feature = "diagnostics")]
         Self::TouchTest,
     ];
@@ -811,8 +814,9 @@ impl ScreenId {
             Self::About => 11,
             Self::Flashlight => 12,
             Self::Pulse => 13,
+            Self::Steps => 14,
             #[cfg(feature = "diagnostics")]
-            Self::TouchTest => 14,
+            Self::TouchTest => 15,
         }
     }
 }

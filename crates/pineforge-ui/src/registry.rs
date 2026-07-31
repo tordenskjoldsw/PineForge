@@ -34,6 +34,7 @@ use crate::{
     setting_picker::{SettingPickerScreen, setting_of},
     settings::DisplaySettingsScreen,
     status::{StatusCorner, WithStatus, wears_status},
+    steps::StepsScreen,
     watchface::WatchfaceScreen,
 };
 
@@ -60,6 +61,8 @@ pub struct Screens {
     /// Holds the last heart-rate reading, fed from the event stream whatever is
     /// showing - see [`Screens::absorb`].
     pub pulse: PulseScreen,
+    /// Holds the day's step count, fed the same way and for the same reason.
+    pub steps: StepsScreen,
     #[cfg(feature = "diagnostics")]
     pub touch_test: TestScreen,
 }
@@ -87,6 +90,7 @@ impl Screens {
             ScreenId::About => &self.about,
             ScreenId::Flashlight => &self.flashlight,
             ScreenId::Pulse => &self.pulse,
+            ScreenId::Steps => &self.steps,
             // Every leaf is the same screen; `enter` has pointed it at the one
             // this id names before it can be drawn or touched.
             ScreenId::Brightness
@@ -110,6 +114,7 @@ impl Screens {
             ScreenId::About => &mut self.about,
             ScreenId::Flashlight => &mut self.flashlight,
             ScreenId::Pulse => &mut self.pulse,
+            ScreenId::Steps => &mut self.steps,
             // Every leaf is the same screen; `enter` has pointed it at the one
             // this id names before it can be drawn or touched.
             ScreenId::Brightness
@@ -139,9 +144,11 @@ impl Screens {
     pub fn absorb(&mut self, active: ScreenId, event: AppEvent) -> bool {
         let _ = self.watchface.handle_event(event);
         let _ = self.pulse.handle_event(event);
+        let _ = self.steps.handle_event(event);
         match active {
             ScreenId::Watchface => self.watchface.moved(),
             ScreenId::Pulse => self.pulse.moved(),
+            ScreenId::Steps => self.steps.moved(),
             _ => false,
         }
     }
@@ -149,7 +156,10 @@ impl Screens {
     /// Whether this screen took its reading from [`Self::absorb`] already.
     #[must_use]
     pub const fn holds_readings(active: ScreenId) -> bool {
-        matches!(active, ScreenId::Watchface | ScreenId::Pulse)
+        matches!(
+            active,
+            ScreenId::Watchface | ScreenId::Pulse | ScreenId::Steps
+        )
     }
 
     pub fn handle(&mut self, active: ScreenId, event: AppEvent) -> ScreenAction {
@@ -237,6 +247,7 @@ impl Screens {
     pub const fn painted(&mut self) {
         self.watchface.mark_painted();
         self.notifications.mark_painted();
+        self.steps.mark_painted();
     }
 
     /// Lends the active screen as the opaque surface it is drawn as - the

@@ -136,6 +136,38 @@ pub const CROSSHAIR: Icon = [
 ///
 /// Clear bits are skipped rather than painted in the background colour, so an
 /// icon can sit on a filled tile without knowing what it is standing on.
+/// Steps: a footprint - toes over a sole that narrows at the arch.
+///
+/// One print rather than the usual two. At 24 pixels a pair has to shrink each
+/// print to about ten across, at which point neither reads as a foot and the
+/// tile says "two smudges".
+pub const FOOT: Icon = [
+    0b0000_0000_0000_0000_0000_0000,
+    0b0000_0000_0000_0000_0000_0000,
+    0b0000_1101_1011_0110_1100_0000,
+    0b0000_1101_1011_0110_1100_0000,
+    0b0000_0000_0000_0000_0000_0000,
+    0b0000_0011_1111_1111_0000_0000,
+    0b0000_0111_1111_1111_1000_0000,
+    0b0000_1111_1111_1111_1100_0000,
+    0b0000_1111_1111_1111_1100_0000,
+    0b0000_1111_1111_1111_1100_0000,
+    0b0000_0111_1111_1111_1000_0000,
+    0b0000_0011_1111_1111_0000_0000,
+    0b0000_0001_1111_1110_0000_0000,
+    0b0000_0000_1111_1100_0000_0000,
+    0b0000_0000_1111_1100_0000_0000,
+    0b0000_0000_1111_1100_0000_0000,
+    0b0000_0001_1111_1110_0000_0000,
+    0b0000_0011_1111_1111_0000_0000,
+    0b0000_0111_1111_1111_1000_0000,
+    0b0000_0111_1111_1111_1000_0000,
+    0b0000_0111_1111_1111_1000_0000,
+    0b0000_0011_1111_1111_0000_0000,
+    0b0000_0001_1111_1110_0000_0000,
+    0b0000_0000_0000_0000_0000_0000,
+];
+
 pub fn draw_icon(
     icon: &Icon,
     top_left: Point,

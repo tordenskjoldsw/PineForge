@@ -48,6 +48,7 @@ pub mod segment;
 pub mod setting_picker;
 pub mod settings;
 pub mod status;
+pub mod steps;
 #[cfg(feature = "diagnostics")]
 pub mod test_screen;
 pub mod theme;
