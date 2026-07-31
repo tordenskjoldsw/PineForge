@@ -28,7 +28,9 @@ const GLYPH_WIDTH: i32 = JETBRAINS_MONO_10X22.cell.width.cast_signed();
 /// Baseline of a row's text, measured from its top edge.
 const BASELINE_OFFSET: i32 = 20;
 
-pub const SCREEN_AREA: Rectangle = Rectangle::new(Point::new(0, 0), Size::new(240, 240));
+/// The panel the faces lay out against. One definition, in `render`, because
+/// the notification card measures against the same edges.
+pub const SCREEN_AREA: Rectangle = crate::render::PANEL;
 /// The rows every terminal-styled face opens with, in the same places. Below
 /// them a face lays out whatever it is for, and where its last row falls is its
 /// own business - which is why the status row is not here.

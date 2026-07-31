@@ -14,6 +14,13 @@ use crate::{
     theme,
 };
 
+/// The panel, as a rectangle to clip and measure against.
+///
+/// Written once here rather than at each screen that needs to reach an edge.
+/// It is not a display-driver constant - the driver knows its own size - but
+/// the layouts are `const`, and a `const` cannot ask the canvas how big it is.
+pub const PANEL: Rectangle = Rectangle::new(Point::new(0, 0), Size::new(240, 240));
+
 /// Geometry of the raised label/value row every menu screen is built from.
 ///
 /// The rows live here rather than in one screen because a second screen using a
