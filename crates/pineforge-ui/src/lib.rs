@@ -242,6 +242,35 @@ mod tests {
         assert!(probe.out_of_bounds().is_empty());
     }
 
+    /// An empty inbox and a message are one layout, not two.
+    ///
+    /// They used to be two: a bare line of text on the background against a
+    /// card, so arriving at this screen looked like arriving at a different
+    /// screen depending on what was pending. The card is the thing that has to
+    /// be in the same place either way, and its surface is what says so - the
+    /// text inside it is legitimately different.
+    #[test]
+    fn an_empty_inbox_and_a_message_draw_the_same_card() {
+        use embedded_graphics::{geometry::Point, prelude::Size, primitives::Rectangle};
+
+        // A patch inside the card, clear of the text, in both states.
+        let card = Rectangle::new(Point::new(28, 190), Size::new(20, 10));
+
+        let mut screens = Screens::new();
+        assert!(
+            paint_notifications(&screens).painted_in(card, crate::theme::SURFACE),
+            "the empty inbox drew no card"
+        );
+
+        screens
+            .notifications
+            .file(notification("Alice", "See you at eight"));
+        assert!(
+            paint_notifications(&screens).painted_in(card, crate::theme::SURFACE),
+            "a message drew no card where the empty inbox had one"
+        );
+    }
+
     /// The longest text the parser can produce, in the tightest layout.
     ///
     /// A title is cut to the line and a body is wrapped, but both are done by

@@ -220,19 +220,23 @@ impl Screens {
 
     /// Draws the line under a pass that reached the panel.
     ///
-    /// Only the watchface needs it: it is the one screen whose pending changes
-    /// arrive while nothing is painting them, so it is the one that has to be
-    /// told when something did. Called from the two methods above, and by hand
-    /// on the transition path, which composes through [`Self::surface`] instead.
+    /// Two screens need it, and for the same reason: both collect changes while
+    /// something else is on the panel. The face takes readings whatever is
+    /// showing, and the inbox is filed into by the display task from wherever
+    /// the user happens to be. Neither can clear its own mark, because a screen
+    /// draws from a shared reference.
     ///
-    /// Cleared whichever screen was painted, on purpose. The face collects its
-    /// readings whatever is showing, and clearing them only when the face itself
-    /// was drawn would mean a set that never empties while the user is anywhere
-    /// else - so every reading behind a menu would look owed, and arriving back
-    /// at the face would repaint rows that had not moved since. The full repaint
-    /// that navigation performs is what makes clearing here correct.
+    /// Called from the two methods above, and by hand on the transition path,
+    /// which composes through [`Self::surface`] instead.
+    ///
+    /// Cleared whichever screen was painted, on purpose. Clearing only when the
+    /// screen itself was drawn would mean a mark that never empties while the
+    /// user is anywhere else - so everything that arrived behind a menu would
+    /// look owed, and coming back would repaint what had not moved. The full
+    /// repaint that navigation performs is what makes clearing here correct.
     pub const fn painted(&mut self) {
         self.watchface.mark_painted();
+        self.notifications.mark_painted();
     }
 
     /// Lends the active screen as the opaque surface it is drawn as - the
