@@ -17,6 +17,7 @@
 
 mod jetbrains_mono_10x22;
 mod jetbrains_mono_6x14;
+mod jetbrains_mono_8x18;
 
 use embedded_graphics::{
     draw_target::DrawTarget,
@@ -30,6 +31,7 @@ use embedded_graphics::{
 };
 
 pub use jetbrains_mono_6x14::JETBRAINS_MONO_6X14;
+pub use jetbrains_mono_8x18::JETBRAINS_MONO_8X18;
 pub use jetbrains_mono_10x22::JETBRAINS_MONO_10X22;
 
 /// The firmware's UI face, in an ink colour over the surface it sits on.
@@ -46,6 +48,22 @@ pub const fn ui_text(ink: Rgb565, background: Rgb565) -> AaTextStyle {
 #[must_use]
 pub const fn hint_text(ink: Rgb565, background: Rgb565) -> AaTextStyle {
     AaTextStyle::new(&JETBRAINS_MONO_6X14, ink, background)
+}
+
+/// The size running prose is set in: a paragraph somebody actually reads.
+///
+/// The two sizes above are a UI face and a label face, and neither is a reading
+/// size. A notification body in the label face fitted two hundred characters
+/// into a screen that never carries more than a hundred, so it was small for no
+/// gain; in the UI face it would not fit at all. This sits between them, which
+/// is the only place a body of text belongs.
+///
+/// The third atlas costs 6,840 bytes of flash. That is the whole price, and it
+/// is why this is the reading size rather than a fourth and a fifth: a size is
+/// worth an atlas only when something is genuinely set in it.
+#[must_use]
+pub const fn body_text(ink: Rgb565, background: Rgb565) -> AaTextStyle {
+    AaTextStyle::new(&JETBRAINS_MONO_8X18, ink, background)
 }
 
 /// Bits of coverage per pixel in every atlas this module reads.
