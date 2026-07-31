@@ -182,24 +182,45 @@ impl Screens {
     /// it. The two are drawn together so a transition composing this stripe by
     /// stripe carries the corner with it instead of adding it afterwards.
     pub fn draw_full(
-        &self,
+        &mut self,
         active: ScreenId,
         status: &StatusCorner,
         canvas: &mut Canvas<'_>,
         keep_alive: &mut dyn FnMut(),
     ) -> Result<(), CanvasError> {
-        self.surface(active, status, &mut |surface| {
+        let painted = self.surface(active, status, &mut |surface| {
             surface.draw_full(canvas, keep_alive)
-        })
+        });
+        self.painted();
+        painted
     }
 
     pub fn draw_dirty(
-        &self,
+        &mut self,
         active: ScreenId,
         canvas: &mut Canvas<'_>,
         keep_alive: &mut dyn FnMut(),
     ) -> Result<(), CanvasError> {
-        self.active(active).draw_dirty(canvas, keep_alive)
+        let painted = self.active(active).draw_dirty(canvas, keep_alive);
+        self.painted();
+        painted
+    }
+
+    /// Draws the line under a pass that reached the panel.
+    ///
+    /// Only the watchface needs it: it is the one screen whose pending changes
+    /// arrive while nothing is painting them, so it is the one that has to be
+    /// told when something did. Called from the two methods above, and by hand
+    /// on the transition path, which composes through [`Self::surface`] instead.
+    ///
+    /// Cleared whichever screen was painted, on purpose. The face collects its
+    /// readings whatever is showing, and clearing them only when the face itself
+    /// was drawn would mean a set that never empties while the user is anywhere
+    /// else - so every reading behind a menu would look owed, and arriving back
+    /// at the face would repaint rows that had not moved since. The full repaint
+    /// that navigation performs is what makes clearing here correct.
+    pub const fn painted(&mut self) {
+        self.watchface.mark_painted();
     }
 
     /// Lends the active screen as the opaque surface it is drawn as - the

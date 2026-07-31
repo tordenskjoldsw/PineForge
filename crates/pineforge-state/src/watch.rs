@@ -59,6 +59,13 @@ impl WatchFields {
         self.0 & field.mask() != 0
     }
 
+    /// Everything either set names, which is how changes pile up between one
+    /// paint and the next.
+    #[must_use]
+    pub const fn union(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+
     #[must_use]
     pub const fn is_empty(self) -> bool {
         self.0 == 0
@@ -131,15 +138,34 @@ impl WatchState {
     ///
     /// Sensor events arrive on a timer whether or not the reading changed, so
     /// an event that moves nothing reports nothing and costs no redraw.
+    ///
+    /// The return is what *this* event moved; what is owed to the panel is
+    /// [`Self::changed`], which collects them until something paints.
     pub fn apply(&mut self, event: AppEvent) -> WatchFields {
-        self.changed = self.apply_event(event);
-        self.changed
+        let moved = self.apply_event(event);
+        self.changed = self.changed.union(moved);
+        moved
     }
 
-    /// The fields the most recent [`Self::apply`] moved.
+    /// The fields that have moved since the panel last showed this state.
+    ///
+    /// Not "what the last event moved". A watch asleep still receives its
+    /// battery, its step count, and its connection state, and none of them are
+    /// painted while the panel is dark - so each one has to survive until the
+    /// next paint rather than be overwritten by the reading behind it. This is
+    /// what lets waking repaint the rows that moved instead of the whole face.
     #[must_use]
     pub const fn changed(&self) -> WatchFields {
         self.changed
+    }
+
+    /// Forgets what was owed, because the panel now shows it.
+    ///
+    /// Separate from drawing: a face renders from a shared reference and cannot
+    /// clear this itself, so whoever painted says so afterwards. Missing the
+    /// call costs a redundant repaint, never a stale one.
+    pub const fn mark_painted(&mut self) {
+        self.changed = WatchFields::NONE;
     }
 
     fn apply_event(&mut self, event: AppEvent) -> WatchFields {

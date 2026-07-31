@@ -153,6 +153,14 @@ impl WatchfaceScreen {
     pub const fn moved(&self) -> bool {
         !self.state.changed().is_empty()
     }
+
+    /// Says the panel now shows what this screen holds.
+    ///
+    /// The readings pile up while the watch sleeps and nothing paints them; this
+    /// is what draws the line under a pass that did.
+    pub const fn mark_painted(&mut self) {
+        self.state.mark_painted();
+    }
 }
 
 impl Paint for WatchfaceScreen {

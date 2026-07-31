@@ -300,12 +300,34 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                             };
                             let _ = screens.handle(app.active_screen(), tick);
                             screens.enter(app.active_screen(), settings);
-                            let _ = screens.draw_full(
-                                app.active_screen(),
-                                &status,
-                                &mut Canvas::new(&mut display),
-                                &mut || watchdog.pet(),
-                            );
+                            // The panel kept its picture: sleeping the ST7789
+                            // stops its scan, not its memory, so what was on it
+                            // when the watch went dark is still on it now.
+                            // Waking therefore owes only what moved in the
+                            // meantime - the clock, and whatever readings
+                            // arrived while nothing was painting them.
+                            // `InfiniTime` does not repaint on wake at all.
+                            //
+                            // Only the face is taken this way. Every other
+                            // screen was just handed the current settings by
+                            // `enter` above, and a leaf that re-pointed itself
+                            // has no dirty region to report - so those keep the
+                            // full repaint, which is also the rarer case: the
+                            // watch sleeps on its face.
+                            let _ = if app.active_screen() == ScreenId::Watchface {
+                                screens.draw_dirty(
+                                    app.active_screen(),
+                                    &mut Canvas::new(&mut display),
+                                    &mut || watchdog.pet(),
+                                )
+                            } else {
+                                screens.draw_full(
+                                    app.active_screen(),
+                                    &status,
+                                    &mut Canvas::new(&mut display),
+                                    &mut || watchdog.pet(),
+                                )
+                            };
                         }
                         backlight.set_level(panel_backlight(
                             power,
@@ -592,6 +614,11 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                             &mut || watchdog.pet(),
                         )
                     });
+                    // A transition composes through `surface` rather than
+                    // `draw_full`, so it is the one paint that has to say so
+                    // itself. Without this, sliding onto the face would leave
+                    // every reading it just drew still looking owed.
+                    screens.painted();
                     #[cfg(feature = "diagnostics")]
                     if let Ok(metrics) = result {
                         screens
