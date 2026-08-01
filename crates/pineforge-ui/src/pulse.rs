@@ -12,32 +12,37 @@
 //!
 //! The layout follows `InfiniTime`'s: a value that changes colour while a
 //! reading is running, a status line under it, and an offer that says to stop
-//! rather than to start. Two things differ. The value is set in the largest
-//! face this firmware carries rather than `InfiniTime`'s 76-pixel digits, which
-//! would be an atlas of its own. And the heart beats while a reading is in
-//! flight - `InfiniTime` shows no animation at all, so a measurement there is
-//! visible only as a colour and a word.
+//! rather than to start. Two things differ. The heart beats while a reading is
+//! in flight, where `InfiniTime` shows no animation at all and a measurement is
+//! visible only as a colour and a word. And the number is built from rectangles
+//! rather than set in a face - the same numerals the FORGE watchface and the
+//! steps app use, which is what makes three screens look like one watch.
+//!
+//! Those numerals are why the reading can be 84 pixels tall. `InfiniTime` sets
+//! its own at 76 and pays for an atlas to do it; seven rectangles and a table of
+//! which are lit cost nothing, so the size is a layout decision rather than a
+//! flash one. The unused hundreds place stays drawn and unlit, which is what an
+//! instrument does with a place it is not using.
 
 use embedded_graphics::{
     pixelcolor::Rgb565,
     prelude::*,
     primitives::{PrimitiveStyle, Rectangle},
 };
-use heapless::String;
 use pineforge_state::{
     AppEvent, Button, ButtonBounds, ButtonOutcome, HeartRateState, ScreenAction,
 };
 
 use crate::canvas::{Canvas, CanvasError};
-use crate::font::{hint_text, ui_text};
 use crate::{
     icons::{self, ICON_SIZE, Icon, draw_icon},
-    render::{draw_mono_text_visible, draw_visible},
+    render::{PANEL, draw_centred, draw_visible},
     screen::{Paint, Screen},
+    segment::{Cell, SegmentSize, draw_cell, right_aligned},
     theme,
 };
 
-const PANEL_SIDE: i32 = 240;
+const PANEL_SIDE: i32 = PANEL.size.width.cast_signed();
 /// The whole panel, not the strip below the status corner.
 ///
 /// The corner paints its own background but only over itself, on the right;
@@ -49,17 +54,29 @@ const BODY: Rectangle = Rectangle::new(
     Size::new(PANEL_SIDE.cast_unsigned(), PANEL_SIDE.cast_unsigned()),
 );
 
-const ICON_TOP: i32 = 64;
-const VALUE_BASELINE: i32 = 136;
-const STATUS_BASELINE: i32 = 176;
-const OFFER_BASELINE: i32 = 198;
-/// One character of the UI face and of the hint face, for centring by hand.
-const VALUE_CHARACTER_WIDTH: i32 = 10;
-const HINT_CHARACTER_WIDTH: i32 = 6;
+/// Baseline of the label over the reading, level with the steps app's.
+const LABEL_BASELINE_Y: i32 = 44;
+
+/// Three places, which covers every heart rate a person has.
+const PLACES: i32 = 3;
+const PLACE_COUNT: usize = 3;
+/// Half again the steps app's numerals. Three of them have room five do not, and
+/// this screen exists to show one number.
+const DIGIT: SegmentSize = SegmentSize::new(62, 84, 11);
+const DIGIT_GAP: i32 = 8;
+const DIGITS_WIDTH: i32 = PLACES * DIGIT.width + (PLACES - 1) * DIGIT_GAP;
+const DIGITS_X: i32 = (PANEL_SIDE - DIGITS_WIDTH) / 2;
+const DIGITS_Y: i32 = 62;
+
+/// The heart sits where the steps app puts its gauge, so the two screens share a
+/// rhythm as well as a face: label, number, band, two lines.
+const HEART_Y: i32 = 158;
+const STATUS_BASELINE: i32 = 202;
+const OFFER_BASELINE: i32 = 224;
 
 /// The box both heart frames are drawn in, and the only region a beat repaints.
 const HEART_BOX: Rectangle = Rectangle::new(
-    Point::new((PANEL_SIDE - ICON_SIZE) / 2, ICON_TOP),
+    Point::new((PANEL_SIDE - ICON_SIZE) / 2, HEART_Y),
     Size::new(ICON_SIZE.cast_unsigned(), ICON_SIZE.cast_unsigned()),
 );
 
@@ -131,18 +148,34 @@ impl PulseScreen {
         !matches!(self.pending, Pending::Nothing)
     }
 
-    /// The value, three digits wide whatever it says.
+    /// The reading, as three cells.
     ///
-    /// Zero-padded as `InfiniTime` pads it, so the centred number does not
-    /// shift under the eye as it crosses from 99 to 100.
-    fn value(&self) -> String<8> {
-        let mut value = String::new();
-        if let HeartRateState::Result(bpm) = self.state {
-            let _ = core::fmt::Write::write_fmt(&mut value, format_args!("{bpm:03}"));
-        } else {
-            let _ = value.push_str("---");
+    /// Blank places rather than zeroes when there is no number to show. Nobody
+    /// has a heart rate of zero, so a row of noughts would be a reading rather
+    /// than the absence of one - and an unlit place is exactly what an
+    /// instrument shows for a value it does not have. The zero padding this
+    /// replaces was there to stop a centred number shifting as it crossed from
+    /// 99 to 100; a blank place holds that position without claiming a digit.
+    fn cells(&self) -> [Cell; PLACE_COUNT] {
+        match self.state {
+            HeartRateState::Result(bpm) => right_aligned::<PLACE_COUNT>(u32::from(bpm)),
+            _ => [Cell::Blank; PLACE_COUNT],
         }
-        value
+    }
+
+    /// The reading, in the numerals the watchface and the steps app use.
+    fn draw_value(
+        &self,
+        canvas: &mut Canvas<'_>,
+        keep_alive: &mut dyn FnMut(),
+    ) -> Result<(), CanvasError> {
+        let ink = self.value_ink();
+        for (place, cell) in self.cells().into_iter().enumerate() {
+            let x = DIGITS_X + i32::try_from(place).unwrap_or(0) * (DIGIT.width + DIGIT_GAP);
+            draw_cell(canvas, DIGIT, x, DIGITS_Y, cell, ink)?;
+            keep_alive();
+        }
+        Ok(())
     }
 
     /// The value's colour says whether this number is live.
@@ -173,36 +206,26 @@ impl PulseScreen {
         draw_icon(self.frame(), HEART_BOX.top_left, theme::ACCENT, canvas)
     }
 
-    fn paint(&self, canvas: &mut Canvas<'_>) -> Result<(), CanvasError> {
+    fn paint(
+        &self,
+        canvas: &mut Canvas<'_>,
+        keep_alive: &mut dyn FnMut(),
+    ) -> Result<(), CanvasError> {
         draw_visible(
             &BODY.into_styled(PrimitiveStyle::with_fill(theme::BACKGROUND)),
             canvas,
         )?;
+        keep_alive();
+        draw_centred("PULSE", LABEL_BASELINE_Y, theme::TEXT, canvas)?;
+        self.draw_value(canvas, keep_alive)?;
         draw_icon(self.frame(), HEART_BOX.top_left, theme::ACCENT, canvas)?;
-
-        let value = self.value();
-        let width = i32::try_from(value.len()).unwrap_or(0) * VALUE_CHARACTER_WIDTH;
-        draw_mono_text_visible(
-            &value,
-            Point::new((PANEL_SIDE - width) / 2, VALUE_BASELINE),
-            ui_text(self.value_ink(), theme::BACKGROUND),
-            canvas,
-        )?;
 
         // The status and the offer are set smaller, not dimmer. `theme::FRAME`
         // is held at the 3:1 a non-text element needs and would be
         // under-contrast as words; the size is what carries the hierarchy.
         let (status, offer) = readout(self.state);
-        for (line, baseline) in [(status, STATUS_BASELINE), (offer, OFFER_BASELINE)] {
-            let width = i32::try_from(line.len()).unwrap_or(0) * HINT_CHARACTER_WIDTH;
-            draw_mono_text_visible(
-                line,
-                Point::new((PANEL_SIDE - width) / 2, baseline),
-                hint_text(theme::TEXT, theme::BACKGROUND),
-                canvas,
-            )?;
-        }
-        Ok(())
+        draw_centred(status, STATUS_BASELINE, theme::TEXT, canvas)?;
+        draw_centred(offer, OFFER_BASELINE, theme::TEXT, canvas)
     }
 }
 
@@ -212,8 +235,7 @@ impl Paint for PulseScreen {
         canvas: &mut Canvas<'_>,
         keep_alive: &mut dyn FnMut(),
     ) -> Result<(), CanvasError> {
-        keep_alive();
-        self.paint(canvas)
+        self.paint(canvas, keep_alive)
     }
 }
 
@@ -269,11 +291,7 @@ impl Screen for PulseScreen {
         match self.pending {
             Pending::Nothing => Ok(()),
             Pending::Beat => self.draw_heart(canvas),
-            Pending::Everything => {
-                self.paint(canvas)?;
-                keep_alive();
-                Ok(())
-            }
+            Pending::Everything => self.paint(canvas, keep_alive),
         }
     }
 }
@@ -365,6 +383,39 @@ mod tests {
         }
     }
 
+    /// A reading fills its places from the right and leaves the rest unlit; no
+    /// reading at all leaves every place unlit.
+    ///
+    /// The distinction is the whole reason for blanks over zeroes: `000` is a
+    /// heart rate nobody has, and a screen showing one claims a measurement it
+    /// does not hold.
+    #[test]
+    fn a_reading_lights_its_places_and_nothing_else_lights_any() {
+        let mut screen = PulseScreen::default();
+        assert_eq!(
+            screen.cells(),
+            [Cell::Blank; 3],
+            "an idle screen showed a number"
+        );
+
+        let _ = screen.handle_event(AppEvent::HeartRateStateUpdated(HeartRateState::Result(63)));
+        assert_eq!(
+            screen.cells(),
+            [Cell::Blank, Cell::Digit(6), Cell::Digit(3)]
+        );
+
+        let _ = screen.handle_event(AppEvent::HeartRateStateUpdated(HeartRateState::Result(128)));
+        assert_eq!(
+            screen.cells(),
+            [Cell::Digit(1), Cell::Digit(2), Cell::Digit(8)],
+            "a three-figure rate lost its hundreds"
+        );
+
+        // A measurement that failed is not a measurement.
+        let _ = screen.handle_event(AppEvent::HeartRateStateUpdated(HeartRateState::NoSignal));
+        assert_eq!(screen.cells(), [Cell::Blank; 3]);
+    }
+
     /// The value carries whether it is live, which is how `InfiniTime` shows a
     /// reading in progress - the colour is not decoration.
     #[test]
@@ -377,6 +428,5 @@ mod tests {
 
         let _ = screen.handle_event(AppEvent::HeartRateStateUpdated(HeartRateState::Result(72)));
         assert_eq!(screen.value_ink(), theme::TEXT);
-        assert_eq!(screen.value().as_str(), "072", "the value is padded");
     }
 }
