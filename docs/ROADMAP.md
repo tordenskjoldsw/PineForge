@@ -18,12 +18,13 @@ milestone should leave the sealed PineTime in a testable and recoverable state.
   finished in its own numerals, a steps application, notifications on a card, a
   reading size for prose, and a set of drawing changes measured rather than
   guessed at
-- `v0.5.0` (in development): music state and transport over the `InfiniTime`
-  service, with a dedicated FORGE-style application, plus a three-page
-  About/system-status view. Both are on `main`. Music's core display and control
-  paths work on the known Gadgetbridge setup, while sleep, reconnection, and
-  media-application switching remain untested. The status view still needs
-  hardware validation.
+- `v0.5.0`: released music state and transport over the `InfiniTime` service,
+  with a dedicated FORGE-style application, plus a three-page
+  About/system-status view. Both have run on the known watch. Music sleep,
+  reconnection and media-application switching, rare status failures and other
+  PineTime variants remain untested.
+- next release: stopwatch and timer, both modelled and host-tested without a new
+  phone integration
 
 Work that has landed on `main` but not in a tagged release is marked
 *unreleased* below. Everything else in a **Complete** section has shipped.
@@ -192,7 +193,7 @@ than as a firmware experiment. It is not reached.
   would be a second place to keep the same fact right.
 - music control over `InfiniTime`'s music service, in the FORGE look: the
   elapsed time in the watchface's numerals, the shared progress bar, and a
-  transport built from rectangles. *Unreleased.* It is the first thing on the
+  transport built from rectangles. It is the first thing on the
   event bus that travels from the UI outwards, and the first component with a
   disabled state - with no phone connected there is nothing its three buttons
   could do. On the known Gadgetbridge setup it shows title and artist, controls
@@ -202,8 +203,10 @@ than as a firmware experiment. It is not reached.
 - build and system diagnostics in About, paged vertically: build identity and
   bootloader; touch, motion, pulse and external-flash probe results including
   the JEDEC ID; and image confirmation, BLE state, stack high-water mark and
-  the latest retained fault. *Unreleased.* These are typed service events kept
-  current through sleep rather than strings recovered from logs.
+  the latest retained fault. These are typed service events kept current
+  through sleep rather than strings recovered from logs. All three pages have
+  been flashed and displayed on the known watch; rare failure states and other
+  hardware variants remain untested.
 
 ### Open
 
