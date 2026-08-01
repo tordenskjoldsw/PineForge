@@ -8,7 +8,8 @@ use crate::{
     ipc::{DISPLAY_SETTINGS, POWER_COMMANDS, SYSTEM_POWER, TOUCH_READY, UI_EVENTS},
 };
 use pineforge_state::{
-    DisplaySettings, PowerCommand, SwipeDirection, SystemPowerState, TouchReport, TouchRouter,
+    AppEvent, DisplaySettings, PeripheralStatus, PowerCommand, SwipeDirection, SystemPowerState,
+    TouchReport, TouchRouter,
 };
 
 /// How long a touch already in flight may go without a report before it is
@@ -35,9 +36,15 @@ pub async fn run(resources: TouchResources, i2c: TouchI2c) {
     let mut delay = Delay;
     let mut router = TouchRouter::new();
 
-    if touch.setup(&mut delay).await.is_err() {
+    let touch_status = if touch.setup(&mut delay).await.is_err() {
         warn!("Touch controller setup failed");
-    }
+        PeripheralStatus::Unavailable
+    } else {
+        PeripheralStatus::Ready
+    };
+    UI_EVENTS
+        .send(AppEvent::TouchControllerUpdated(touch_status))
+        .await;
     TOUCH_READY.signal(());
 
     loop {

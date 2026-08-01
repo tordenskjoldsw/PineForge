@@ -335,6 +335,132 @@ pub enum StorageState {
     Failed,
 }
 
+/// Whether a board peripheral completed its start-up probe.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PeripheralStatus {
+    Ready,
+    Unavailable,
+}
+
+/// What the external flash probe learned, including the ID needed to identify
+/// an unexpected replacement without attaching a debugger.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FlashStatus {
+    Ready([u8; 3]),
+    Unrecognized([u8; 3]),
+    Unavailable,
+}
+
+/// The deepest stack use observed since this boot.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StackUsage {
+    pub used: u16,
+    pub capacity: u16,
+}
+
+/// Whether the bootloader may still roll this image back.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FirmwareImageState {
+    Trial,
+    Confirmed,
+}
+
+/// A compact fault code suitable for a sealed watch's status screen.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SystemFault {
+    Touch,
+    Motion,
+    HeartRate,
+    Flash,
+    Storage,
+    Dfu(DfuFailReason),
+}
+
+/// The latest system facts collected by the About screen.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SystemStatus {
+    pub touch: Option<PeripheralStatus>,
+    pub motion: Option<AccelerometerKind>,
+    pub heart_rate: Option<HeartRateSensorKind>,
+    pub flash: Option<FlashStatus>,
+    pub image: FirmwareImageState,
+    pub ble: BleState,
+    pub stack: Option<StackUsage>,
+    pub last_fault: Option<SystemFault>,
+}
+
+impl SystemStatus {
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            touch: None,
+            motion: None,
+            heart_rate: None,
+            flash: None,
+            image: FirmwareImageState::Trial,
+            ble: BleState::Off,
+            stack: None,
+            last_fault: None,
+        }
+    }
+
+    /// Applies one system reading and reports whether anything visible moved.
+    pub fn apply(&mut self, event: AppEvent) -> bool {
+        let before = *self;
+        match event {
+            AppEvent::TouchControllerUpdated(status) => {
+                self.touch = Some(status);
+                if status == PeripheralStatus::Unavailable {
+                    self.last_fault = Some(SystemFault::Touch);
+                }
+            }
+            AppEvent::AccelerometerDetected(kind) => {
+                self.motion = Some(kind);
+                if matches!(
+                    kind,
+                    AccelerometerKind::Unknown(_) | AccelerometerKind::Unavailable
+                ) {
+                    self.last_fault = Some(SystemFault::Motion);
+                }
+            }
+            AppEvent::HeartRateSensorDetected(kind) => {
+                self.heart_rate = Some(kind);
+                if matches!(
+                    kind,
+                    HeartRateSensorKind::Unknown(_) | HeartRateSensorKind::Unavailable
+                ) {
+                    self.last_fault = Some(SystemFault::HeartRate);
+                }
+            }
+            AppEvent::FlashUpdated(status) => {
+                self.flash = Some(status);
+                if !matches!(status, FlashStatus::Ready(_)) {
+                    self.last_fault = Some(SystemFault::Flash);
+                }
+            }
+            AppEvent::FirmwareImageUpdated(image) => self.image = image,
+            AppEvent::StackUpdated(stack) => self.stack = Some(stack),
+            AppEvent::BleUpdated(state) => {
+                self.ble = state;
+                if let BleState::DfuFailed(reason) = state {
+                    self.last_fault = Some(SystemFault::Dfu(reason));
+                }
+            }
+            AppEvent::StorageUpdated(StorageState::Failed) => {
+                self.last_fault = Some(SystemFault::Storage);
+            }
+            _ => {}
+        }
+        *self != before
+    }
+}
+
+impl Default for SystemStatus {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Haptic patterns playable by the vibration service.
 ///
 /// Callers describe intent; the timing lives here so future features such as
@@ -868,7 +994,6 @@ pub enum AppEvent {
         date: Option<CalendarDate>,
     },
     BatteryUpdated(BatteryStatus),
-    #[cfg(feature = "diagnostics")]
     AccelerometerDetected(AccelerometerKind),
     #[cfg(feature = "diagnostics")]
     AccelerationUpdated(AccelerationSample),
@@ -899,6 +1024,10 @@ pub enum AppEvent {
     DisplaySettingsUpdated(DisplaySettings),
     BleUpdated(BleState),
     StorageUpdated(StorageState),
+    TouchControllerUpdated(PeripheralStatus),
+    FlashUpdated(FlashStatus),
+    FirmwareImageUpdated(FirmwareImageState),
+    StackUpdated(StackUsage),
 }
 
 impl AppEvent {
@@ -937,10 +1066,15 @@ impl AppEvent {
             | Self::HeartRateStateUpdated(_)
             | Self::HeartRateSensorDetected(_)
             | Self::HeartRateAnalysisUpdated(_)
-            | Self::MusicUpdated => true,
+            | Self::MusicUpdated
+            | Self::AccelerometerDetected(_)
+            | Self::TouchControllerUpdated(_)
+            | Self::FlashUpdated(_)
+            | Self::FirmwareImageUpdated(_)
+            | Self::StackUpdated(_)
+            | Self::StorageUpdated(_) => true,
             #[cfg(feature = "diagnostics")]
-            Self::AccelerometerDetected(_)
-            | Self::AccelerationUpdated(_)
+            Self::AccelerationUpdated(_)
             | Self::FeatureEngineUpdated(_)
             | Self::HeartRateRawSampleUpdated(_) => true,
             // Input and navigation are addressed to the active screen; a tick
@@ -951,8 +1085,7 @@ impl AppEvent {
             | Self::TouchCancelled
             | Self::BackPressed
             | Self::Tick { .. }
-            | Self::DisplaySettingsUpdated(_)
-            | Self::StorageUpdated(_) => false,
+            | Self::DisplaySettingsUpdated(_) => false,
         }
     }
 }
@@ -1348,6 +1481,39 @@ impl AppState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn system_status_keeps_the_latest_fault_and_probe_results() {
+        let mut status = SystemStatus::new();
+        assert!(status.apply(AppEvent::TouchControllerUpdated(PeripheralStatus::Ready)));
+        assert!(status.apply(AppEvent::FlashUpdated(FlashStatus::Ready([
+            0x0b, 0x40, 0x16
+        ]))));
+        assert_eq!(status.last_fault, None);
+
+        assert!(status.apply(AppEvent::AccelerometerDetected(
+            AccelerometerKind::Unavailable
+        )));
+        assert_eq!(status.last_fault, Some(SystemFault::Motion));
+        assert!(!status.apply(AppEvent::AccelerometerDetected(
+            AccelerometerKind::Unavailable
+        )));
+    }
+
+    #[test]
+    fn a_dfu_failure_is_retained_after_the_connection_moves_on() {
+        let mut status = SystemStatus::new();
+        let _ = status.apply(AppEvent::BleUpdated(BleState::DfuFailed(
+            DfuFailReason::VerifyFailed,
+        )));
+        let _ = status.apply(AppEvent::BleUpdated(BleState::Advertising));
+
+        assert_eq!(status.ble, BleState::Advertising);
+        assert_eq!(
+            status.last_fault,
+            Some(SystemFault::Dfu(DfuFailReason::VerifyFailed))
+        );
+    }
 
     #[test]
     fn battery_conversion_uses_the_full_12_bit_range() {

@@ -49,10 +49,12 @@ gained a reading size for their text; and a set of drawing changes made every
 screen cheaper to paint - each one measured, several of them the opposite of
 what was predicted - see [`docs/releases/v0.4.0.md`](docs/releases/v0.4.0.md).
 Since that release, `main` has gained music state, transport and volume control
-in a dedicated FORGE-style application. That work is unreleased; on the known
-Gadgetbridge setup the watch shows title and artist correctly, controls previous
-and next, pauses and resumes playback, and changes volume in both directions.
-Sleep, reconnection, and switching media applications mid-track remain untested.
+in a dedicated FORGE-style application, plus a paged system-status view in
+About. That work is unreleased; on the known Gadgetbridge setup the watch shows
+title and artist correctly, controls previous and next, pauses and resumes
+playback, and changes volume in both directions. Sleep, reconnection, and
+switching media applications mid-track remain untested; the system-status view
+has not yet been validated on hardware.
 [`docs/ROADMAP.md`](docs/ROADMAP.md) records what is done and what is not.
 
 Wearing it myself every day is one watch's worth of evidence, and it does
@@ -111,8 +113,10 @@ On the watch:
   elapsed time in the watchface's numerals over a progress bar, and a transport
   of previous, play/pause and next, with volume on the up and down swipes
 - step counting, and heart-rate measurement on a background interval
-- a firmware screen for image confirmation and a software restart, and an about
-  screen naming the running build by release, commit and date
+- a firmware screen for image confirmation and a software restart, and a
+  three-page About view naming the build and bootloader, showing sensor and
+  flash probe status with the flash JEDEC ID, and collecting image, BLE, stack
+  high-water and latest-fault state
 - the side button as back; on the watchface it puts the panel out, and held for
   two seconds it resets
 - haptic feedback on activation, pairing, and the end of a firmware transfer

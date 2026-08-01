@@ -19,9 +19,10 @@ milestone should leave the sealed PineTime in a testable and recoverable state.
   reading size for prose, and a set of drawing changes measured rather than
   guessed at
 - next release: music state and transport over the `InfiniTime` service, with a
-  dedicated FORGE-style application. The implementation is on `main`; its core
-  display and control paths work on the known Gadgetbridge setup, while sleep,
-  reconnection, and media-application switching remain untested.
+  dedicated FORGE-style application, plus a three-page About/system-status
+  view. Both are on `main`. Music's core display and control paths work on the
+  known Gadgetbridge setup, while sleep, reconnection, and media-application
+  switching remain untested. The status view still needs hardware validation.
 
 Work that has landed on `main` but not in a tagged release is marked
 *unreleased* below. Everything else in a **Complete** section has shipped.
@@ -197,12 +198,18 @@ than as a firmware experiment. It is not reached.
   previous and next, pauses and resumes playback, and changes volume in both
   directions; the remaining robustness cases are recorded in
   [`TESTED-CONFIGURATIONS.md`](TESTED-CONFIGURATIONS.md).
+- build and system diagnostics in About, paged vertically: build identity and
+  bootloader; touch, motion, pulse and external-flash probe results including
+  the JEDEC ID; and image confirmation, BLE state, stack high-water mark and
+  the latest retained fault. *Unreleased.* These are typed service events kept
+  current through sleep rather than strings recovered from logs.
 
 ### Open
 
 - notification text in a face the panel can show - the screen reads the ASCII
   range the atlas covers, so accented characters draw as gaps
-- alarms, timers, and stopwatch
+- stopwatch and timer are next: both can be modelled and host-tested without a
+  new phone integration. Alarms follow once those time primitives are proven.
 - activity summaries over time; steps are counted and shown for the day, but
   not retained across days
 - weather

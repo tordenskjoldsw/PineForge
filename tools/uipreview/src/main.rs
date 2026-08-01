@@ -19,8 +19,9 @@ use embedded_graphics::{
     prelude::*,
 };
 use pineforge_state::{
-    AppEvent, BatteryStatus, BleState, CalendarDate, DfuFailReason, DisplaySettings,
-    HeartRateState, MusicState, ScreenId, WallTime, parse_new_alert,
+    AccelerometerKind, AppEvent, BatteryStatus, BleState, CalendarDate, DfuFailReason,
+    DisplaySettings, FirmwareImageState, FlashStatus, HeartRateSensorKind, HeartRateState,
+    MusicState, PeripheralStatus, ScreenId, StackUsage, SwipeDirection, WallTime, parse_new_alert,
 };
 use pineforge_ui::{
     about::BuildInfo,
@@ -134,6 +135,15 @@ fn populate(screens: &mut Screens, status: &mut StatusCorner) {
         AppEvent::StepsUpdated(8_214),
         AppEvent::HeartRateStateUpdated(HeartRateState::Result(63)),
         AppEvent::BleUpdated(BleState::Connected),
+        AppEvent::TouchControllerUpdated(PeripheralStatus::Ready),
+        AppEvent::AccelerometerDetected(AccelerometerKind::Bma421),
+        AppEvent::HeartRateSensorDetected(HeartRateSensorKind::Hrs3300),
+        AppEvent::FlashUpdated(FlashStatus::Ready([0x0b, 0x40, 0x16])),
+        AppEvent::FirmwareImageUpdated(FirmwareImageState::Confirmed),
+        AppEvent::StackUpdated(StackUsage {
+            used: 10_432,
+            capacity: 16_384,
+        }),
     ];
     for event in events {
         // Routed the way the display task routes it: a reading is a fact about
@@ -162,6 +172,7 @@ fn populate(screens: &mut Screens, status: &mut StatusCorner) {
         version: "0.2.1+21",
         commit: "b56b4ab",
         date: "2026-07-28",
+        bootloader: "MCUBOOT",
     };
     screens.about.set_build(build);
     screens.firmware.set_version(build.version);
@@ -217,6 +228,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .map_err(|_| format!("drawing {screen:?} failed"))?;
 
         let name = format!("{screen:?}").to_lowercase();
+        let path = out.join(format!("{name}.png"));
+        framebuffer.write_png(&path)?;
+        println!("{}", path.display());
+    }
+
+    // About owns three pages; render the two that its registry entry cannot
+    // reach without gestures as separate review artifacts.
+    for name in ["about-hardware", "about-system"] {
+        let _ = screens.handle(ScreenId::About, AppEvent::Swipe(SwipeDirection::Up));
+        let mut framebuffer = Framebuffer::new();
+        screens
+            .draw_full(
+                ScreenId::About,
+                &status,
+                &mut Canvas::new(&mut framebuffer),
+                &mut || {},
+            )
+            .map_err(|_| format!("drawing {name} failed"))?;
         let path = out.join(format!("{name}.png"));
         framebuffer.write_png(&path)?;
         println!("{}", path.display());

@@ -154,11 +154,16 @@ impl Screens {
         // controls are right the moment it is opened rather than at the next
         // Bluetooth event after that.
         let _ = self.music.handle_event(event);
+        // System probes happen once near boot and stack/BLE updates may arrive
+        // while another app is showing. About is a retained status surface,
+        // not a live-only diagnostic view.
+        let _ = self.about.handle_event(event);
         match active {
             ScreenId::Watchface => self.watchface.moved(),
             ScreenId::Pulse => self.pulse.moved(),
             ScreenId::Steps => self.steps.moved(),
             ScreenId::Music => self.music.moved(),
+            ScreenId::About => self.about.moved(),
             _ => false,
         }
     }
@@ -168,7 +173,11 @@ impl Screens {
     pub const fn holds_readings(active: ScreenId) -> bool {
         matches!(
             active,
-            ScreenId::Watchface | ScreenId::Pulse | ScreenId::Steps | ScreenId::Music
+            ScreenId::Watchface
+                | ScreenId::Pulse
+                | ScreenId::Steps
+                | ScreenId::Music
+                | ScreenId::About
         )
     }
 
@@ -249,6 +258,7 @@ impl Screens {
         self.notifications.mark_painted();
         self.steps.mark_painted();
         self.music.mark_painted();
+        self.about.mark_painted();
     }
 
     /// Lends the active screen as the opaque surface it is drawn as - the

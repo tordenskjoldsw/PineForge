@@ -184,7 +184,6 @@ where
                 kind
             },
         );
-        #[cfg(feature = "diagnostics")]
         UI_EVENTS
             .send(AppEvent::AccelerometerDetected(result))
             .await;

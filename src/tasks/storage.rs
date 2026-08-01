@@ -13,11 +13,11 @@ use defmt::{info, warn};
 use embassy_futures::select::{Either3, select3};
 use embassy_time::{Duration, Instant, with_deadline};
 use pineforge_state::{
-    AppEvent, BOND_RECORD_LEN, DFU_SLOT_SIZE, DfuFailReason, DisplaySettings, SETTINGS_RECORD_LEN,
-    STORAGE_BASE, STORAGE_DATA_SECTOR_COUNT, STORAGE_FORMAT_VERSION, STORAGE_HEADER_LEN,
-    STORAGE_PROGRESS_OFFSET, STORAGE_READY_HEADER_OFFSET, STORAGE_SECTOR_SIZE, SettingsSlot,
-    StorageHeader, StorageState, bond_schema_tag, decode_storage_header, encode_storage_header,
-    frame_bond, parse_bond, select_slot, storage_header_version,
+    AppEvent, BOND_RECORD_LEN, DFU_SLOT_SIZE, DfuFailReason, DisplaySettings, FlashStatus,
+    SETTINGS_RECORD_LEN, STORAGE_BASE, STORAGE_DATA_SECTOR_COUNT, STORAGE_FORMAT_VERSION,
+    STORAGE_HEADER_LEN, STORAGE_PROGRESS_OFFSET, STORAGE_READY_HEADER_OFFSET, STORAGE_SECTOR_SIZE,
+    SettingsSlot, StorageHeader, StorageState, bond_schema_tag, decode_storage_header,
+    encode_storage_header, frame_bond, parse_bond, select_slot, storage_header_version,
 };
 
 use crate::{
@@ -194,8 +194,8 @@ pub async fn run(spi: FlashSpi, watchdog: BootloaderWatchdog) {
     // rather than the sealed watch's only symptom being lost settings.
     let mut writable = true;
     let mut flash_fault = DfuFailReason::FlashInitFailed;
-    match flash.init().await {
-        Ok(id) if is_supported_jedec_id(id) => {}
+    let flash_status = match flash.init().await {
+        Ok(id) if is_supported_jedec_id(id) => FlashStatus::Ready(id),
         Ok(id) => {
             warn!(
                 "Unexpected flash JEDEC id {=[u8]:#04x}; settings stay in RAM",
@@ -203,13 +203,16 @@ pub async fn run(spi: FlashSpi, watchdog: BootloaderWatchdog) {
             );
             writable = false;
             flash_fault = DfuFailReason::FlashUnrecognized(id);
+            FlashStatus::Unrecognized(id)
         }
         Err(_) => {
             warn!("Flash init failed; settings stay in RAM");
             writable = false;
             flash_fault = DfuFailReason::FlashInitFailed;
+            FlashStatus::Unavailable
         }
-    }
+    };
+    UI_EVENTS.send(AppEvent::FlashUpdated(flash_status)).await;
 
     // Publish the stored bond before the potentially long one-time storage
     // format below. The BLE task waits only briefly for it in restore_bond, so

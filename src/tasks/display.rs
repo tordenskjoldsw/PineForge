@@ -194,9 +194,9 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
     let started_at = Instant::now();
     let mut next_tick = started_at + Duration::from_secs(1);
     let mut screens = Screens::new();
-    screens
-        .firmware
-        .set_confirmed(crate::boot::confirm::is_validated());
+    let image_confirmed = crate::boot::confirm::is_validated();
+    screens.firmware.set_confirmed(image_confirmed);
+    screens.about.set_image(image_confirmed);
     // Which build this is, from the one crate that can know. `pineforge-ui` has
     // its own package version and compiling it in there named that instead -
     // which is how a watch running 0.2.1 came to report 0.1.0.
@@ -204,6 +204,7 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
         version: env!("PINEFORGE_VERSION"),
         commit: env!("PINEFORGE_COMMIT"),
         date: env!("PINEFORGE_DATE"),
+        bootloader: "MCUBOOT",
     };
     screens.about.set_build(build);
     screens.firmware.set_version(build.version);
@@ -604,6 +605,7 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                 let confirmed = crate::boot::confirm::confirm();
                 info!("Firmware confirmation requested; confirmed={}", confirmed);
                 screens.firmware.set_confirmed(confirmed);
+                screens.about.set_image(confirmed);
                 // The corner carries the same fact, so it clears here rather
                 // than at the next boot. The full repaint below takes it.
                 status.set_unconfirmed(!confirmed);
