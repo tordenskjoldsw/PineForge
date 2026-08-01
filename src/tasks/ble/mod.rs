@@ -26,6 +26,7 @@ use crate::{
 
 mod dfu;
 mod gatt;
+mod music;
 use gatt::Server;
 
 bind_interrupts!(struct BleIrqs {

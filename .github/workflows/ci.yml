@@ -86,22 +86,26 @@ jobs:
             # that does not produce a ZIP. Two thirds of what is used is the BLE
             # stack; a build without the `ble` feature is 125,708 bytes.
             flash: 430080
-            # 46 KiB, reserving 18 KiB of the 65,528-byte RAM region for stack
+            # 48 KiB, reserving 16 KiB of the 65,528-byte RAM region for stack
             # growth. Enforcing the target and not just the ceiling is what
             # keeps it from drifting back.
             #
-            # The reserve was 20 KiB and was a guess. It is now set against a
-            # reading: the diagnostics screen reports the stack's high-water
-            # mark - see `src/boot/stack.rs` - and a watch that had booted,
-            # navigated and run a transition showed 10,432 bytes. 18 KiB leaves
-            # that mark 76 % of headroom, which is a wider margin than the guess
-            # it replaces even though the number is smaller.
+            # The reserve is set against a reading rather than guessed: the
+            # diagnostics screen reports the stack's high-water mark - see
+            # `src/boot/stack.rs` - and a watch that had booted, navigated and
+            # run a transition showed 10,432 bytes. 16 KiB leaves that mark
+            # 57 % of headroom.
             #
-            # What bought the 2 KiB is the display interface buffer, which grew
-            # to cut the number of SPI write calls a frame takes. That trade is
-            # the only reason to spend RAM here; spend it on anything else and
-            # this comment is wrong.
-            ram: 47104
+            # Two things have been allowed to raise this, and both are named
+            # because the number is otherwise just a number that grew. The
+            # first was the display interface buffer, which cut the SPI write
+            # calls a frame takes from 225 to 57. The second is the music
+            # service: a GATT characteristic costs about 123 bytes of
+            # attribute table whether or not anything reads it, which is why
+            # only the six the watch acts on are declared and the other six of
+            # InfiniTime's twelve are not. Anything else asking for space here
+            # should expect to be measured the same way.
+            ram: 49152
           - name: diagnostics
             features: diagnostics
             # Diagnostics may grow closer to the slot, but retains 16 KiB.

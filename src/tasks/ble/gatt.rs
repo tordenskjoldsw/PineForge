@@ -5,11 +5,11 @@
 //! right after connecting.
 
 use defmt::{info, warn};
-use embassy_futures::select::select;
+use embassy_futures::select::select3;
 use embassy_time::{Duration, Instant, with_deadline};
 use pineforge_state::{
-    AppEvent, BOND_PAYLOAD_MAX, BleState, DfuEngine, DfuFailReason, Notification, VibrationPattern,
-    parse_cts, parse_new_alert,
+    AppEvent, BOND_PAYLOAD_MAX, BleState, DfuEngine, DfuFailReason, MUSIC_TEXT_MAX, MusicState,
+    Notification, VibrationPattern, parse_cts, parse_new_alert,
 };
 use trouble_host::prelude::*;
 
@@ -18,7 +18,7 @@ use crate::{
         BOND_STORE, BatteryStatusReceiver, NOTIFICATIONS, StoredBond, UI_EVENTS,
         VIBRATION_COMMANDS, WALL_CLOCK,
     },
-    tasks::ble::dfu,
+    tasks::ble::{dfu, music},
 };
 
 /// Maximum value bytes in an ATT write at the stack's negotiated 251-byte
@@ -38,6 +38,7 @@ pub struct Server {
     pub current_time: CurrentTimeService,
     pub dfu: DfuService,
     pub alert_notification: AlertNotificationService,
+    pub music: MusicService,
 }
 
 /// Largest New Alert write accepted, one ATT payload at the negotiated MTU, so
@@ -52,6 +53,45 @@ const NEW_ALERT_MAX: usize = DefaultPacketPool::MTU - 3;
 pub struct AlertNotificationService {
     #[characteristic(uuid = characteristic::NEW_ALERT, write)]
     pub new_alert: heapless::Vec<u8, NEW_ALERT_MAX>,
+}
+
+/// `InfiniTime`'s Music Service, as Gadgetbridge drives it from the phone's
+/// media session.
+///
+/// Six of `InfiniTime`'s twelve characteristics, which is every one this watch
+/// has something to do with. Album, track number, track total, playback speed,
+/// repeat and shuffle are not declared: nothing on a 240-pixel panel says more
+/// with them than the title, the artist and the position say without.
+///
+/// Leaving them out is safe rather than merely cheaper, and that is a measured
+/// claim on both halves. Gadgetbridge writes every music field through a
+/// helper that looks the characteristic up and skips it when it is absent or
+/// not writable, so a service with six answers exactly as one with twelve for
+/// the six that matter. And declaring the other six costs 736 bytes of RAM and
+/// 1,460 of flash, because each one is an attribute-table entry whether or not
+/// anything reads it - measured against this table, not estimated.
+///
+/// That is the whole reason to be careful here. This service is the largest
+/// single RAM cost of the music feature, and it is paid in the scarcest budget
+/// the firmware has.
+#[gatt_service(uuid = "00000000-78fc-48fe-8e23-433b3a1942d0")]
+pub struct MusicService {
+    /// Transport commands going the other way: one byte, notified to the phone
+    /// when a control on the watch is pressed. The only outbound
+    /// characteristic in this firmware.
+    #[characteristic(uuid = "00000001-78fc-48fe-8e23-433b3a1942d0", notify, value = [0; 1])]
+    pub event: [u8; 1],
+    #[characteristic(uuid = "00000002-78fc-48fe-8e23-433b3a1942d0", write, value = 0)]
+    pub status: u8,
+    #[characteristic(uuid = "00000003-78fc-48fe-8e23-433b3a1942d0", write)]
+    pub artist: heapless::Vec<u8, MUSIC_TEXT_MAX>,
+    #[characteristic(uuid = "00000004-78fc-48fe-8e23-433b3a1942d0", write)]
+    pub track: heapless::Vec<u8, MUSIC_TEXT_MAX>,
+    /// Seconds, big-endian, as is the total length below it.
+    #[characteristic(uuid = "00000006-78fc-48fe-8e23-433b3a1942d0", write, value = [0; 4])]
+    pub position: [u8; 4],
+    #[characteristic(uuid = "00000007-78fc-48fe-8e23-433b3a1942d0", write, value = [0; 4])]
+    pub total_length: [u8; 4],
 }
 
 /// Nordic legacy DFU service, as spoken by Gadgetbridge's InfiniTime
@@ -134,9 +174,10 @@ pub async fn serve(
     connection: &GattConnection<'_, '_, DefaultPacketPool>,
     battery: &mut BatteryStatusReceiver,
 ) {
-    select(
+    select3(
         gatt_events(server, connection),
         notify_battery(server, connection, battery),
+        music::notify_events(server, connection),
     )
     .await;
 }
@@ -147,6 +188,11 @@ async fn gatt_events(server: &Server<'_>, connection: &GattConnection<'_, '_, De
     let dfu_control_handle = server.dfu.control_point.handle;
     let dfu_packet_handle = server.dfu.packet.handle;
     let new_alert_handle = server.alert_notification.new_alert.handle;
+    let music_handles = music::Handles::new(&server.music);
+    // The phone reports one field per characteristic, so the record is
+    // assembled here and published whole. It lives for the connection: a
+    // reconnect is when the companion re-sends what is playing anyway.
+    let mut music_state = MusicState::new();
     let mut engine = DfuEngine::new();
     let mut dfu_flash = dfu::FlashPipeline::new();
     // Last percent pushed to the update screen, so we only redraw on change.
@@ -229,6 +275,8 @@ async fn gatt_events(server: &Server<'_>, connection: &GattConnection<'_, '_, De
                 let mut dfu_write: Option<(bool, [u8; DFU_PACKET_MAX], usize)> = None;
                 // A parsed phone notification, likewise acted on after accept.
                 let mut alert: Option<Notification> = None;
+                // Whether a music write moved anything the watch shows.
+                let mut music_moved = false;
                 if let GattEvent::Write(write) = &event {
                     let handle = write.handle();
                     if handle == cts_handle {
@@ -260,6 +308,10 @@ async fn gatt_events(server: &Server<'_>, connection: &GattConnection<'_, '_, De
                         dfu_write = Some((handle == dfu_control_handle, buffer, len));
                     } else if handle == new_alert_handle {
                         alert = write.with_data(|_, data| parse_new_alert(data));
+                    } else {
+                        music_moved = write.with_data(|_, data| {
+                            music::take_write(&music_handles, &mut music_state, handle, data)
+                        });
                     }
                 }
                 match event.accept() {
@@ -284,6 +336,9 @@ async fn gatt_events(server: &Server<'_>, connection: &GattConnection<'_, '_, De
                     dfu_deadline = engine
                         .is_active()
                         .then(|| Instant::now() + DFU_IDLE_TIMEOUT);
+                }
+                if music_moved {
+                    music::publish(&music_state);
                 }
                 if let Some(notification) = alert {
                     info!(

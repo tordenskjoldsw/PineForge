@@ -27,8 +27,8 @@ use embassy_sync::{
 };
 
 use pineforge_state::{
-    AppEvent, BatteryStatus, DfuFailReason, DisplaySettings, HeartRateCommand, Notification,
-    PowerCommand, SystemPowerState, VibrationPattern, WallClockReference,
+    AppEvent, BatteryStatus, DfuFailReason, DisplaySettings, HeartRateCommand, MusicControl,
+    MusicState, Notification, PowerCommand, SystemPowerState, VibrationPattern, WallClockReference,
 };
 
 pub static UI_EVENTS: Channel<CriticalSectionRawMutex, AppEvent, 8> = Channel::new();
@@ -146,6 +146,32 @@ pub fn battery_status_receiver() -> BatteryStatusReceiver {
         .receiver()
         .expect("battery status receiver capacity is fixed by architecture")
 }
+
+/// Transport commands from the music screen to the BLE task.
+///
+/// The first thing on this bus that travels from the UI outwards. Everything
+/// else here is a subsystem reporting to the display; this is a button on the
+/// watch reaching the phone, and the BLE task turns each one into a single
+/// notified byte.
+///
+/// Four deep, which holds a finger tapping "next" faster than the radio can
+/// send. Senders use `try_send` so a stalled connection drops the command
+/// rather than blocking the display task mid-repaint - and a dropped transport
+/// command is a button that did nothing, which is recoverable by pressing it
+/// again. The BLE task empties this when a connection opens, so a command
+/// raised while nothing was connected cannot fire minutes later.
+pub static MUSIC_CONTROL: Channel<CriticalSectionRawMutex, MusicControl, 4> = Channel::new();
+
+/// What the phone last said it is playing.
+///
+/// A `Watch` rather than a channel, because only the latest matters and none of
+/// it may be lost. The phone reports one field per characteristic, so a track
+/// change arrives as a burst of five writes; a bounded channel would have to
+/// either block the GATT loop or drop one, and a dropped write leaves the wrong
+/// artist standing under the right title. The BLE task assembles the fields it
+/// receives and publishes the whole record, so every subscriber sees a state
+/// that is complete and current.
+pub static MUSIC_STATE: Watch<CriticalSectionRawMutex, MusicState, 2> = Watch::new();
 
 /// Wall-clock anchor written by the BLE Current Time Service.
 pub static WALL_CLOCK: Watch<CriticalSectionRawMutex, WallClockReference, 2> = Watch::new();
