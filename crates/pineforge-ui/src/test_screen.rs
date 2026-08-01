@@ -140,7 +140,6 @@ impl TestScreen {
         }
         draw_mono_text_visible(&line, Point::new(0, baseline), style, canvas)
     }
-
 }
 
 impl Paint for TestScreen {
