@@ -79,6 +79,26 @@ lto = "thin"
 opt-level = "s"
 strip = false
 
+# The render path, and only the render path, is optimised for speed.
+#
+# A boot-time benchmark settled where a paint's time goes: the bus carries a
+# frame in 121 ms against a 115.2 ms floor, so the wire has nothing left to
+# give, and everything above it is the core turning pixels into bytes. Size is
+# still the right default for a firmware two thirds of which is a BLE stack that
+# spends its life waiting, but these four crates are where the loops are.
+#
+# Whole-image `opt-level = 3` was measured first and is not affordable: 465,940
+# bytes against a 430,080 budget. Confined to these four it costs 5,960 bytes and
+# no RAM at all, which leaves the flash target 35,984 bytes of headroom.
+[profile.release.package.pineforge-ui]
+opt-level = 3
+[profile.release.package.embedded-graphics]
+opt-level = 3
+[profile.release.package.mipidsi]
+opt-level = 3
+[profile.release.package.embassy-nrf]
+opt-level = 3
+
 [lints.rust]
 unsafe_code = "warn"
 
