@@ -21,18 +21,14 @@
 //! almost-full bar are a few pixels apart at this width, and the difference
 //! between them is the whole point of having a goal.
 
-use embedded_graphics::{
-    pixelcolor::Rgb565,
-    prelude::*,
-    primitives::{PrimitiveStyle, Rectangle},
-};
+use embedded_graphics::pixelcolor::Rgb565;
 use heapless::String;
 use pineforge_state::{AppEvent, ScreenAction};
 
 use crate::canvas::{Canvas, CanvasError};
-use crate::font::{JETBRAINS_MONO_6X14, hint_text};
+use crate::font::JETBRAINS_MONO_6X14;
 use crate::{
-    render::{PANEL, draw_mono_text_visible},
+    render::{PANEL, draw_centred, fill},
     screen::{Paint, Screen},
     segment::{SegmentSize, draw_cell, right_aligned},
     theme,
@@ -74,7 +70,6 @@ const GAUGE_DIVIDE: i32 = 3;
 
 /// Baseline of the line under the gauge.
 const FOOTER_BASELINE_Y: i32 = 210;
-const HINT_WIDTH: i32 = JETBRAINS_MONO_6X14.cell.width.cast_signed();
 
 /// The day's step count, as last published by the motion service.
 #[derive(Default)]
@@ -349,41 +344,6 @@ impl Screen for StepsScreen {
         )?;
         draw_centred(&footer, FOOTER_BASELINE_Y, ink, canvas)
     }
-}
-
-fn fill(
-    canvas: &mut Canvas<'_>,
-    x: i32,
-    y: i32,
-    width: i32,
-    height: i32,
-    color: Rgb565,
-) -> Result<(), CanvasError> {
-    if width <= 0 || height <= 0 {
-        return Ok(());
-    }
-    Rectangle::new(
-        Point::new(x, y),
-        Size::new(width.unsigned_abs(), height.unsigned_abs()),
-    )
-    .into_styled(PrimitiveStyle::with_fill(color))
-    .draw(canvas)
-}
-
-/// One line of the hint face, centred across the panel.
-fn draw_centred(
-    text: &str,
-    baseline: i32,
-    ink: Rgb565,
-    canvas: &mut Canvas<'_>,
-) -> Result<(), CanvasError> {
-    let width = i32::try_from(text.len()).unwrap_or(0) * HINT_WIDTH;
-    draw_mono_text_visible(
-        text,
-        Point::new((PANEL.size.width.cast_signed() - width) / 2, baseline),
-        hint_text(ink, theme::BACKGROUND),
-        canvas,
-    )
 }
 
 #[cfg(test)]

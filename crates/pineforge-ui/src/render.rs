@@ -8,11 +8,55 @@ use embedded_graphics::{
 
 use pineforge_state::{PageAxis, PagedList};
 
-use crate::font::{AaTextStyle, ui_text};
+use crate::font::{AaTextStyle, JETBRAINS_MONO_6X14, hint_text, ui_text};
 use crate::{
     canvas::{Canvas, CanvasError},
     theme,
 };
+
+/// Width of one character of the hint face, for centring a line by hand.
+const HINT_WIDTH: i32 = JETBRAINS_MONO_6X14.cell.width.cast_signed();
+
+/// A filled rectangle in panel coordinates, skipped when it has no area.
+///
+/// Every screen that paints its own bands rather than blanking the panel first
+/// wants this, and it lives here because two of them had written it out
+/// separately. An empty or negative extent is what layout arithmetic produces
+/// when it runs out of room, and drawing nothing is what that means.
+pub fn fill(
+    canvas: &mut Canvas<'_>,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+    color: Rgb565,
+) -> Result<(), CanvasError> {
+    if width <= 0 || height <= 0 {
+        return Ok(());
+    }
+    Rectangle::new(
+        Point::new(x, y),
+        Size::new(width.unsigned_abs(), height.unsigned_abs()),
+    )
+    .into_styled(PrimitiveStyle::with_fill(color))
+    .draw(canvas)
+}
+
+/// One line of the hint face, centred across the panel.
+pub fn draw_centred(
+    text: &str,
+    baseline: i32,
+    ink: Rgb565,
+    canvas: &mut Canvas<'_>,
+) -> Result<(), CanvasError> {
+    let width = i32::try_from(text.len()).unwrap_or(0) * HINT_WIDTH;
+    draw_mono_text_visible(
+        text,
+        Point::new((PANEL.size.width.cast_signed() - width) / 2, baseline),
+        hint_text(ink, theme::BACKGROUND),
+        canvas,
+    )
+}
 
 /// The panel, as a rectangle to clip and measure against.
 ///
