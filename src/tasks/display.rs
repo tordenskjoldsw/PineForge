@@ -27,10 +27,6 @@ use pineforge_ui::{
     registry::Screens,
     status::{StatusCorner, wears_status},
 };
-
-/// Splits a paint's cost into the bus and the core, before the panel is up.
-#[cfg(feature = "diagnostics")]
-mod bench;
 #[cfg(feature = "ui-animations")]
 use pineforge_ui::{scratch::UiScratch, transition::draw_slide_reveal};
 
@@ -148,11 +144,7 @@ fn init_panel(
 // with the loop, is lifted out above.
 #[allow(clippy::too_many_lines)]
 #[embassy_executor::task]
-pub async fn run(
-    resources: DisplayResources,
-    #[allow(unused_mut)] mut spi: DisplaySpi,
-    watchdog: BootloaderWatchdog,
-) {
+pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: BootloaderWatchdog) {
     let mut backlight = Backlight::new(
         Output::new(resources.backlight_low, Level::High, OutputDrive::Standard),
         Output::new(resources.backlight_mid, Level::High, OutputDrive::Standard),
@@ -161,31 +153,12 @@ pub async fn run(
     backlight.set_level(1);
 
     let mut delay = Delay;
-    // Taken here rather than in the call below so the benchmark runs with the
-    // panel held in reset: it puts a frame's worth of bytes on the bus, and the
-    // ST7789 has no business seeing any of them. The reset pulse that starts
-    // the panel comes afterwards, from this same pin.
-    let dc = Output::new(resources.dc, Level::Low, OutputDrive::Standard);
-    let reset = Output::new(resources.reset, Level::Low, OutputDrive::Standard);
-    // Claimed early because the glyph half of the benchmark composes into it,
-    // the way a transition does. Nothing else needs it before the loop below.
-    #[cfg(feature = "ui-animations")]
-    let ui_scratch = UI_SCRATCH.init(UiScratch::new());
-    #[cfg(feature = "diagnostics")]
-    #[allow(unused_mut)]
-    let mut bench = bench::run(&mut spi, &mut || watchdog.pet());
-    #[cfg(all(feature = "diagnostics", feature = "ui-animations"))]
-    {
-        let (concrete, dynamic) = pineforge_ui::metrics::glyph_bench(ui_scratch);
-        bench.glyph_concrete_us = concrete;
-        bench.glyph_dyn_us = dynamic;
-        info!(
-            "bench glyphs: a screen's runs direct in {} us, through Canvas in {} us",
-            concrete, dynamic
-        );
-        watchdog.pet();
-    }
-    let Some(mut display) = init_panel(dc, reset, spi, &mut delay) else {
+    let Some(mut display) = init_panel(
+        Output::new(resources.dc, Level::Low, OutputDrive::Standard),
+        Output::new(resources.reset, Level::Low, OutputDrive::Standard),
+        spi,
+        &mut delay,
+    ) else {
         backlight.set_level(0);
         return;
     };
@@ -201,10 +174,6 @@ pub async fn run(
     let started_at = Instant::now();
     let mut next_tick = started_at + Duration::from_secs(1);
     let mut screens = Screens::new();
-    // Taken before this task had a screen registry to put it in, so it is handed
-    // over here rather than recorded where it was measured.
-    #[cfg(feature = "diagnostics")]
-    screens.touch_test.record_bench(bench);
     screens
         .firmware
         .set_confirmed(crate::boot::confirm::is_validated());
@@ -218,6 +187,8 @@ pub async fn run(
     };
     screens.about.set_build(build);
     screens.firmware.set_version(build.version);
+    #[cfg(feature = "ui-animations")]
+    let ui_scratch = UI_SCRATCH.init(UiScratch::new());
     let mut app = AppState::new(ScreenId::Watchface);
     // Pairing, firmware updates, and the first-boot format are system modals
     // above the screen stack; this owns which one is up and which events may

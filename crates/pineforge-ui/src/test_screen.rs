@@ -11,7 +11,7 @@ use heapless::String;
 use crate::canvas::{Canvas, CanvasError};
 use crate::font::{AaTextStyle, hint_text, ui_text};
 use crate::{
-    metrics::{BusBench, RenderMetrics},
+    metrics::RenderMetrics,
     render::{draw_mono_text_visible, draw_visible},
     screen::{Paint, Screen},
 };
@@ -41,16 +41,6 @@ pub struct TestScreen {
     /// with no debugger attached.
     stack: Option<(usize, usize)>,
     previous_stack: Option<(usize, usize)>,
-    /// What the bus and the core each cost, measured at boot.
-    ///
-    /// Where the paint line used to be, and it is the better tenant. That line
-    /// reported what a full and a partial repaint cost, but standing on this
-    /// screen overwrote both with this screen's own no-op ticks, so the numbers
-    /// on the panel were never the numbers anybody wanted - which is why it was
-    /// closed as won't-fix rather than repaired. These cannot go the same way:
-    /// they are taken once, before the panel is even up, and nothing that
-    /// happens afterwards can touch them.
-    bench: Option<BusBench>,
 }
 
 impl TestScreen {
@@ -90,11 +80,6 @@ impl TestScreen {
         )
     }
 
-    /// Records the boot-time split of a paint's cost.
-    pub const fn record_bench(&mut self, bench: BusBench) {
-        self.bench = Some(bench);
-    }
-
     #[cfg(feature = "ui-animations")]
     pub const fn record_transition(
         &mut self,
@@ -114,78 +99,7 @@ impl TestScreen {
         let style = hint_text(Rgb565::WHITE, Rgb565::BLACK);
         Self::draw_metric_line(canvas, "F", self.forward_metrics, 154, style)?;
         Self::draw_metric_line(canvas, "B", self.backward_metrics, 170, style)?;
-        // Where the worst-stripe line used to be. It timed the slowest stripe of
-        // a transition, which the two lines above already characterise; these
-        // two answer a question nothing else on this watch can.
-        self.draw_bus_line(canvas, 190, style)?;
-        self.draw_pack_line(canvas, 206, style)?;
         Ok(())
-    }
-
-    /// A frame's worth of bytes onto the bus, one figure per write size.
-    ///
-    /// The sizes are not printed, because five labels and five numbers do not
-    /// fit on 240 pixels and the shape is what is being read anyway: the entries
-    /// run from 255 bytes per write doubling to 4,080, so a row that falls to
-    /// the right means the cost is per call and a bigger buffer would pay again,
-    /// and a flat row means it is per 255-byte DMA chunk and no buffer size
-    /// helps. Against 115 ms, which is what the bus owes for a frame at 8 MHz.
-    fn draw_bus_line(
-        &self,
-        canvas: &mut Canvas<'_>,
-        baseline: i32,
-        style: AaTextStyle,
-    ) -> Result<(), CanvasError> {
-        let mut line = String::<32>::new();
-        let _ = line.push_str("BUS255+");
-        match self.bench {
-            Some(bench) => {
-                for micros in bench.bus_us {
-                    let _ = write!(line, " {}", micros / 1_000);
-                }
-            }
-            None => {
-                let _ = line.push_str(" ---");
-            }
-        }
-        draw_mono_text_visible(&line, Point::new(0, baseline), style, canvas)
-    }
-
-    /// What the vtable per pixel costs, asked twice.
-    ///
-    /// `PACK` is a whole frame of colours packed with no bus involved, concrete
-    /// against `dyn`: the ceiling, and one nothing reaches, because most of a
-    /// screen is rectangles and a filled rectangle crosses the vtable once
-    /// however large it is. `GLY` asks the same of the path that really pays it,
-    /// a screen's worth of glyph runs composed into the stripe. That second pair
-    /// is what says whether a row-oriented surface method is worth building.
-    fn draw_pack_line(
-        &self,
-        canvas: &mut Canvas<'_>,
-        baseline: i32,
-        style: AaTextStyle,
-    ) -> Result<(), CanvasError> {
-        let mut line = String::<48>::new();
-        let _ = line.push_str("PACK");
-        match self.bench {
-            Some(bench) => {
-                // The glyph pair in microseconds, not milliseconds: it is a
-                // fifth of the work the pack pair is and would read as 3 and 5
-                // against 14 and 23, which is a comparison of rounding.
-                let _ = write!(
-                    line,
-                    " C{} D{} GLY C{} D{}",
-                    bench.pack_concrete_us / 1_000,
-                    bench.pack_dyn_us / 1_000,
-                    bench.glyph_concrete_us,
-                    bench.glyph_dyn_us
-                );
-            }
-            None => {
-                let _ = line.push_str(" ---");
-            }
-        }
-        draw_mono_text_visible(&line, Point::new(0, baseline), style, canvas)
     }
 
     /// Touch contact state, relocated here from the watchface status row.
