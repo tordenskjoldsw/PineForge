@@ -151,6 +151,8 @@ const CLOCK_PLACES: usize = 4;
 /// a repaint it knows nothing about.
 #[derive(Clone, Copy, Default)]
 struct Pending {
+    /// The two lines at the head say something else now.
+    text: bool,
     /// The elapsed time moved. Which numerals that is comes out of the
     /// comparison at draw time, not from here.
     clock: bool,
@@ -160,7 +162,8 @@ struct Pending {
 
 impl Pending {
     const fn is_clean(self) -> bool {
-        !self.clock
+        !self.text
+            && !self.clock
             && !self.everything
             && !self.controls[0]
             && !self.controls[1]
@@ -183,6 +186,10 @@ impl Pending {
 struct Shown {
     cells: [Cell; CLOCK_PLACES],
     filled: u32,
+    /// The colour the numerals were last drawn in. A play or pause flips it,
+    /// and then every place has to go again however little the time moved -
+    /// which is a difference like any other rather than a case of its own.
+    ink: Rgb565,
 }
 
 /// What the phone is playing, and the transport that changes it.
@@ -217,6 +224,7 @@ impl Default for MusicScreen {
             shown: Shown {
                 cells: [Cell::Blank; CLOCK_PLACES],
                 filled: 0,
+                ink: theme::BACKGROUND,
             },
         };
         // Nothing is connected until something says so, and the controls have
@@ -281,6 +289,7 @@ impl MusicScreen {
                 Cell::Digit(digit(seconds % 10)),
             ],
             filled: self.playback.filled(self.now, BAR.size.width),
+            ink: self.clock_ink(),
         }
     }
 
@@ -290,20 +299,29 @@ impl MusicScreen {
     /// the pulse and steps apps take their readings: a track that changed while
     /// the watchface was up must not leave a stale title here.
     pub fn apply(&mut self, state: &MusicState, now: u64) -> bool {
-        // A seek moves the numerals and nothing else, and it is the common
-        // update - the phone reports a position far more often than it changes
-        // track. Repainting the panel for one would undo the whole point of
-        // tracking what is shown.
-        let rewrites_the_screen = self.playback.state().track != state.track
+        // What an update changes is rarely the screen. A track change rewrites
+        // the two lines at the head and resets the time; a play or pause
+        // recolours the numerals and swaps one glyph; a seek moves the numerals
+        // alone, and it is the commonest of the three because the phone reports
+        // a position far more often than it changes anything else.
+        //
+        // Marking all of them as the whole panel is what made a track change
+        // flicker: it sent the background bands, the three controls and the
+        // hint, none of which a new track touches.
+        let renames = self.playback.state().track != state.track
             || self.playback.state().artist != state.artist
-            || self.playback.playing() != state.playing;
+            // Going from nothing to something, or back, changes the two lines
+            // even when neither name did.
+            || self.playback.is_empty() != state.is_empty();
+        let flipped = self.playback.playing() != state.playing;
+
         self.now = now;
         if self.playback.apply(state, now) {
-            if rewrites_the_screen {
-                self.pending.everything = true;
-            } else {
-                self.pending.clock = true;
-            }
+            self.pending.text |= renames;
+            self.pending.clock = true;
+            // The middle control's glyph is play or pause, and this is the one
+            // thing that decides which.
+            self.pending.controls[1] |= flipped;
         }
         self.moved()
     }
@@ -379,7 +397,11 @@ impl MusicScreen {
         keep_alive: &mut dyn FnMut(),
     ) -> Result<(), CanvasError> {
         let now = self.clock_now();
-        let ink = self.clock_ink();
+        let ink = now.ink;
+        // A recoloured clock is every place changed, however little the time
+        // moved. Folding it in here rather than making it a case of its own is
+        // what keeps the three callers from having to know about it.
+        let whole = whole || ink != self.shown.ink;
 
         for (index, x) in CLOCK_X_OF.into_iter().enumerate() {
             if whole || now.cells[index] != self.shown.cells[index] {
@@ -387,8 +409,8 @@ impl MusicScreen {
                 keep_alive();
             }
         }
-        // The colon never moves. It is only ever repainted with everything
-        // else, which is also the only time its colour can have changed.
+        // The colon never moves, so it goes only when the whole clock does -
+        // which is also the only time its colour can have changed.
         if whole {
             Self::draw_colon(canvas, ink)?;
         }
@@ -780,8 +802,13 @@ impl Screen for MusicScreen {
     /// Repaints exactly what moved.
     ///
     /// A second is the numerals that differ and the strip the bar gained. A
-    /// finger is one control. Only something that rewrites the head of the
-    /// screen - a new track, a phone arriving or leaving - is worth the panel.
+    /// finger is one control. A new track is the two lines at the head and the
+    /// clock reset under them - not the background bands, not the transport,
+    /// not the hint, none of which a track change touches.
+    ///
+    /// Only a phone arriving or leaving is worth the panel, because it moves
+    /// the head, all three controls and the hint at once, and it happens once
+    /// per connection rather than once per song.
     fn draw_dirty(
         &self,
         canvas: &mut Canvas<'_>,
@@ -789,6 +816,10 @@ impl Screen for MusicScreen {
     ) -> Result<(), CanvasError> {
         if self.pending.everything {
             return self.paint(canvas, keep_alive);
+        }
+        if self.pending.text {
+            self.draw_heading(canvas)?;
+            keep_alive();
         }
         if self.pending.clock {
             self.draw_clock(false, canvas, keep_alive)?;
@@ -972,6 +1003,85 @@ mod tests {
         );
     }
 
+    /// The panel area a control occupies.
+    fn control_area(slot: usize) -> Rectangle {
+        let bounds = control_bounds(slot);
+        Rectangle::new(
+            Point::new(bounds.x(), bounds.y()),
+            Size::new(
+                bounds.width().unsigned_abs(),
+                bounds.height().unsigned_abs(),
+            ),
+        )
+    }
+
+    /// Skipping to the next track is the loudest thing this screen does, and it
+    /// used to send the whole panel: the two lines that changed, and with them
+    /// the background bands, three controls and a hint that had not.
+    ///
+    /// The transport is what makes it visible. A finger is still on it when the
+    /// new track arrives, so a control repainted for no reason flashes directly
+    /// under the fingertip that asked for the change.
+    #[test]
+    fn a_track_change_repaints_the_head_and_leaves_the_transport_alone() {
+        let mut screen = playing();
+
+        let mut next = MusicState::new();
+        let _ = next.set_track(b"Someone Great");
+        let _ = next.set_artist(b"LCD Soundsystem");
+        let _ = next.set_playing(&[1]);
+        let _ = next.set_length(&380_u32.to_be_bytes());
+        assert!(screen.apply(&next, 100), "a new track drew nothing");
+
+        let probe = repaint(&screen);
+        assert!(
+            probe.painted_within(TEXT_BAND),
+            "the new title was not painted"
+        );
+        for slot in 0..SLOTS {
+            assert!(
+                !probe.painted_within(control_area(slot)),
+                "control {slot} was repainted for a track change it has no part in"
+            );
+        }
+        let painted = 240 * 240 - probe.unpainted();
+        assert!(
+            painted < 240 * 240 / 2,
+            "a track change painted {painted} pixels, most of the panel"
+        );
+    }
+
+    /// Play and pause recolour the numerals, so every place goes again however
+    /// little the time moved - and the middle glyph with them, because that is
+    /// the one control the state decides. The other two stay put.
+    #[test]
+    fn a_pause_recolours_the_clock_and_swaps_one_glyph() {
+        let mut screen = playing();
+
+        let mut paused = MusicState::new();
+        let _ = paused.set_track(b"All My Friends");
+        let _ = paused.set_artist(b"LCD Soundsystem");
+        let _ = paused.set_length(&420_u32.to_be_bytes());
+        let _ = paused.set_position(&0_u32.to_be_bytes());
+        assert!(screen.apply(&paused, 100));
+
+        let probe = repaint(&screen);
+        assert!(
+            probe.painted_within(control_area(1)),
+            "the play glyph was not repainted for a pause"
+        );
+        for slot in [0, 2] {
+            assert!(
+                !probe.painted_within(control_area(slot)),
+                "control {slot} was repainted for a pause it has no part in"
+            );
+        }
+        assert!(
+            !probe.painted_within(TEXT_BAND),
+            "a pause repainted the title, which did not change"
+        );
+    }
+
     /// A finger costs one control, not the screen. A press and its release are
     /// two repaints, and at a full panel each that is the same flicker the
     /// clock had.
@@ -983,19 +1093,12 @@ mod tests {
 
             let probe = repaint(&screen);
             let bounds = control_bounds(pressed);
-            let area = Rectangle::new(
-                Point::new(bounds.x(), bounds.y()),
-                Size::new(
-                    bounds.width().unsigned_abs(),
-                    bounds.height().unsigned_abs(),
-                ),
-            );
             assert!(
-                probe.painted_within(area),
+                probe.painted_within(control_area(pressed)),
                 "control {pressed} took the press and was not repainted"
             );
             let painted = 240 * 240 - probe.unpainted();
-            let control_area = (bounds.width() * bounds.height()) as usize;
+            let control_area = (bounds.width() * bounds.height()).unsigned_abs() as usize;
             assert!(
                 painted <= control_area,
                 "pressing control {pressed} painted {painted} pixels, \
