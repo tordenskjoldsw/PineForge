@@ -654,12 +654,16 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                 // settings leaf, and a leaf must edit the record that is
                 // current rather than one it kept from an earlier visit.
                 screens.enter(app.active_screen(), settings);
-                // Opening the music screen is Gadgetbridge's cue to push what
-                // is playing. Without it a screen opened mid-track shows the
-                // last thing that was written, which after a fresh boot is
-                // nothing at all. It sits here rather than in `enter` because
-                // `enter` returns nothing and is called on every navigation;
-                // widening it for one screen would be the larger change.
+                // Asks what is playing, the way `InfiniTime` asks it. Nothing
+                // may be expected of the answer: Gadgetbridge drops this event
+                // rather than replying to it, so the screen fills in when the
+                // phone's media session next changes and not before. It is
+                // sent because it is the protocol's own question and because a
+                // companion that does answer it costs nothing to support.
+                //
+                // It sits here rather than in `enter` because `enter` returns
+                // nothing and is called on every navigation; widening it for
+                // one screen would be the larger change.
                 if app.active_screen() == ScreenId::Music {
                     let _ = MUSIC_CONTROL.try_send(MusicControl::Open);
                 }

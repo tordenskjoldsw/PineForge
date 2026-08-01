@@ -66,9 +66,20 @@ pub enum MusicControl {
     Previous,
     VolumeUp,
     VolumeDown,
-    /// Sent when the screen is opened, which is Gadgetbridge's cue to push the
-    /// current metadata. Without it a screen opened mid-track shows whatever
-    /// was last written, which on a fresh boot is nothing at all.
+    /// Sent when the screen is opened, as `InfiniTime` sends it.
+    ///
+    /// It is the protocol's own way to ask "what is playing", and **Gadgetbridge
+    /// does not answer it**: its music event handler switches over 0, 1, 3, 4,
+    /// 5 and 6 and returns on anything else, so this byte is read and dropped.
+    /// Checked against its source rather than assumed, because the opposite was
+    /// assumed here first and it is the kind of thing that stays wrong quietly.
+    ///
+    /// Kept anyway. It costs one byte on a screen change, it is what the
+    /// protocol says to send, and a companion that does implement it is the
+    /// only way this screen ever fills in without the user touching something.
+    /// What must not be built on it is the expectation that opening the screen
+    /// shows the current track - with Gadgetbridge it does not, and the empty
+    /// state has to say something the user can act on instead.
     Open,
 }
 

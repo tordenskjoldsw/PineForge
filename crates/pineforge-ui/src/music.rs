@@ -260,13 +260,22 @@ impl MusicScreen {
     ///
     /// A blank card would read as a fault. Both empty states say which of the
     /// two situations it is, because they need different things done about
-    /// them - one wants the phone brought closer, the other wants something
-    /// pressed play on.
+    /// them - one wants the phone brought closer, the other wants a control
+    /// pressed.
+    ///
+    /// The second line is not "start a track", though that was the obvious
+    /// wording. Gadgetbridge writes what is playing when the phone's media
+    /// session *changes*, and answers no request to send it, so this screen is
+    /// blank exactly as often when music is already playing as when none is.
+    /// Telling someone to start a track they can already hear is the empty
+    /// state failing at the one job it has. Pressing any control changes the
+    /// session, which is what makes the metadata arrive - so that is what it
+    /// says.
     fn heading(&self) -> (&str, &str) {
         if !self.connected {
             ("NO PHONE", "CONNECT TO CONTROL MUSIC")
         } else if self.playback.is_empty() {
-            ("NOTHING PLAYING", "START A TRACK ON THE PHONE")
+            ("NOTHING PLAYING", "PRESS PLAY OR SKIP TO SYNC")
         } else {
             (self.playback.track(), self.playback.artist())
         }
