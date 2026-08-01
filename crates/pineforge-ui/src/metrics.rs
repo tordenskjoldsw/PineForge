@@ -27,4 +27,69 @@ pub struct BusBench {
     /// what a vtable per pixel costs. Microseconds.
     pub pack_concrete_us: u64,
     pub pack_dyn_us: u64,
+    /// The same question asked of the path that actually pays it: a screen's
+    /// worth of glyph runs into the scratch, direct and through [`Canvas`].
+    /// Microseconds.
+    ///
+    /// [`Canvas`]: crate::canvas::Canvas
+    pub glyph_concrete_us: u64,
+    pub glyph_dyn_us: u64,
+}
+
+/// What a screen's worth of glyph work costs, with the vtable and without it.
+///
+/// The pack figures above give the vtable's price per pixel, but a screen does
+/// not send a frame of pixels through `fill_contiguous` - most of it is
+/// rectangles, and a filled rectangle crosses the vtable once however large it
+/// is. Only text goes through per pixel. So the pack numbers are a ceiling
+/// nothing reaches, and this is the number that decides whether a row-oriented
+/// surface method is worth building: it draws real runs in the real face into
+/// the real stripe, exactly as composing a transition does.
+///
+/// Twenty passes of a twenty-three character line, which is about what a
+/// text-heavy screen rasterises while a transition composes it. `black_box`
+/// keeps a pass from being folded into its neighbour now that this crate builds
+/// at `opt-level = 3`; without it the concrete loop is provably idempotent and
+/// the compiler is free to run it once.
+#[cfg(feature = "ui-animations")]
+#[must_use]
+pub fn glyph_bench(scratch: &mut crate::scratch::UiScratch) -> (u64, u64) {
+    use embassy_time::Instant;
+    use embedded_graphics::{
+        geometry::{Point, Size},
+        primitives::Rectangle,
+        text::{Baseline, renderer::TextRenderer},
+    };
+
+    use crate::{canvas::Canvas, font::ui_text, scratch::STRIPE_THICKNESS, theme};
+
+    const RUN: &str = "EINSTELLUNGEN 12:34 87%";
+    const PASSES: u32 = 20;
+
+    let style = ui_text(theme::TEXT, theme::SURFACE);
+    scratch.prepare_stripe(Rectangle::new(
+        Point::zero(),
+        Size::new(240, STRIPE_THICKNESS),
+    ));
+
+    let started = Instant::now();
+    for _ in 0..PASSES {
+        let _ = style.draw_string(RUN, Point::zero(), Baseline::Top, &mut *scratch);
+        core::hint::black_box(&mut *scratch);
+    }
+    let concrete = started.elapsed().as_micros();
+
+    let started = Instant::now();
+    for _ in 0..PASSES {
+        let _ = style.draw_string(
+            RUN,
+            Point::zero(),
+            Baseline::Top,
+            &mut Canvas::new(&mut *scratch),
+        );
+        core::hint::black_box(&mut *scratch);
+    }
+    let dynamic = started.elapsed().as_micros();
+
+    (concrete, dynamic)
 }

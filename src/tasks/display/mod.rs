@@ -167,8 +167,24 @@ pub async fn run(
     // the panel comes afterwards, from this same pin.
     let dc = Output::new(resources.dc, Level::Low, OutputDrive::Standard);
     let reset = Output::new(resources.reset, Level::Low, OutputDrive::Standard);
+    // Claimed early because the glyph half of the benchmark composes into it,
+    // the way a transition does. Nothing else needs it before the loop below.
+    #[cfg(feature = "ui-animations")]
+    let ui_scratch = UI_SCRATCH.init(UiScratch::new());
     #[cfg(feature = "diagnostics")]
-    let bench = bench::run(&mut spi, &mut || watchdog.pet());
+    #[allow(unused_mut)]
+    let mut bench = bench::run(&mut spi, &mut || watchdog.pet());
+    #[cfg(all(feature = "diagnostics", feature = "ui-animations"))]
+    {
+        let (concrete, dynamic) = pineforge_ui::metrics::glyph_bench(ui_scratch);
+        bench.glyph_concrete_us = concrete;
+        bench.glyph_dyn_us = dynamic;
+        info!(
+            "bench glyphs: a screen's runs direct in {} us, through Canvas in {} us",
+            concrete, dynamic
+        );
+        watchdog.pet();
+    }
     let Some(mut display) = init_panel(dc, reset, spi, &mut delay) else {
         backlight.set_level(0);
         return;
@@ -202,8 +218,6 @@ pub async fn run(
     };
     screens.about.set_build(build);
     screens.firmware.set_version(build.version);
-    #[cfg(feature = "ui-animations")]
-    let ui_scratch = UI_SCRATCH.init(UiScratch::new());
     let mut app = AppState::new(ScreenId::Watchface);
     // Pairing, firmware updates, and the first-boot format are system modals
     // above the screen stack; this owns which one is up and which events may

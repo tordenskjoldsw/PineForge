@@ -151,24 +151,34 @@ impl TestScreen {
         draw_mono_text_visible(&line, Point::new(0, baseline), style, canvas)
     }
 
-    /// Packing a frame's worth of colours with no bus involved: through a
-    /// concrete iterator, then through a `dyn` one. The gap is what `Canvas`
-    /// costs every screen, one indirect call per pixel.
+    /// What the vtable per pixel costs, asked twice.
+    ///
+    /// `PACK` is a whole frame of colours packed with no bus involved, concrete
+    /// against `dyn`: the ceiling, and one nothing reaches, because most of a
+    /// screen is rectangles and a filled rectangle crosses the vtable once
+    /// however large it is. `GLY` asks the same of the path that really pays it,
+    /// a screen's worth of glyph runs composed into the stripe. That second pair
+    /// is what says whether a row-oriented surface method is worth building.
     fn draw_pack_line(
         &self,
         canvas: &mut Canvas<'_>,
         baseline: i32,
         style: AaTextStyle,
     ) -> Result<(), CanvasError> {
-        let mut line = String::<32>::new();
+        let mut line = String::<48>::new();
         let _ = line.push_str("PACK");
         match self.bench {
             Some(bench) => {
+                // The glyph pair in microseconds, not milliseconds: it is a
+                // fifth of the work the pack pair is and would read as 3 and 5
+                // against 14 and 23, which is a comparison of rounding.
                 let _ = write!(
                     line,
-                    " C{} D{}",
+                    " C{} D{} GLY C{} D{}",
                     bench.pack_concrete_us / 1_000,
-                    bench.pack_dyn_us / 1_000
+                    bench.pack_dyn_us / 1_000,
+                    bench.glyph_concrete_us,
+                    bench.glyph_dyn_us
                 );
             }
             None => {

@@ -73,10 +73,13 @@ pub fn run(spi: &mut DisplaySpi, keep_alive: &mut dyn FnMut()) -> BusBench {
     );
     let bus_us = bus_sweep(spi, buffer, keep_alive);
     let (pack_concrete_us, pack_dyn_us) = pack_sweep(buffer, keep_alive);
+    // The glyph half is filled in by the caller: it composes into the
+    // transition scratch, which belongs to the display task and not here.
     BusBench {
         bus_us,
         pack_concrete_us,
         pack_dyn_us,
+        ..BusBench::default()
     }
 }
 
