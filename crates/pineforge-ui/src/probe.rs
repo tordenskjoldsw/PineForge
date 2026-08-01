@@ -31,6 +31,9 @@ pub struct Probe {
     /// Every area handed to the surface, in order and unclamped, so a test can
     /// catch one that reached past the panel rather than silently clipping it.
     areas: std::vec::Vec<Rectangle>,
+    /// What this surface says it accepts. The panel unless a test narrows it to
+    /// stand in for a transition stripe.
+    area: Rectangle,
 }
 
 impl Default for Probe {
@@ -42,9 +45,22 @@ impl Default for Probe {
 impl Probe {
     #[must_use]
     pub fn new() -> Self {
+        Self::clipped_to(Rectangle::new(Point::zero(), PANEL))
+    }
+
+    /// A probe that reports `area` as all it accepts, the way a stripe of the
+    /// transition scratch does.
+    ///
+    /// It still records whatever it is handed, including outside that area -
+    /// which is the point. A renderer that respects the clip can be told from
+    /// one that leaves the clipping to the target, and only the first saves the
+    /// work of rasterising what nobody keeps.
+    #[must_use]
+    pub fn clipped_to(area: Rectangle) -> Self {
         Self {
             covered: [None; (PANEL.width * PANEL.height) as usize],
             areas: std::vec::Vec::new(),
+            area,
         }
     }
 
@@ -58,15 +74,27 @@ impl Probe {
         self.covered.iter().filter(|pixel| pixel.is_none()).count()
     }
 
-    /// The areas that reached outside the panel, if any.
+    /// The areas that reached outside what this surface accepts, if any.
     #[must_use]
     pub fn out_of_bounds(&self) -> std::vec::Vec<Rectangle> {
-        let panel = Rectangle::new(Point::zero(), PANEL);
         self.areas
             .iter()
-            .filter(|area| area.size != Size::zero() && area.intersection(&panel).size != area.size)
+            .filter(|area| {
+                area.size != Size::zero() && area.intersection(&self.area).size != area.size
+            })
             .copied()
             .collect()
+    }
+
+    /// The colour left on one pixel, or `None` if nothing wrote it.
+    #[must_use]
+    pub fn pixel(&self, point: Point) -> Option<Rgb565> {
+        let panel = Rectangle::new(Point::zero(), PANEL);
+        if panel.contains(point) {
+            self.covered[index(point.x, point.y)]
+        } else {
+            None
+        }
     }
 
     /// Whether anything at all was painted inside `area`.
@@ -124,7 +152,7 @@ fn index(x: i32, y: i32) -> usize {
 
 impl Surface for Probe {
     fn area(&self) -> Rectangle {
-        Rectangle::new(Point::zero(), PANEL)
+        self.area
     }
 
     fn fill_solid(&mut self, area: &Rectangle, color: Rgb565) -> Result<(), CanvasError> {
