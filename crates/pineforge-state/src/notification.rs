@@ -332,7 +332,11 @@ pub fn parse_new_alert(payload: &[u8]) -> Option<Notification> {
 
 /// Copies the valid UTF-8 prefix of `bytes` into a bounded string, dropping
 /// embedded NULs and stopping at the buffer's capacity.
-fn sanitize<const N: usize>(bytes: &[u8]) -> String<N> {
+///
+/// Shared with [`crate::music`], which takes the same treatment for the same
+/// reason: both are text a phone wrote into a fixed characteristic, and neither
+/// may reject a message because its tail was cut mid-character.
+pub fn sanitize<const N: usize>(bytes: &[u8]) -> String<N> {
     let valid = match core::str::from_utf8(bytes) {
         Ok(text) => text,
         // Everything up to `valid_up_to` is guaranteed well-formed UTF-8.

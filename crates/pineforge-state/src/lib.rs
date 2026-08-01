@@ -37,6 +37,11 @@ pub use notification::{
     NotificationCategory, NotificationInbox, NotificationSummary, Wrapped, parse_new_alert, wrap,
 };
 
+mod music;
+pub use music::{
+    MUSIC_MINUTES_MAX, MUSIC_TEXT_MAX, MusicControl, MusicPlayback, MusicState, parse_be_u32,
+};
+
 mod settings;
 pub use setting::{Setting, WATCHFACE_NAMES};
 pub use settings::{
