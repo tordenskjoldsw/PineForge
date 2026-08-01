@@ -32,6 +32,7 @@ unknown rather than as working.
 | Bootloader recovery image over Bluetooth | Documented and available; not exercised from a genuinely unbootable state. |
 | Passkey pairing and bonds surviving a reboot or update | Yes. |
 | Time synchronisation from Gadgetbridge | Yes. |
+| Music control against a phone | Yes, on the one known Gadgetbridge setup: title and artist display correctly; previous, next, pause, resume, volume up, and volume down all work from the watch. |
 | Daily wear | Since late July 2026, on my own watch - waking, timekeeping, notifications, settings and charging in ordinary use. Days, not months. |
 
 ## Not established
@@ -46,7 +47,7 @@ unknown rather than as working.
 | Interrupted or corrupt OTA transfers | Recovery behaviour has not been deliberately provoked. |
 | Step-count accuracy | Steps are counted and shown, but never checked against a counted walk or another tracker. The figure is indicative; tuning is expected. |
 | Heart-rate accuracy | Readings are produced on demand and on an interval, but never compared against a reference monitor. Neither the accuracy nor the effect of the sampling interval on battery life is known. |
-| Music control against a phone | The service, the parsing and the screen are host-tested, and the wire format is taken from `InfiniTime`'s own source. Nothing has yet been exercised against a running Gadgetbridge. Two things in particular are unverified on hardware: that a transport command reaches the phone at all, which requires Gadgetbridge to have subscribed to the event characteristic, and that it does the right thing when the phone's media session changes app mid-track. |
+| Music robustness | Core display and control paths work against the known Gadgetbridge setup. Progress after display sleep, Bluetooth disconnection and reconnection, and switching media applications mid-track have not yet been exercised. |
 
 ## Reporting a configuration
 

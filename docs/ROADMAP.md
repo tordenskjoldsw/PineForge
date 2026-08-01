@@ -19,8 +19,9 @@ milestone should leave the sealed PineTime in a testable and recoverable state.
   reading size for prose, and a set of drawing changes measured rather than
   guessed at
 - next release: music state and transport over the `InfiniTime` service, with a
-  dedicated FORGE-style application. The implementation is on `main`; phone and
-  hardware validation are still outstanding.
+  dedicated FORGE-style application. The implementation is on `main`; its core
+  display and control paths work on the known Gadgetbridge setup, while sleep,
+  reconnection, and media-application switching remain untested.
 
 Work that has landed on `main` but not in a tagged release is marked
 *unreleased* below. Everything else in a **Complete** section has shipped.
@@ -192,7 +193,9 @@ than as a firmware experiment. It is not reached.
   transport built from rectangles. *Unreleased.* It is the first thing on the
   event bus that travels from the UI outwards, and the first component with a
   disabled state - with no phone connected there is nothing its three buttons
-  could do. Not yet exercised against a running Gadgetbridge; see
+  could do. On the known Gadgetbridge setup it shows title and artist, controls
+  previous and next, pauses and resumes playback, and changes volume in both
+  directions; the remaining robustness cases are recorded in
   [`TESTED-CONFIGURATIONS.md`](TESTED-CONFIGURATIONS.md).
 
 ### Open
