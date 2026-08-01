@@ -18,6 +18,9 @@ milestone should leave the sealed PineTime in a testable and recoverable state.
   finished in its own numerals, a steps application, notifications on a card, a
   reading size for prose, and a set of drawing changes measured rather than
   guessed at
+- next release: music state and transport over the `InfiniTime` service, with a
+  dedicated FORGE-style application. The implementation is on `main`; phone and
+  hardware validation are still outstanding.
 
 Work that has landed on `main` but not in a tagged release is marked
 *unreleased* below. Everything else in a **Complete** section has shipped.

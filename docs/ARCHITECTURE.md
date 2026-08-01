@@ -74,7 +74,7 @@ Two decisions follow, and they are separate:
   the region before `main` and the watchdog task reports the deepest point
   whenever it grows. Async is why the reserve can be modest at all: a task's
   state across its await points lives in a static the compiler sized exactly -
-  `ble::run::POOL` is 11 KiB of it - so the stack only has to cover the deepest
+  `ble::run::POOL` is 12 KiB of it - so the stack only has to cover the deepest
   synchronous chain plus interrupts, not a worst case per task the way
   per-task stacks would.
 
@@ -84,23 +84,30 @@ what the measurement is for.
 
 ## Concurrency model
 
-Embassy is the runtime. Each stateful peripheral is assigned to one long-running owner task. The current hardware-test baseline has:
+Embassy is the runtime. Each stateful peripheral is assigned to one long-running
+owner task. The production firmware has:
 
 - input task: owns the touch controller and publishes `UiEvent` values
 - accelerometer runner: exclusively owns the BMA42x and its interrupt; the
   concrete Embassy task only binds PineTime peripherals and starts the runner
-- diagnostics heart-rate runner: exclusively owns the HRS3300, its 100 ms
+- heart-rate runner: exclusively owns the HRS3300, its 100 ms
   acquisition cadence, and its power transitions
-- display task: owns the LCD and backlight, consumes UI events, and renders the active `Screen`
+- power task: owns the inactivity deadlines and publishes the system power state
+- battery task: owns the SAADC and both charger-status inputs
+- display task: owns the LCD and backlight, consumes UI events, and renders the
+  active `Screen`
+- storage task: owns the external flash and serializes settings, bonds, and DFU
+  writes
+- BLE task: owns the radio and stack, GATT services, pairing, time sync, music,
+  and the DFU protocol
+- button task: owns the side button, including back, panel-off, and held reset
+- vibration task: owns the motor and plays bounded haptic patterns
 - watchdog task: feeds the watchdog inherited from the bootloader
-- rollback task: monitors the physical side button for an explicit test-image reset
 
-Planned subsystem tasks include:
-
-- power task: battery, charging, sleep policy
-- BLE task: owns the radio/stack
-
-Use bounded `embassy-sync` channels for events. The current UI channel has a fixed capacity of eight events. Never share the display or SPI peripheral behind a global mutex merely for convenience; prefer single-owner tasks and message passing.
+Use bounded `embassy-sync` channels for events. The current UI channel has a
+fixed capacity of eight events. Never share the display or SPI peripheral
+behind a global mutex merely for convenience; prefer single-owner tasks and
+message passing.
 
 Long-running services follow Embassy's runner pattern: executor-independent
 runner objects own their state and expose `run()`, while small concrete task
@@ -180,25 +187,26 @@ changes and prevents charger terminal voltage from becoming an immediate
 percentage jump. The diagnostics UI retains raw millivolts for validation;
 future low-voltage protection must continue to use that raw measurement.
 
-Heart-rate bring-up remains diagnostics-only. The HRS3300 register layer owns
-explicit configure, power-up, coherent register-block reads, and power-down
-operations; BPM processing stays outside the driver. An executor-independent
-runner owns the 100 ms acquisition cadence and sensor lifecycle. It samples at
-the cadence used by InfiniTime and decodes coherent HRS and ambient-light values
-from the same eight-byte transaction. It publishes the paired raw sample to the
-UI only once per second, keeping display traffic independent from signal
-acquisition. The
-board startup uses one-shot Embassy signals to enforce touch, then motion, then
-heart-rate shared-bus initialization, matching PineTime's proven sequential
-peripheral bring-up rather than racing any clients at boot. The
-runner is deliberately independent of the system power state: a reading has to
-be able to happen while the watch is asleep, or a background interval means
+Heart-rate acquisition is part of the production firmware. The HRS3300 register
+layer owns explicit configure, power-up, coherent register-block reads, and
+power-down operations; BPM processing stays outside the driver. An
+executor-independent runner owns the 100 ms acquisition cadence and sensor
+lifecycle. It samples at the cadence used by InfiniTime and decodes coherent
+HRS and ambient-light values from the same eight-byte transaction. Diagnostics
+publishes the paired raw sample to the UI only once per second, keeping display
+traffic independent from signal acquisition; production feeds the same 10 Hz
+stream directly into the PPG processor. Board startup uses one-shot Embassy
+signals to enforce touch, then motion, then heart-rate shared-bus
+initialization, matching PineTime's proven sequential peripheral bring-up
+rather than racing any clients at boot. The runner is deliberately independent
+of the system power state: a reading has to be able to happen while the watch
+is asleep, or a background interval means
 nothing on a watch that sleeps twenty seconds after every touch. It used to
 abandon a measurement the moment the display went dark, in three places, which
 made the periodic setting effectively unreachable - the same shape of bug as a
 charger reading that only arrived while the panel was on. What limits the
-sensor now is the setting alone. Future settings and background-measurement
-policy belong above this runner rather than in the register driver.
+sensor now is the setting alone. Settings and background-measurement policy
+belong above this runner rather than in the register driver.
 
 Heart-rate acquisition is command-driven and disabled by default. The pulse app
 asks for a reading now with `MeasureNow` and gives up on one with `Stop`;
@@ -213,17 +221,18 @@ therefore keeps updating after the first value without flashing back to a
 measuring state between estimates, matching InfiniTime's foreground
 acquisition behavior. The runner remains the sole sensor owner and always
 disables the conversion engine and LED when a session ends. This command
-boundary is independent from display rendering and can later accept persistent
-disabled, on-demand, continuous, or periodic measurement policy.
+boundary is independent from display rendering; persistent disabled, on-demand,
+continuous, and periodic policies all reach the same runner through it.
 
-The diagnostics PPG processor is hardware-independent and heapless. It uses a
+The PPG processor is hardware-independent and heapless. It uses a
 64-sample window at 10 Hz, linear detrending, a four-stage 0.5--4 Hz band-pass,
 a generated Hann window, an in-place real FFT, unique-peak and signal-to-noise
 validation, and three consistent overlapping windows before publishing a
 40--230 BPM result. Host tests exercise synthetic 60 and 120 BPM signals plus
 constant, competing-frequency, and ambient-light rejection. Raw samples remain
 visible while the first 6.4-second window is collected; validated analysis
-results then replace them in the same partial-redraw UI row.
+results then replace them in the same partial-redraw diagnostics UI row. The
+production UI receives only session state and validated BPM results.
 
 ## The display task: ingest before render
 
@@ -305,25 +314,27 @@ Screens implement the `Screen` trait. A screen receives hardware-independent `Ui
 - release builds use LTO and size optimization
 
 CI enforces capacity budgets rather than early-project baseline sizes.
-Production is limited to 420 KiB flash and 46 KiB static RAM, diagnostics to
-448 KiB and 56 KiB. Size changes remain visible in CI output even when they
-stay below the limits.
+Production is limited to 420 KiB flash and 48 KiB static RAM, diagnostics to
+448 KiB and 56 KiB. The production RAM target reserves 16 KiB of the
+65,528-byte RAM region for stack growth; diagnostics reserves 8 KiB. Size
+changes remain visible in CI output even when they stay below the limits.
 
 Both are design targets rather than hard limits, but they are not held to the
 same margin, because they fail in opposite ways:
 
 - **RAM** is the tight one. A static that outgrows its budget eats into the
-  stack, and the failure is silent, on hardware, and late. The reserve is a
-  factor of two over a measured peak, which is why the budget stays where it
-  is even though it leaves only a few hundred bytes free.
+  stack, and the failure is silent, on hardware, and late. The production
+  reserve is 16 KiB against a measured 10,432-byte peak. The current production
+  image uses 48,004 bytes of static RAM, 1,148 bytes below that design target.
 - **Flash** is the loose one. An image that outgrows the 475,104-byte slot is
   refused by imgtool at packaging time, so the worst case is a build that
   produces nothing. The target exists to catch unnoticed growth, not to
   prevent a failure. The earlier 360 KiB target left 104 KiB of the slot unused
   and had begun shaping features rather than catching bloat.
 
-Two thirds of the production image is the BLE stack: a build without the `ble`
-feature is 125,708 bytes.
+BLE remains the dominant flash contributor. For scale, the current production
+image uses 404,560 bytes of flash, while a build without default features uses
+154,280 bytes.
 
 The display-transition scratch is capped at 8 KiB and currently uses 5.6 KiB;
 it is the one large allocation whose size trades purely against render time,
@@ -333,8 +344,8 @@ an end-of-transfer deadlock.
 
 The four largest static allocations are the BLE task future, the BLE packet
 pool, this scratch, and the Nordic controller memory; together they hold about
-70% of static RAM, while every screen in the firmware shares the display task's
-544-byte future. Measure with:
+two thirds of static RAM. Every screen in the firmware shares the display task
+future rather than owning one future apiece. Measure with:
 
 ```bash
 rust-nm --print-size --size-sort --radix=d \
@@ -344,4 +355,9 @@ rust-nm --print-size --size-sort --radix=d \
 
 ## Error policy
 
-Drivers return typed errors. Top-level product policy decides whether to retry, degrade, or reset. During bring-up, log recoverable failures using `defmt` and continue where safe.
+Drivers return typed errors. The state crate owns the product policies that have
+been made explicit - DFU, storage, pairing, and modal precedence - while sensor
+and I2C failures are still handled locally by their runners. A general policy
+for a bus or sensor that stops answering remains open. Recoverable failures are
+logged with `defmt`, and a failed subsystem exits or retries without bringing
+down unrelated tasks where that is safe.

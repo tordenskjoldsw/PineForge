@@ -7,7 +7,7 @@ are, and they are recorded so a screen built next year matches one built today.
 ## What the renderer permits
 
 There is no framebuffer. 240 x 240 pixels at two bytes each are 115 KiB against
-a 46 KiB static RAM budget, so the display is painted through one 5.6 KiB
+a 48 KiB static RAM budget, so the display is painted through one 5.6 KiB
 scratch buffer holding a stripe of 12 pixels. Three rules follow, and every
 design decision below respects them:
 
@@ -194,10 +194,10 @@ Four tiles per page, two by two, below the status strip:
 +-------------------------------------+
 ```
 
-Six tiles today across two pages - settings, firmware, about, light, pulse,
-steps - and a seventh under `diagnostics`. The grid always draws its full four slots: an
-empty slot still paints, because the surface has to be opaque or the previous
-page shows through.
+Seven production tiles today across two pages - settings, firmware, about,
+light, pulse, steps, and music - with diagnostics filling the eighth slot when
+enabled. The grid always draws its full four slots: an empty slot still paints,
+because the surface has to be opaque or the previous page shows through.
 
 Tiles are 105 x 88 with a ten-pixel gap and a ten-pixel margin, starting ten
 pixels below the status strip and leaving room under the second row for the page

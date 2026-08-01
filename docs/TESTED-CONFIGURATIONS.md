@@ -13,7 +13,7 @@ unknown rather than as working.
 | Area | Tested |
 |---|---|
 | Watch | Sealed PineTime. The revision is unknown and largely unknowable without opening the case: nothing on a sealed unit reports it, and the hardware-revision string PineForge advertises over BLE is a constant in the firmware, not a reading. |
-| Number of units | One. Everything in this document was established on that single watch, without SWD and therefore without RTT logging or breakpoints. A second unit was ordered for 2026-07-31 so the first could be opened for SWD; **nothing here has yet been re-established on a second watch**, and this row is what to update when it has. |
+| Number of units | One. Everything in this document was established on that single watch, without SWD and therefore without RTT logging or breakpoints. A second unit has been ordered so the first can be opened for SWD; **nothing here has yet been re-established on a second watch**, and this row is what to update when it has. |
 | Bootloader | `InfiniTimeOrg/pinetime-mcuboot-bootloader` **1.0.1**. Not the same versioning as upstream `mcu-tools/mcuboot`, from which PineForge uses only `imgtool` as a host build tool. |
 | Prior firmware | InfiniTime **1.16.1**, the release PineForge replaced and the one the rollback and OTA-return paths were tested against. |
 | Phone | Android, kept current. Device model and exact OS version not recorded. |
@@ -40,7 +40,7 @@ unknown rather than as working.
 |---|---|
 | Long-term stability | A few days of daily wear is not a long-term test. Nothing is known about drift, leaks or wear over weeks. |
 | Battery life | Current consumption has never been measured in either the active or the sleeping state. |
-| Other PineTime revisions | Only one unit has run this firmware so far. A second arrives 2026-07-31, which will make a same-revision second data point possible - not a different-revision one. |
+| Other PineTime revisions | Only one unit has run this firmware so far. A second unit has been ordered, but no result from it is recorded; even a second same-revision unit would not establish compatibility with a different hardware revision. |
 | Other bootloader versions | Everything here rests on bootloader `1.0.1`. The watchdog handover, the flash map and the trial-boot and rollback behaviour have not been checked against `1.0.2` or against anything older. |
 | Other phones or Gadgetbridge versions | The DFU path has one known-good combination. |
 | Interrupted or corrupt OTA transfers | Recovery behaviour has not been deliberately provoked. |

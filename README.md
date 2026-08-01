@@ -48,6 +48,9 @@ application shows the day against a goal; notifications moved onto a card and
 gained a reading size for their text; and a set of drawing changes made every
 screen cheaper to paint - each one measured, several of them the opposite of
 what was predicted - see [`docs/releases/v0.4.0.md`](docs/releases/v0.4.0.md).
+Since that release, `main` has gained music state, transport and volume control
+in a dedicated FORGE-style application. That work is unreleased and host-tested
+but has not yet been exercised against a running Gadgetbridge.
 [`docs/ROADMAP.md`](docs/ROADMAP.md) records what is done and what is not.
 
 Wearing it myself every day is one watch's worth of evidence, and it does

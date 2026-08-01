@@ -61,12 +61,13 @@ The firmware is already wired for a probe: `.cargo/config.toml` sets a
 `probe-rs run --chip nRF52832_xxAA` runner, and `defmt` logs over RTT with
 `DEFMT_LOG=info`. None of it is reachable on a sealed watch.
 
-From 2026-07-31 a second PineTime means the first can be opened, giving SWD and
-therefore RTT. Some questions that have been left deliberately open are waiting
-on exactly that - the input task logs every touch report at `info!`, and what
-the CST816S puts in its coordinate registers on the report that ends a touch has
-never been measured. Expect answers to arrive faster once that capture exists,
-and expect the host-side testing to stay anyway: it is quicker than a probe.
+A second PineTime has been ordered so the first can be opened, giving SWD and
+therefore RTT. No result from that second unit or from an SWD capture is recorded
+yet. Some questions that have been left deliberately open are waiting on exactly
+that - the input task logs every touch report at `info!`, and what the CST816S
+puts in its coordinate registers on the report that ends a touch has never been
+measured. Expect the host-side testing to stay even once a probe is available:
+it is quicker than a hardware capture.
 
 ## What CI will check
 
@@ -75,10 +76,14 @@ Run these before opening a pull request; they are the same gates CI applies.
 ```bash
 cargo fmt --all -- --check
 ./scripts/check-layers.sh
+cargo check --release
+cargo check --release --features diagnostics
 cargo clippy --release -- -D warnings
 cargo clippy --release --features diagnostics -- -D warnings
-cargo test --manifest-path crates/pineforge-state/Cargo.toml --target x86_64-unknown-linux-gnu
-cargo test --manifest-path crates/pineforge-ui/Cargo.toml --target x86_64-unknown-linux-gnu
+cargo test --locked --manifest-path crates/pineforge-state/Cargo.toml --target x86_64-unknown-linux-gnu
+cargo test --locked --manifest-path crates/pineforge-state/Cargo.toml --target x86_64-unknown-linux-gnu --features diagnostics
+cargo test --locked --manifest-path crates/pineforge-ui/Cargo.toml --target x86_64-unknown-linux-gnu
+cargo check --locked --manifest-path crates/pineforge-ui/Cargo.toml --release --features ui-animations,diagnostics
 ```
 
 CI additionally enforces flash and RAM budgets. These are design targets rather
