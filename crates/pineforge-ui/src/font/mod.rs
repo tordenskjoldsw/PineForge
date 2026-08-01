@@ -228,38 +228,11 @@ impl TextRenderer for AaTextStyle {
         // is documented to consume colours row by row across the area, so the
         // outer loop walks the rows of the cell and the inner one hands each
         // character its slice of that row before moving down.
-        // Rows the target would throw away are not produced at all.
-        //
-        // A target clips what it is handed, but `fill_contiguous` takes its
-        // colours in order, so a row above the clip still has to come out of the
-        // iterator before the first kept one does - and pulling a glyph pixel is
-        // the expensive part. `UiScratch` advances past them with `nth`, which
-        // runs the coverage lookup and the blend for every one and then drops
-        // the result.
-        //
-        // It is composing that pays for this. A transition builds the panel in
-        // twelve-pixel stripes and the UI face is twenty-two tall, so a run
-        // straddling a boundary was rasterised whole for each stripe it touched
-        // - the second pass computing a stripe's worth of pixels purely to reach
-        // the ones it wanted. On a full panel the clip is the panel and nothing
-        // here changes.
-        let clip = target.bounding_box();
-        let clip_top = clip.top_left.y;
-        let clip_bottom = clip_top.saturating_add(i32::try_from(clip.size.height).unwrap_or(0));
-        let cell_height = i32::try_from(font.cell.height).unwrap_or(0);
-        let first_visible = top.max(clip_top);
-        let past_visible = top.saturating_add(cell_height).min(clip_bottom);
-        if past_visible <= first_visible {
-            return Ok(next);
-        }
-        let first_row = u32::try_from(first_visible - top).unwrap_or(0);
-        let visible_rows = u32::try_from(past_visible - first_visible).unwrap_or(0);
-
         let area = Rectangle::new(
-            Point::new(position.x, first_visible),
-            Size::new(u32::try_from(width).unwrap_or(0), visible_rows),
+            Point::new(position.x, top),
+            Size::new(u32::try_from(width).unwrap_or(0), font.cell.height),
         );
-        let colors = (first_row..first_row + visible_rows).flat_map(move |row| {
+        let colors = (0..font.cell.height).flat_map(move |row| {
             text.chars().flat_map(move |character| {
                 // An unmapped character leaves its cell in the background colour
                 // rather than a substitute glyph: the atlas covers the printable
@@ -317,67 +290,5 @@ impl TextRenderer for AaTextStyle {
 
     fn line_height(&self) -> u32 {
         self.font.cell.height
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use embedded_graphics::{
-        geometry::{Point, Size},
-        primitives::Rectangle,
-        text::{Baseline, renderer::TextRenderer},
-    };
-
-    use super::ui_text;
-    use crate::{canvas::Canvas, probe::Probe, theme};
-
-    /// One stripe of the transition scratch: the panel's width, twelve tall.
-    const STRIPE: Rectangle = Rectangle::new(Point::new(0, 0), Size::new(240, 12));
-
-    /// A run drawn against a stripe paints that stripe exactly as a run against
-    /// the whole panel does, and rasterises nothing below it.
-    ///
-    /// The saving and the risk are the same edit. The UI face is twenty-two
-    /// pixels tall against a twelve-pixel stripe, so a run at the top of one
-    /// covers ten rows the stripe never keeps; producing them anyway costs a
-    /// coverage lookup and a blend each, and producing the wrong ones shears the
-    /// text. The first assertion is that the picture did not move. The second is
-    /// that the work was actually skipped rather than left to the target.
-    #[test]
-    fn a_clipped_run_paints_exactly_what_an_unclipped_one_does() {
-        let style = ui_text(theme::TEXT, theme::SURFACE);
-        let at = Point::new(10, 0);
-
-        let mut whole = Probe::new();
-        let _ = style.draw_string("HELLO", at, Baseline::Top, &mut Canvas::new(&mut whole));
-
-        let mut stripe = Probe::clipped_to(STRIPE);
-        let _ = style.draw_string("HELLO", at, Baseline::Top, &mut Canvas::new(&mut stripe));
-
-        for y in 0..12 {
-            for x in 0..240 {
-                let point = Point::new(x, y);
-                assert_eq!(stripe.pixel(point), whole.pixel(point), "at {point:?}");
-            }
-        }
-        assert!(
-            stripe.out_of_bounds().is_empty(),
-            "rows outside the stripe were rasterised anyway: {:?}",
-            stripe.out_of_bounds()
-        );
-    }
-
-    /// A run entirely above or below the stripe draws nothing at all.
-    #[test]
-    fn a_run_outside_the_stripe_produces_no_pixels() {
-        let style = ui_text(theme::TEXT, theme::SURFACE);
-        let mut stripe = Probe::clipped_to(STRIPE);
-        let _ = style.draw_string(
-            "HELLO",
-            Point::new(10, 40),
-            Baseline::Top,
-            &mut Canvas::new(&mut stripe),
-        );
-        assert!(!stripe.painted_within(Rectangle::new(Point::zero(), Size::new(240, 240))));
     }
 }
