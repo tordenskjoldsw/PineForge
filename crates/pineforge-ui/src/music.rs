@@ -106,6 +106,8 @@ const SECONDS_X: [i32; 2] = [
     COLON_X + COLON_WIDTH + DIGIT_GAP,
     COLON_X + COLON_WIDTH + 2 * DIGIT_GAP + DIGIT.width,
 ];
+/// The four numerals in the order they are drawn and compared.
+const CLOCK_X_OF: [i32; CLOCK_PLACES] = [MINUTES_X[0], MINUTES_X[1], SECONDS_X[0], SECONDS_X[1]];
 
 /// The bar, in the column a menu row and a notification card occupy.
 const BAR: Rectangle = Rectangle::new(Point::new(ROW_X, 148), Size::new(200, 16));
@@ -136,19 +138,51 @@ const ARTIST_COLUMNS: usize =
 /// Which control a slot holds. Ordered as they are drawn, left to right.
 const SLOTS: usize = 3;
 
+/// The four numerals of the elapsed time.
+const CLOCK_PLACES: usize = 4;
+
 /// What still owes a repaint.
 ///
-/// Ordered by how much it costs, because the mark is only ever raised: a
-/// screen collects changes while something else is on the panel, and a tick
-/// arriving after a track change must not talk the repaint down from the whole
-/// screen to the clock. Only [`MusicScreen::mark_painted`] lowers it, and it is
-/// called when the panel has actually been painted.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum Pending {
-    Nothing,
-    /// A second passed: the numerals and the bar moved, and nothing else did.
-    Clock,
-    Everything,
+/// Flags rather than one level, because two independent things can be owed at
+/// once - a second passing while a finger is on a control - and a level would
+/// have to round both up to the whole screen. Only
+/// [`MusicScreen::mark_painted`] clears them: this screen collects changes
+/// while something else is on the panel, so an unrelated event must not retire
+/// a repaint it knows nothing about.
+#[derive(Clone, Copy, Default)]
+struct Pending {
+    /// The elapsed time moved. Which numerals that is comes out of the
+    /// comparison at draw time, not from here.
+    clock: bool,
+    controls: [bool; SLOTS],
+    everything: bool,
+}
+
+impl Pending {
+    const fn is_clean(self) -> bool {
+        !self.clock
+            && !self.everything
+            && !self.controls[0]
+            && !self.controls[1]
+            && !self.controls[2]
+    }
+}
+
+/// What the panel is currently showing of the clock.
+///
+/// This is what makes a passing second cost almost nothing. Repainting a
+/// numeral means filling its cell and laying seven strokes over it, so sending
+/// all four every second is a clear-and-repaint of 188 by 54 pixels once a
+/// second - which is what flicker is. Three of the four cells are the same as
+/// they were, and for most seconds so is the bar.
+///
+/// Kept here rather than worked out during drawing because `draw_dirty` takes
+/// `&self` and is run once per stripe. Only [`MusicScreen::mark_painted`]
+/// updates it, which is the moment the panel actually holds what it describes.
+#[derive(Clone, Copy)]
+struct Shown {
+    cells: [Cell; CLOCK_PLACES],
+    filled: u32,
 }
 
 /// What the phone is playing, and the transport that changes it.
@@ -163,6 +197,7 @@ pub struct MusicScreen {
     /// cannot ask a clock; the tick brings the time in instead.
     now: u64,
     pending: Pending,
+    shown: Shown,
 }
 
 impl Default for MusicScreen {
@@ -176,7 +211,13 @@ impl Default for MusicScreen {
                 Button::new(control_bounds(2)),
             ],
             now: 0,
-            pending: Pending::Nothing,
+            pending: Pending::default(),
+            // Nothing has been painted, so nothing matches: the first paint is
+            // a full one either way, and `mark_painted` settles this then.
+            shown: Shown {
+                cells: [Cell::Blank; CLOCK_PLACES],
+                filled: 0,
+            },
         };
         // Nothing is connected until something says so, and the controls have
         // to agree with that from the start. A button that is enabled until the
@@ -213,17 +254,34 @@ impl MusicScreen {
     /// Whether the last event left anything to repaint.
     #[must_use]
     pub const fn moved(&self) -> bool {
-        !matches!(self.pending, Pending::Nothing)
+        !self.pending.is_clean()
     }
 
     /// Says the panel now shows what this screen holds.
-    pub const fn mark_painted(&mut self) {
-        self.pending = Pending::Nothing;
+    ///
+    /// Settles both halves: nothing is owed, and the clock the panel carries is
+    /// the one this screen would draw now. The second half is what the next
+    /// second's repaint measures itself against.
+    pub fn mark_painted(&mut self) {
+        self.pending = Pending::default();
+        self.shown = self.clock_now();
     }
 
-    /// Raises what is owed, never lowers it.
-    fn mark(&mut self, pending: Pending) {
-        self.pending = self.pending.max(pending);
+    /// The clock as it stands, which a repaint compares against [`Self::shown`].
+    fn clock_now(&self) -> Shown {
+        let (minutes, seconds) = self.playback.elapsed_minutes_seconds(self.now);
+        Shown {
+            // Minutes keep an unlit leading place rather than a zero, which is
+            // what an instrument does with a place it is not using. Seconds are
+            // padded, because 2:04 is a time and 2:4 is not.
+            cells: [
+                minute_cell(minutes / 10),
+                Cell::Digit(digit(minutes % 10)),
+                Cell::Digit(digit(seconds / 10)),
+                Cell::Digit(digit(seconds % 10)),
+            ],
+            filled: self.playback.filled(self.now, BAR.size.width),
+        }
     }
 
     /// Takes a state the phone reported, at the uptime it was received.
@@ -232,9 +290,20 @@ impl MusicScreen {
     /// the pulse and steps apps take their readings: a track that changed while
     /// the watchface was up must not leave a stale title here.
     pub fn apply(&mut self, state: &MusicState, now: u64) -> bool {
+        // A seek moves the numerals and nothing else, and it is the common
+        // update - the phone reports a position far more often than it changes
+        // track. Repainting the panel for one would undo the whole point of
+        // tracking what is shown.
+        let rewrites_the_screen = self.playback.state().track != state.track
+            || self.playback.state().artist != state.artist
+            || self.playback.playing() != state.playing;
         self.now = now;
         if self.playback.apply(state, now) {
-            self.mark(Pending::Everything);
+            if rewrites_the_screen {
+                self.pending.everything = true;
+            } else {
+                self.pending.clock = true;
+            }
         }
         self.moved()
     }
@@ -252,7 +321,7 @@ impl MusicScreen {
         for control in &mut self.controls {
             let _ = control.set_enabled(connected);
         }
-        self.mark(Pending::Everything);
+        self.pending.everything = true;
         true
     }
 
@@ -290,39 +359,74 @@ impl MusicScreen {
         }
     }
 
-    /// The elapsed time and the bar under it: everything a passing second
-    /// moves, and nothing it does not.
+    /// The elapsed time and the bar under it.
+    ///
+    /// `whole` paints every part; otherwise only what differs from what the
+    /// panel already carries. That distinction is the whole of the fix for a
+    /// screen that flickered: a numeral is repainted by filling its cell and
+    /// laying seven strokes over it, so sending all four once a second was a
+    /// clear-and-repaint of the middle of the panel, once a second, while
+    /// three of the four had not changed.
+    ///
+    /// A minute's tens place changes six times an hour. The bar moves one pixel
+    /// every length-over-200 seconds, which on a four-minute track is once
+    /// every one and a bit. The only thing that genuinely changes every second
+    /// is the seconds' ones place, and that is 40 by 54 pixels.
     fn draw_clock(
         &self,
+        whole: bool,
         canvas: &mut Canvas<'_>,
         keep_alive: &mut dyn FnMut(),
     ) -> Result<(), CanvasError> {
-        let (minutes, seconds) = self.playback.elapsed_minutes_seconds(self.now);
+        let now = self.clock_now();
         let ink = self.clock_ink();
 
-        // Minutes keep an unlit leading place rather than a zero, which is what
-        // an instrument does with a place it is not using. Seconds are padded,
-        // because 2:04 is a time and 2:4 is not.
-        let places = [
-            (MINUTES_X[0], minute_cell(minutes / 10)),
-            (MINUTES_X[1], Cell::Digit(digit(minutes % 10))),
-            (SECONDS_X[0], Cell::Digit(digit(seconds / 10))),
-            (SECONDS_X[1], Cell::Digit(digit(seconds % 10))),
-        ];
-        for (x, cell) in places {
-            draw_cell(canvas, DIGIT, x, CLOCK_Y, cell, ink)?;
-            keep_alive();
+        for (index, x) in CLOCK_X_OF.into_iter().enumerate() {
+            if whole || now.cells[index] != self.shown.cells[index] {
+                draw_cell(canvas, DIGIT, x, CLOCK_Y, now.cells[index], ink)?;
+                keep_alive();
+            }
         }
-        Self::draw_colon(canvas, ink)?;
-
-        draw_progress_bar(
-            canvas,
-            &BAR,
-            self.playback.filled(self.now, BAR.size.width),
-            ink,
-        )?;
+        // The colon never moves. It is only ever repainted with everything
+        // else, which is also the only time its colour can have changed.
+        if whole {
+            Self::draw_colon(canvas, ink)?;
+        }
+        self.draw_bar(whole, now.filled, ink, canvas)?;
         keep_alive();
         Ok(())
+    }
+
+    /// The bar, or just the strip of it that filled since the last paint.
+    ///
+    /// Growing is the ordinary case and costs one thin rectangle. Shrinking
+    /// means the phone seeked backwards, and then the whole bar goes again -
+    /// there is no way to un-paint a fill by adding to it.
+    fn draw_bar(
+        &self,
+        whole: bool,
+        filled: u32,
+        ink: Rgb565,
+        canvas: &mut Canvas<'_>,
+    ) -> Result<(), CanvasError> {
+        if whole || filled < self.shown.filled {
+            return draw_progress_bar(canvas, &BAR, filled, ink);
+        }
+        if filled == self.shown.filled {
+            return Ok(());
+        }
+        fill(
+            canvas,
+            BAR.top_left.x + self.shown.filled.cast_signed(),
+            BAR.top_left.y,
+            (filled - self.shown.filled).cast_signed(),
+            BAR.size.height.cast_signed(),
+            ink,
+        )?;
+        // The strip can reach either end, and a fill laid over a masked corner
+        // squares it off again. Twenty one-pixel spans is far less than the
+        // repaint that avoiding them would cost.
+        round_corners(&BAR, canvas)
     }
 
     /// Two squares between the pairs, in the numerals' own stroke weight.
@@ -453,7 +557,7 @@ impl MusicScreen {
                 theme::BACKGROUND,
             )?;
         }
-        self.draw_clock(canvas, keep_alive)?;
+        self.draw_clock(true, canvas, keep_alive)?;
 
         // Between the numerals and the bar, beside it, and under it down to the
         // transport.
@@ -628,7 +732,7 @@ impl Screen for MusicScreen {
                 let before = self.playback.elapsed(self.now);
                 self.now = uptime_seconds;
                 if self.playback.elapsed(uptime_seconds) != before {
-                    self.mark(Pending::Clock);
+                    self.pending.clock = true;
                 }
                 return ScreenAction::None;
             }
@@ -651,11 +755,12 @@ impl Screen for MusicScreen {
         for slot in 0..SLOTS {
             match self.controls[slot].handle_event(event) {
                 ButtonOutcome::Activated => {
-                    // The face changes with the state the phone reports back,
-                    // not with the press: a play button that became a pause
-                    // button before anything started playing would be showing
-                    // an outcome it does not know it got.
-                    self.mark(Pending::Everything);
+                    // One control, not the screen. The glyph is unchanged - it
+                    // follows the state the phone reports back, not the press,
+                    // because a play button that became a pause button before
+                    // anything started playing would be showing an outcome it
+                    // does not know it got. What moved is the fill under it.
+                    self.pending.controls[slot] = true;
                     return self.command(match slot {
                         0 => MusicControl::Previous,
                         1 => self.playback.toggle(),
@@ -663,7 +768,7 @@ impl Screen for MusicScreen {
                     });
                 }
                 ButtonOutcome::Redraw => {
-                    self.mark(Pending::Everything);
+                    self.pending.controls[slot] = true;
                     return ScreenAction::None;
                 }
                 ButtonOutcome::None => {}
@@ -672,17 +777,29 @@ impl Screen for MusicScreen {
         ScreenAction::None
     }
 
-    /// Repaints what a second moves, or the screen when more did.
+    /// Repaints exactly what moved.
+    ///
+    /// A second is the numerals that differ and the strip the bar gained. A
+    /// finger is one control. Only something that rewrites the head of the
+    /// screen - a new track, a phone arriving or leaving - is worth the panel.
     fn draw_dirty(
         &self,
         canvas: &mut Canvas<'_>,
         keep_alive: &mut dyn FnMut(),
     ) -> Result<(), CanvasError> {
-        match self.pending {
-            Pending::Nothing => Ok(()),
-            Pending::Clock => self.draw_clock(canvas, keep_alive),
-            Pending::Everything => self.paint(canvas, keep_alive),
+        if self.pending.everything {
+            return self.paint(canvas, keep_alive);
         }
+        if self.pending.clock {
+            self.draw_clock(false, canvas, keep_alive)?;
+        }
+        for slot in 0..SLOTS {
+            if self.pending.controls[slot] {
+                self.draw_control(slot, canvas)?;
+                keep_alive();
+            }
+        }
+        Ok(())
     }
 }
 
@@ -817,21 +934,74 @@ mod tests {
         }
     }
 
-    /// A second is a repaint of the numerals and the bar, not of the panel.
-    /// This screen ticks for as long as it is open, and repainting it once a
-    /// second is what flicker is.
+    /// The area of one numeral's cell, which is the unit a second is measured
+    /// in.
+    const CELL: usize = (DIGIT.width * DIGIT.height) as usize;
+
+    /// A second repaints the numerals that changed and no others.
+    ///
+    /// This is the flicker fix, pinned. Repainting a numeral fills its cell and
+    /// lays seven strokes over it, so sending all four every second was a
+    /// clear-and-repaint of the middle of the panel once a second while three
+    /// of them had not moved. One second past zero moves the last place only.
     #[test]
-    fn a_passing_second_repaints_the_clock_and_not_the_panel() {
+    fn a_second_repaints_only_the_numerals_that_changed() {
         let mut screen = playing();
         let _ = screen.handle_event(tick(101));
 
         let painted = 240 * 240 - repaint(&screen).unpainted();
         assert!(painted > 0, "a second drew nothing");
-        let clock_area = (CLOCK_WIDTH * DIGIT.height + ROW_WIDTH * 16) as usize;
         assert!(
-            painted <= clock_area,
-            "a second painted {painted} pixels, more than the clock's {clock_area}"
+            painted <= CELL,
+            "a second painted {painted} pixels, more than the one cell that moved ({CELL})"
         );
+    }
+
+    /// Crossing from nine to ten seconds moves two places, and still only two.
+    #[test]
+    fn a_carry_repaints_the_places_it_carries_into() {
+        let mut screen = playing();
+        let _ = screen.handle_event(tick(109));
+        screen.mark_painted();
+
+        let _ = screen.handle_event(tick(110));
+        let painted = 240 * 240 - repaint(&screen).unpainted();
+        assert!(
+            painted > CELL && painted <= 2 * CELL,
+            "a carry painted {painted} pixels, not the two cells that moved"
+        );
+    }
+
+    /// A finger costs one control, not the screen. A press and its release are
+    /// two repaints, and at a full panel each that is the same flicker the
+    /// clock had.
+    #[test]
+    fn pressing_a_control_repaints_that_control_alone() {
+        for pressed in 0..SLOTS {
+            let mut screen = playing();
+            let _ = screen.handle_event(touch(pressed, true));
+
+            let probe = repaint(&screen);
+            let bounds = control_bounds(pressed);
+            let area = Rectangle::new(
+                Point::new(bounds.x(), bounds.y()),
+                Size::new(
+                    bounds.width().unsigned_abs(),
+                    bounds.height().unsigned_abs(),
+                ),
+            );
+            assert!(
+                probe.painted_within(area),
+                "control {pressed} took the press and was not repainted"
+            );
+            let painted = 240 * 240 - probe.unpainted();
+            let control_area = (bounds.width() * bounds.height()) as usize;
+            assert!(
+                painted <= control_area,
+                "pressing control {pressed} painted {painted} pixels, \
+                 more than the control's {control_area}"
+            );
+        }
     }
 
     /// A paused track does not move, so a tick has nothing to repaint. Without

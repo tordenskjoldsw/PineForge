@@ -244,7 +244,7 @@ impl Screens {
     /// user is anywhere else - so everything that arrived behind a menu would
     /// look owed, and coming back would repaint what had not moved. The full
     /// repaint that navigation performs is what makes clearing here correct.
-    pub const fn painted(&mut self) {
+    pub fn painted(&mut self) {
         self.watchface.mark_painted();
         self.notifications.mark_painted();
         self.steps.mark_painted();
