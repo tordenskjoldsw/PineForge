@@ -161,7 +161,7 @@ for `imgtool`, and a `.venv` with pinned Python tooling. It is safe to re-run.
 
 `build-dfu.sh` takes the version from `Cargo.toml` when called without an
 argument. Pass one to add build metadata that distinguishes two packages of the
-same release, for example `./scripts/build-dfu.sh 0.4.0+7`.
+same release, for example `./scripts/build-dfu.sh 0.5.0+1`.
 
 The DFU script builds the production profile with normal UI animations by
 default. Diagnostic screens and render metrics are opt-in:
@@ -179,7 +179,7 @@ Output:
 dist/pineforge-mcuboot-app-dfu-<version>.zip
 ```
 
-named after the `version` in `Cargo.toml` - `0.4.0` as this was written.
+named after the `version` in `Cargo.toml` - `0.5.0` as this was written.
 
 This ZIP can be installed through the Gadgetbridge firmware installer.
 

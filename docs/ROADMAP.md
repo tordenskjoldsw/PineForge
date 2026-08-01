@@ -18,11 +18,12 @@ milestone should leave the sealed PineTime in a testable and recoverable state.
   finished in its own numerals, a steps application, notifications on a card, a
   reading size for prose, and a set of drawing changes measured rather than
   guessed at
-- next release: music state and transport over the `InfiniTime` service, with a
-  dedicated FORGE-style application, plus a three-page About/system-status
-  view. Both are on `main`. Music's core display and control paths work on the
-  known Gadgetbridge setup, while sleep, reconnection, and media-application
-  switching remain untested. The status view still needs hardware validation.
+- `v0.5.0` (in development): music state and transport over the `InfiniTime`
+  service, with a dedicated FORGE-style application, plus a three-page
+  About/system-status view. Both are on `main`. Music's core display and control
+  paths work on the known Gadgetbridge setup, while sleep, reconnection, and
+  media-application switching remain untested. The status view still needs
+  hardware validation.
 
 Work that has landed on `main` but not in a tagged release is marked
 *unreleased* below. Everything else in a **Complete** section has shipped.
