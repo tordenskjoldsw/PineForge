@@ -26,6 +26,7 @@ use crate::{
     firmware::FirmwareScreen,
     flashlight::FlashlightScreen,
     launcher::LauncherScreen,
+    music::MusicScreen,
     notifications::NotificationScreen,
     pulse::PulseScreen,
     screen::{Paint, Screen},
@@ -61,6 +62,10 @@ pub struct Screens {
     pub pulse: PulseScreen,
     /// Holds the day's step count, fed the same way and for the same reason.
     pub steps: StepsScreen,
+    /// Holds what the phone reported it is playing, fed the same way and for
+    /// the same reason - a track that changed while the face was up must not
+    /// leave a stale title here.
+    pub music: MusicScreen,
     #[cfg(feature = "diagnostics")]
     pub touch_test: TestScreen,
 }
@@ -89,6 +94,7 @@ impl Screens {
             ScreenId::Flashlight => &self.flashlight,
             ScreenId::Pulse => &self.pulse,
             ScreenId::Steps => &self.steps,
+            ScreenId::Music => &self.music,
             // Every leaf is the same screen; `enter` has pointed it at the one
             // this id names before it can be drawn or touched.
             ScreenId::Brightness
@@ -113,6 +119,7 @@ impl Screens {
             ScreenId::Flashlight => &mut self.flashlight,
             ScreenId::Pulse => &mut self.pulse,
             ScreenId::Steps => &mut self.steps,
+            ScreenId::Music => &mut self.music,
             // Every leaf is the same screen; `enter` has pointed it at the one
             // this id names before it can be drawn or touched.
             ScreenId::Brightness
@@ -143,10 +150,15 @@ impl Screens {
         let _ = self.watchface.handle_event(event);
         let _ = self.pulse.handle_event(event);
         let _ = self.steps.handle_event(event);
+        // The music screen takes the connection state the same way, so its
+        // controls are right the moment it is opened rather than at the next
+        // Bluetooth event after that.
+        let _ = self.music.handle_event(event);
         match active {
             ScreenId::Watchface => self.watchface.moved(),
             ScreenId::Pulse => self.pulse.moved(),
             ScreenId::Steps => self.steps.moved(),
+            ScreenId::Music => self.music.moved(),
             _ => false,
         }
     }
@@ -156,7 +168,7 @@ impl Screens {
     pub const fn holds_readings(active: ScreenId) -> bool {
         matches!(
             active,
-            ScreenId::Watchface | ScreenId::Pulse | ScreenId::Steps
+            ScreenId::Watchface | ScreenId::Pulse | ScreenId::Steps | ScreenId::Music
         )
     }
 
@@ -236,6 +248,7 @@ impl Screens {
         self.watchface.mark_painted();
         self.notifications.mark_painted();
         self.steps.mark_painted();
+        self.music.mark_painted();
     }
 
     /// Lends the active screen as the opaque surface it is drawn as - the

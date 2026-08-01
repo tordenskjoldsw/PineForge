@@ -20,7 +20,7 @@ use embedded_graphics::{
 };
 use pineforge_state::{
     AppEvent, BatteryStatus, BleState, CalendarDate, DfuFailReason, DisplaySettings,
-    HeartRateState, ScreenId, WallTime, parse_new_alert,
+    HeartRateState, MusicState, ScreenId, WallTime, parse_new_alert,
 };
 use pineforge_ui::{
     about::BuildInfo,
@@ -165,6 +165,18 @@ fn populate(screens: &mut Screens, status: &mut StatusCorner) {
     };
     screens.about.set_build(build);
     screens.firmware.set_version(build.version);
+
+    // A track part-way through, so the music screen shows its bar somewhere
+    // other than at either end and its title at a width worth judging. Applied
+    // directly, the way the display task applies it: the record travels on its
+    // own watch rather than through the event channel.
+    let mut music = MusicState::new();
+    let _ = music.set_track(b"All My Friends");
+    let _ = music.set_artist(b"LCD Soundsystem");
+    let _ = music.set_playing(&[1]);
+    let _ = music.set_position(&134_u32.to_be_bytes());
+    let _ = music.set_length(&463_u32.to_be_bytes());
+    let _ = screens.music.apply(&music, 0);
 
     // Two messages, so the notification screen shows its paging rather than its
     // empty state.

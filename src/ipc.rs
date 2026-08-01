@@ -173,6 +173,15 @@ pub static MUSIC_CONTROL: Channel<CriticalSectionRawMutex, MusicControl, 4> = Ch
 /// that is complete and current.
 pub static MUSIC_STATE: Watch<CriticalSectionRawMutex, MusicState, 2> = Watch::new();
 
+pub type MusicStateReceiver = Receiver<'static, CriticalSectionRawMutex, MusicState, 2>;
+
+/// Reserves one of the fixed display and future consumer subscriptions.
+pub fn music_state_receiver() -> MusicStateReceiver {
+    MUSIC_STATE
+        .receiver()
+        .expect("music state receiver capacity is fixed by architecture")
+}
+
 /// Wall-clock anchor written by the BLE Current Time Service.
 pub static WALL_CLOCK: Watch<CriticalSectionRawMutex, WallClockReference, 2> = Watch::new();
 

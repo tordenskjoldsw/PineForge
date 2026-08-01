@@ -11,7 +11,7 @@ use pineforge_state::DfuFailReason;
 use crate::canvas::{Canvas, CanvasError};
 use crate::font::{hint_text, ui_text};
 use crate::{
-    render::{draw_visible, round_corners},
+    render::{draw_progress_bar, draw_visible},
     theme,
 };
 
@@ -59,38 +59,10 @@ fn draw_percent(canvas: &mut Canvas<'_>, percent: u8) -> Result<(), CanvasError>
     )
 }
 
-/// Draws the whole bar: the filled part, the track beyond it, and the corner
-/// mask that rounds both.
-///
-/// The unfilled part is `SURFACE` rather than the background, which is the
-/// difference between a bar and an outlined empty box. A track that is visible
-/// the whole way across says how far there is to go; an outline around nothing
-/// only says where the bar would be if it had one.
-///
-/// Both halves are painted rather than only the filled one, so a bar that ever
-/// moves backwards - a transfer restarted - does not keep the fill it had.
-///
-/// The rounding happens here rather than at the call that draws the screen,
-/// because this is also the partial path: a percentage step repaints the
-/// interior, and corners masked once would be filled straight back in.
+/// The transfer's progress, in the bar every screen reporting progress uses.
 fn fill_bar(canvas: &mut Canvas<'_>, percent: u8) -> Result<(), CanvasError> {
     let filled = u32::from(percent) * BAR.size.width / 100;
-    if filled > 0 {
-        canvas.fill_solid(
-            &Rectangle::new(BAR.top_left, Size::new(filled, BAR.size.height)),
-            theme::ACCENT,
-        )?;
-    }
-    if filled < BAR.size.width {
-        canvas.fill_solid(
-            &Rectangle::new(
-                Point::new(BAR.top_left.x + filled.cast_signed(), BAR.top_left.y),
-                Size::new(BAR.size.width - filled, BAR.size.height),
-            ),
-            theme::SURFACE,
-        )?;
-    }
-    round_corners(&BAR, canvas)
+    draw_progress_bar(canvas, &BAR, filled, theme::ACCENT)
 }
 
 /// Draws a full-screen firmware-update progress screen, mirroring

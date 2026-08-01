@@ -72,8 +72,20 @@ pub const LINK: Rgb565 = Rgb565::new(8, 40, 31);
 pub const OK: Rgb565 = Rgb565::new(10, 50, 6);
 pub const WARN: Rgb565 = Rgb565::new(31, 63, 0);
 
-// Muted text for disabled entries lands with the component states that need
-// it; a constant nothing uses would only be deleted again.
+/// A control that is there but cannot be used right now.
+///
+/// The palette went without this on purpose: a disabled state was specified
+/// before anything had something to disable, and a colour nothing draws in
+/// drifts out of step with the rest unnoticed. The music transport is what
+/// earned it - with no phone connected its three buttons are the whole screen,
+/// and drawing them as though pressing them would do something is the one
+/// reading that is simply false.
+///
+/// Set between [`SURFACE`] and [`TEXT`] rather than by dimming the accent. It
+/// clears 3:1 against the background so it still reads at backlight level 1,
+/// and it holds about 3.5:1 against the face it sits on, which is what keeps a
+/// disabled control legible as a control rather than as a smudge.
+pub const MUTED: Rgb565 = Rgb565::new(15, 30, 15);
 
 /// Colour of the battery symbol. The thresholds behind the level are product
 /// policy and live in the state crate, host-tested.

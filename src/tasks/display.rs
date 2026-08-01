@@ -1,5 +1,5 @@
 use defmt::{error, info};
-use embassy_futures::select::{Either, Either4, select, select4};
+use embassy_futures::select::{Either, Either3, Either4, select, select3, select4};
 use embassy_nrf::gpio::{Level, Output, OutputDrive};
 use embassy_time::{Delay, Duration, Instant, Timer};
 use mipidsi::interface::SpiInterface;
@@ -12,13 +12,15 @@ use crate::{
     boot::watchdog::BootloaderWatchdog,
     drivers::backlight::Backlight,
     ipc::{
-        NOTIFICATIONS, POWER_COMMANDS, SETTINGS_COMMANDS, UI_EVENTS, VIBRATION_COMMANDS,
-        display_settings_receiver, system_power_receiver, wall_clock_receiver,
+        MUSIC_CONTROL, NOTIFICATIONS, POWER_COMMANDS, SETTINGS_COMMANDS, UI_EVENTS,
+        VIBRATION_COMMANDS, display_settings_receiver, music_state_receiver, system_power_receiver,
+        wall_clock_receiver,
     },
 };
 use pineforge_state::{
     AppEffect, AppEvent, AppState, DisplaySettings, HeartRateCommand, ModalOutcome, ModalState,
-    Notification, PowerCommand, ScreenId, SystemPowerState, VibrationPattern, panel_backlight,
+    MusicControl, MusicState, Notification, PowerCommand, ScreenId, SystemPowerState,
+    VibrationPattern, panel_backlight,
 };
 use pineforge_ui::{
     about::BuildInfo,
@@ -87,6 +89,24 @@ fn file(screens: &mut Screens, notification: Notification) -> DisplayEvent {
     DisplayEvent::Ui(AppEvent::NotificationsChanged(
         screens.notifications.file(notification),
     ))
+}
+
+/// Puts what the phone is playing in front of the screen that shows it, and
+/// reports only that it moved.
+///
+/// Filed here for the same reason a notification is: the record is two 40-byte
+/// text buffers, and carrying one through the event channel would cost that
+/// against the channel's whole capacity for something that changes a few times
+/// an hour.
+///
+/// The uptime is taken here rather than by the screen, and it has to be this
+/// base - the one the tick uses. The BLE task cannot supply it: its clock reads
+/// from a different zero, and the elapsed time is the difference between the
+/// two readings.
+fn play(screens: &mut Screens, state: &MusicState, started_at: Instant) -> DisplayEvent {
+    let uptime_seconds = Instant::now().duration_since(started_at).as_secs();
+    let _ = screens.music.apply(state, uptime_seconds);
+    DisplayEvent::Ui(AppEvent::MusicUpdated)
 }
 
 /// The panel, once it is up and pointed the right way round.
@@ -205,6 +225,7 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
     let mut power_receiver = system_power_receiver();
     let mut settings_receiver = display_settings_receiver();
     let mut wall_clock = wall_clock_receiver();
+    let mut music = music_state_receiver();
     let mut wall_clock_reference = None;
     let mut power = power_receiver.get().await;
     let mut ignore_input_until = started_at;
@@ -224,23 +245,28 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
         // inbox by the time the watch is woken, and leaving it queued would
         // block the one behind it.
         let display_event = if power == SystemPowerState::Sleeping {
-            match select4(
-                UI_EVENTS.receive(),
-                power_receiver.changed(),
-                settings_receiver.changed(),
-                NOTIFICATIONS.receive(),
+            match select(
+                select4(
+                    UI_EVENTS.receive(),
+                    power_receiver.changed(),
+                    settings_receiver.changed(),
+                    NOTIFICATIONS.receive(),
+                ),
+                music.changed(),
             )
             .await
             {
-                Either4::First(event) => DisplayEvent::Ui(event),
-                Either4::Second(state) => DisplayEvent::Power(state),
-                Either4::Third(snapshot) => DisplayEvent::Settings(snapshot),
-                Either4::Fourth(notification) => file(&mut screens, notification),
+                Either::Second(state) => play(&mut screens, &state, started_at),
+                Either::First(Either4::First(event)) => DisplayEvent::Ui(event),
+                Either::First(Either4::Second(state)) => DisplayEvent::Power(state),
+                Either::First(Either4::Third(snapshot)) => DisplayEvent::Settings(snapshot),
+                Either::First(Either4::Fourth(notification)) => file(&mut screens, notification),
             }
         } else {
-            // Nested because there is no `select5`, and the notification is the
-            // input least entangled with the other four.
-            match select(
+            // Nested because there is no `select6`, and the notification and
+            // the music record are the inputs least entangled with the other
+            // four - both are filed straight into the screen that holds them.
+            match select3(
                 select4(
                     UI_EVENTS.receive(),
                     Timer::at(next_tick),
@@ -248,12 +274,14 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                     settings_receiver.changed(),
                 ),
                 NOTIFICATIONS.receive(),
+                music.changed(),
             )
             .await
             {
-                Either::Second(notification) => file(&mut screens, notification),
-                Either::First(Either4::First(event)) => DisplayEvent::Ui(event),
-                Either::First(Either4::Second(())) => {
+                Either3::Second(notification) => file(&mut screens, notification),
+                Either3::Third(state) => play(&mut screens, &state, started_at),
+                Either3::First(Either4::First(event)) => DisplayEvent::Ui(event),
+                Either3::First(Either4::Second(())) => {
                     let now = Instant::now();
                     while next_tick <= now {
                         next_tick += Duration::from_secs(1);
@@ -273,8 +301,8 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                             .map(|reference| reference.date_at(now.as_secs())),
                     })
                 }
-                Either::First(Either4::Third(state)) => DisplayEvent::Power(state),
-                Either::First(Either4::Fourth(snapshot)) => DisplayEvent::Settings(snapshot),
+                Either3::First(Either4::Third(state)) => DisplayEvent::Power(state),
+                Either3::First(Either4::Fourth(snapshot)) => DisplayEvent::Settings(snapshot),
             }
         };
         let now = Instant::now();
@@ -598,6 +626,20 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                 HEART_RATE_COMMANDS.send(command).await;
                 let _ = VIBRATION_COMMANDS.try_send(VibrationPattern::Tap);
             }
+            AppEffect::MusicControl(control) => {
+                // The phone owns the player; the watch only asks. A full queue
+                // means the radio has not sent the last request yet, and
+                // dropping one is a button that did nothing - recoverable by
+                // pressing it again, where stalling the repaint here would not
+                // be.
+                let _ = MUSIC_CONTROL.try_send(control);
+                let _ = VIBRATION_COMMANDS.try_send(VibrationPattern::Tap);
+                let _ = screens.draw_dirty(
+                    app.active_screen(),
+                    &mut Canvas::new(&mut display),
+                    &mut || watchdog.pet(),
+                );
+            }
             AppEffect::Reboot | AppEffect::RequestRollback => {
                 info!("Restart requested from software");
                 // The haptic tick is the acknowledgement the user gets; the
@@ -612,6 +654,15 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                 // settings leaf, and a leaf must edit the record that is
                 // current rather than one it kept from an earlier visit.
                 screens.enter(app.active_screen(), settings);
+                // Opening the music screen is Gadgetbridge's cue to push what
+                // is playing. Without it a screen opened mid-track shows the
+                // last thing that was written, which after a fresh boot is
+                // nothing at all. It sits here rather than in `enter` because
+                // `enter` returns nothing and is called on every navigation;
+                // widening it for one screen would be the larger change.
+                if app.active_screen() == ScreenId::Music {
+                    let _ = MUSIC_CONTROL.try_send(MusicControl::Open);
+                }
                 #[cfg(not(feature = "ui-animations"))]
                 let _ = navigation;
                 #[cfg(feature = "ui-animations")]

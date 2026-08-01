@@ -742,6 +742,8 @@ pub enum ScreenId {
     Pulse,
     /// The day's step count, and how far it is through the daily goal.
     Steps,
+    /// What the phone is playing, and the transport that changes it.
+    Music,
     #[cfg(feature = "diagnostics")]
     TouchTest,
 }
@@ -749,9 +751,9 @@ pub enum ScreenId {
 impl ScreenId {
     /// How many screens this build has.
     pub const COUNT: usize = if cfg!(feature = "diagnostics") {
-        16
+        17
     } else {
-        15
+        16
     };
 
     /// Every screen, so anything that has to hold for all of them can be
@@ -780,6 +782,7 @@ impl ScreenId {
         Self::Flashlight,
         Self::Pulse,
         Self::Steps,
+        Self::Music,
         #[cfg(feature = "diagnostics")]
         Self::TouchTest,
     ];
@@ -828,8 +831,9 @@ impl ScreenId {
             Self::Flashlight => 12,
             Self::Pulse => 13,
             Self::Steps => 14,
+            Self::Music => 15,
             #[cfg(feature = "diagnostics")]
-            Self::TouchTest => 15,
+            Self::TouchTest => 16,
         }
     }
 }
@@ -884,6 +888,14 @@ pub enum AppEvent {
     /// channel its capacity times a notification; the messages travel on their
     /// own channel and this reports what a tally needs.
     NotificationsChanged(NotificationSummary),
+    /// What the phone is playing changed.
+    ///
+    /// Carries nothing, for the reason the notification tally carries only a
+    /// count: a `MusicState` is two 40-byte text buffers, and an `AppEvent` is
+    /// `Copy` and sits in a fixed-capacity channel. The record itself is filed
+    /// straight into the screen that shows it, exactly as an arriving
+    /// notification is, and this says only that it moved.
+    MusicUpdated,
     DisplaySettingsUpdated(DisplaySettings),
     BleUpdated(BleState),
     StorageUpdated(StorageState),
@@ -924,7 +936,8 @@ impl AppEvent {
             | Self::NotificationsChanged(_)
             | Self::HeartRateStateUpdated(_)
             | Self::HeartRateSensorDetected(_)
-            | Self::HeartRateAnalysisUpdated(_) => true,
+            | Self::HeartRateAnalysisUpdated(_)
+            | Self::MusicUpdated => true,
             #[cfg(feature = "diagnostics")]
             Self::AccelerometerDetected(_)
             | Self::AccelerationUpdated(_)
@@ -980,6 +993,8 @@ pub enum ScreenAction {
     MeasureHeartRate,
     /// Give up on the reading in flight.
     StopHeartRate,
+    /// Ask the phone to do something to what it is playing.
+    MusicControl(MusicControl),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -992,6 +1007,7 @@ pub enum AppEffect {
     Reboot,
     MeasureHeartRate,
     StopHeartRate,
+    MusicControl(MusicControl),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1290,6 +1306,7 @@ impl AppState {
             ScreenAction::Reboot => AppEffect::Reboot,
             ScreenAction::MeasureHeartRate => AppEffect::MeasureHeartRate,
             ScreenAction::StopHeartRate => AppEffect::StopHeartRate,
+            ScreenAction::MusicControl(control) => AppEffect::MusicControl(control),
             ScreenAction::Back => self.pop(),
             ScreenAction::Push(screen) => self.push(screen, None),
         }

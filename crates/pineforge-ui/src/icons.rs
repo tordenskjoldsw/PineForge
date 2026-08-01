@@ -256,6 +256,39 @@ pub const HEART: Icon = [
     0b0000_0000_0000_0000_0000_0000,
 ];
 
+/// Music: a pair of quavers, beamed.
+///
+/// A bitmap, where the screen behind it is drawn from rectangles. The tile grid
+/// is the one place in this firmware where a shape has to sit beside six others
+/// and read as one of a set - a note stepped out of fills would be the odd tile
+/// in a row of icons, which is a worse mismatch than the one it would avoid.
+pub const NOTE: Icon = [
+    0b0000_0000_0000_0000_0000_0000,
+    0b0000_0000_0000_0000_0000_0000,
+    0b0000_0000_0000_0000_0111_1100,
+    0b0000_0000_0000_0011_1111_1100,
+    0b0000_0000_0111_1111_1111_1100,
+    0b0000_0111_1111_1111_1111_1100,
+    0b0000_0111_1111_1100_0000_1100,
+    0b0000_0111_1100_0000_0000_1100,
+    0b0000_0111_1000_0000_0000_1100,
+    0b0000_0111_1000_0000_0000_1100,
+    0b0000_0111_1000_0000_0000_1100,
+    0b0000_0111_1000_0000_0000_1100,
+    0b0000_0111_1000_0000_0000_1100,
+    0b0000_0111_1000_0000_0000_1100,
+    0b0000_0111_1000_0000_0000_1100,
+    0b0000_0111_1000_0000_0000_1100,
+    0b0011_1111_1000_0000_0111_1100,
+    0b0111_1111_1000_0000_1111_1110,
+    0b1111_1111_1000_0001_1111_1111,
+    0b1111_1111_0000_0001_1111_1111,
+    0b0111_1110_0000_0000_1111_1110,
+    0b0011_1100_0000_0000_0111_1100,
+    0b0000_0000_0000_0000_0000_0000,
+    0b0000_0000_0000_0000_0000_0000,
+];
+
 /// The heart between beats, in the same 24x24 box as [`HEART`].
 ///
 /// Two bitmaps rather than a scale at draw time: there is no rasteriser

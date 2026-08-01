@@ -96,6 +96,51 @@ const TEXT_BASELINE_OFFSET: i32 = 27;
 /// it is the same curve on a tile and on a row.
 const CORNER_INSET: [i32; 5] = [5, 3, 2, 1, 1];
 
+/// A filled track: the completed part in `ink`, the rest in `SURFACE`, and the
+/// row curve on both ends.
+///
+/// One bar, wherever something reports how far through it is - a firmware
+/// update, a first-boot format, a track playing. It lived beside the update
+/// screen until the music app needed the same shape, and a second copy of it
+/// would have been two bars that drift apart rather than one that is shared.
+///
+/// The unfilled part is `SURFACE` rather than the background, which is the
+/// difference between a bar and an outlined empty box. A track that is visible
+/// the whole way across says how far there is left to go; an outline around
+/// nothing only says where the bar would be if it had one.
+///
+/// Both halves are painted rather than only the filled one, so a bar that ever
+/// moves backwards - a transfer restarted, a track seeked - does not keep the
+/// fill it had. The rounding happens here too, because this is also the partial
+/// path: corners masked by the caller once would be filled straight back in.
+pub fn draw_progress_bar(
+    canvas: &mut Canvas<'_>,
+    area: &Rectangle,
+    filled: u32,
+    ink: Rgb565,
+) -> Result<(), CanvasError> {
+    let filled = filled.min(area.size.width).cast_signed();
+    let width = area.size.width.cast_signed();
+    let height = area.size.height.cast_signed();
+    fill(
+        canvas,
+        area.top_left.x,
+        area.top_left.y,
+        filled,
+        height,
+        ink,
+    )?;
+    fill(
+        canvas,
+        area.top_left.x + filled,
+        area.top_left.y,
+        width - filled,
+        height,
+        theme::SURFACE,
+    )?;
+    round_corners(area, canvas)
+}
+
 /// Paints the background back over the corners of a filled area.
 pub fn round_corners(area: &Rectangle, canvas: &mut Canvas<'_>) -> Result<(), CanvasError> {
     let width = i32::try_from(area.size.width).unwrap_or(0);

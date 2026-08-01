@@ -34,6 +34,7 @@ pub mod menu;
 #[cfg(feature = "diagnostics")]
 pub mod metrics;
 pub mod modal;
+pub mod music;
 pub mod notifications;
 pub mod pairing;
 #[cfg(test)]
