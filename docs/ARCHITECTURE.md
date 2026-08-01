@@ -258,6 +258,39 @@ charger on the pad never turned `BAT` into `CHG`, because that reading arrives
 exactly when the panel is off. `WatchState`'s host tests now assert that
 anything the state absorbs is something `is_reading()` routes to it.
 
+## The one bus that runs outwards
+
+Every channel in `ipc` carries a subsystem reporting to the display: a battery
+reading, a notification, a DFU result. Music control is the first that goes the
+other way, and it is worth naming because the shape is different.
+
+A control on the watch puts a `MusicControl` on `MUSIC_CONTROL`, and the BLE
+task turns it into one notified byte on the music service's event
+characteristic. Two rules keep that honest. The channel is **emptied when a
+connection opens**, so a button pressed with no phone connected cannot fire
+minutes later on reconnect - the same reasoning that stops a DFU flash result
+from one connection being reaped by the next. And the sender uses `try_send`,
+so a stalled radio drops the command rather than blocking a repaint: a dropped
+transport command is a button that did nothing, which is recoverable by
+pressing it again.
+
+The state comes back on a `Watch` rather than a channel. The phone reports one
+field per characteristic, so a track change arrives as a burst of writes; a
+bounded channel would have to block the GATT loop or drop one, and a dropped
+write leaves the wrong artist standing under the right title. The BLE task
+assembles the record and publishes it whole, so a subscriber that misses an
+update misses nothing.
+
+**Where the elapsed time is anchored, and why it has to be there.** The phone
+writes a position when it changes, not once a second, so the watch keeps it
+moving itself. It does that by storing the position with the uptime it arrived
+at rather than by counting seconds - the music screen does not hold the panel
+on, so a counter would fall behind by exactly however long the watch slept. The
+anchoring happens in the *display* task, not the BLE task, and that is not a
+detail: the two tasks read their clocks from different zeros, and the elapsed
+time is a difference between two readings. Only the task that raises the tick
+can supply the base the tick uses.
+
 ## UI contract
 
 Screens implement the `Screen` trait. A screen receives hardware-independent `UiEvent` values, updates its private state, renders through an `embedded-graphics` draw target, and may return a high-level `ScreenAction`. It does not own or access touch, SPI, BLE, or sensor peripherals directly. Watchfaces will use the same boundary with application state supplied by services.

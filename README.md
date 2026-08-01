@@ -102,6 +102,9 @@ On the watch:
   wake gesture and watchface, all surviving a reboot
 - a flashlight, an on-demand heart-rate reading, and a steps application
   showing the day's count against a goal
+- music control for whatever is playing on the phone: the title and artist, the
+  elapsed time in the watchface's numerals over a progress bar, and a transport
+  of previous, play/pause and next, with volume on the up and down swipes
 - step counting, and heart-rate measurement on a background interval
 - a firmware screen for image confirmation and a software restart, and an about
   screen naming the running build by release, commit and date
@@ -116,6 +119,8 @@ Over Bluetooth, with Gadgetbridge:
 - firmware updates through the Nordic Legacy DFU service, with progress and
   failure reporting on the watch
 - Current Time, Battery and Device Information services
+- `InfiniTime`'s music service, which is the one thing the watch uses to talk
+  first rather than to answer
 
 Underneath:
 

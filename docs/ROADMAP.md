@@ -184,6 +184,13 @@ than as a firmware experiment. It is not reached.
 - notifications received and read on a screen of their own, one per page, on a
   card, with dismissal. Deliberately no tally on the watchface: a count there
   would be a second place to keep the same fact right.
+- music control over `InfiniTime`'s music service, in the FORGE look: the
+  elapsed time in the watchface's numerals, the shared progress bar, and a
+  transport built from rectangles. *Unreleased.* It is the first thing on the
+  event bus that travels from the UI outwards, and the first component with a
+  disabled state - with no phone connected there is nothing its three buttons
+  could do. Not yet exercised against a running Gadgetbridge; see
+  [`TESTED-CONFIGURATIONS.md`](TESTED-CONFIGURATIONS.md).
 
 ### Open
 
@@ -193,7 +200,6 @@ than as a firmware experiment. It is not reached.
 - activity summaries over time; steps are counted and shown for the day, but
   not retained across days
 - weather
-- music controls
 - additional watchfaces and applications
 - external resource packages
 - broader companion-app and OTA integration

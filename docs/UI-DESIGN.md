@@ -36,6 +36,7 @@ names a colour.
 |---|---|---|---|
 | `BACKGROUND` | `0x0000` | black | every screen's ground |
 | `TEXT` | `0xFFFF` | white | labels, titles |
+| `MUTED` | `0x7BCF` | 48% grey | a control that is there but cannot be used |
 | `FRAME` | `0x5ACB` | 35% grey | page marks not on the current page, rules |
 | `SURFACE` | `0x2125` | near-black grey | the face of a tile or a row |
 | `ACCENT` | `0x1E33` | verdigris | values, icons, selection fill |
@@ -79,10 +80,15 @@ mostly black is what it is good at, but a tile that is only an outline reads as
 a frame around nothing; a face one step above the background reads as an object
 that can be pressed.
 
-There is no muted ink. A disabled state was specified here before anything
-needed one, and a colour nothing draws in is a colour that drifts out of step
-with the palette unnoticed. It comes back with the first component that has
-something to disable.
+`MUTED` is the disabled ink, and it was held back until something needed it: a
+colour nothing draws in drifts out of step with the palette unnoticed. The
+music transport is what earned it. Everything that screen does happens at the
+other end of a Bluetooth link, so with no phone connected its three buttons are
+the whole screen, and drawing them as though pressing them would do something
+is the one thing on it that would be actively false. It sits between `SURFACE`
+and `TEXT`: 3:1 against the ground so it survives backlight level 1, and about
+3.5:1 against the face it sits on, which is what keeps a disabled control
+legible as a control rather than as a smudge.
 
 ## Type
 
@@ -257,6 +263,25 @@ A tile carries a 24 x 24 icon above a centred label. Icons are one-bit bitmaps,
 four bytes per row, tinted at draw time so one bitmap serves both the normal and
 the pressed colour. Drawing them as geometry would cost more than storing them:
 a gear built from arcs needs a rasteriser, while its bitmap costs 96 bytes.
+
+## Music
+
+The one screen that has to set arbitrary text and a value at the same time, so
+it is where the rule between the two got written down: **type names things,
+segments carry numbers.** The elapsed time is built from the watchface's
+numerals, the title and artist are the only text, and there is no second value
+set in a face beside them - which is the mixture the FORGE face exists to avoid.
+
+Its progress bar is the shared one and is deliberately not divided into cells.
+The steps gauge has five because each is two thousand steps and a glance reads
+thousands; a track has no such unit, and four minutes cut into fifths would be
+four marks that mean nothing.
+
+The transport is three controls on the row rhythm, in the same column a menu row
+and a notification card occupy, with glyphs stepped out of rectangles the way
+the FORGE face steps its charging bolt. Volume has no on-screen control: it sits
+on the up and down swipes, where `InfiniTime` puts it and where this screen has
+gestures to spare, because a launcher tile opened it and right is what leaves.
 
 ## Menus
 
