@@ -27,6 +27,10 @@ use pineforge_ui::{
     registry::Screens,
     status::{StatusCorner, wears_status},
 };
+
+/// Splits a paint's cost into the bus and the core, before the panel is up.
+#[cfg(feature = "diagnostics")]
+mod bench;
 #[cfg(feature = "ui-animations")]
 use pineforge_ui::{scratch::UiScratch, transition::draw_slide_reveal};
 
@@ -144,7 +148,11 @@ fn init_panel(
 // with the loop, is lifted out above.
 #[allow(clippy::too_many_lines)]
 #[embassy_executor::task]
-pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: BootloaderWatchdog) {
+pub async fn run(
+    resources: DisplayResources,
+    #[allow(unused_mut)] mut spi: DisplaySpi,
+    watchdog: BootloaderWatchdog,
+) {
     let mut backlight = Backlight::new(
         Output::new(resources.backlight_low, Level::High, OutputDrive::Standard),
         Output::new(resources.backlight_mid, Level::High, OutputDrive::Standard),
@@ -153,12 +161,15 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
     backlight.set_level(1);
 
     let mut delay = Delay;
-    let Some(mut display) = init_panel(
-        Output::new(resources.dc, Level::Low, OutputDrive::Standard),
-        Output::new(resources.reset, Level::Low, OutputDrive::Standard),
-        spi,
-        &mut delay,
-    ) else {
+    // Taken here rather than in the call below so the benchmark runs with the
+    // panel held in reset: it puts a frame's worth of bytes on the bus, and the
+    // ST7789 has no business seeing any of them. The reset pulse that starts
+    // the panel comes afterwards, from this same pin.
+    let dc = Output::new(resources.dc, Level::Low, OutputDrive::Standard);
+    let reset = Output::new(resources.reset, Level::Low, OutputDrive::Standard);
+    #[cfg(feature = "diagnostics")]
+    let bench = bench::run(&mut spi, &mut || watchdog.pet());
+    let Some(mut display) = init_panel(dc, reset, spi, &mut delay) else {
         backlight.set_level(0);
         return;
     };
@@ -174,6 +185,10 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
     let started_at = Instant::now();
     let mut next_tick = started_at + Duration::from_secs(1);
     let mut screens = Screens::new();
+    // Taken before this task had a screen registry to put it in, so it is handed
+    // over here rather than recorded where it was measured.
+    #[cfg(feature = "diagnostics")]
+    screens.touch_test.record_bench(bench);
     screens
         .firmware
         .set_confirmed(crate::boot::confirm::is_validated());

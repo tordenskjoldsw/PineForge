@@ -11,7 +11,7 @@ use heapless::String;
 use crate::canvas::{Canvas, CanvasError};
 use crate::font::{AaTextStyle, hint_text, ui_text};
 use crate::{
-    metrics::RenderMetrics,
+    metrics::{BusBench, RenderMetrics},
     render::{draw_mono_text_visible, draw_visible},
     screen::{Paint, Screen},
 };
@@ -41,15 +41,16 @@ pub struct TestScreen {
     /// with no debugger attached.
     stack: Option<(usize, usize)>,
     previous_stack: Option<(usize, usize)>,
-    /// What the last paint straight onto the panel cost, in microseconds.
+    /// What the bus and the core each cost, measured at boot.
     ///
-    /// The transition reports its own split above, and for a long time that was
-    /// the only render this screen could show a number for - which meant the
-    /// paths that actually cost the most, a wake and a face swap, were the ones
-    /// nothing measured. These are those: a full repaint and a partial one, kept
-    /// apart because the whole point is how far apart they are.
-    full_paint_us: Option<u64>,
-    dirty_paint_us: Option<u64>,
+    /// Where the paint line used to be, and it is the better tenant. That line
+    /// reported what a full and a partial repaint cost, but standing on this
+    /// screen overwrote both with this screen's own no-op ticks, so the numbers
+    /// on the panel were never the numbers anybody wanted - which is why it was
+    /// closed as won't-fix rather than repaired. These cannot go the same way:
+    /// they are taken once, before the panel is even up, and nothing that
+    /// happens afterwards can touch them.
+    bench: Option<BusBench>,
 }
 
 impl TestScreen {
@@ -89,17 +90,9 @@ impl TestScreen {
         )
     }
 
-    /// Records what a paint straight onto the panel cost.
-    ///
-    /// Fed by the registry, which is the one place every paint passes through,
-    /// rather than by each of the display task's call sites - a measurement that
-    /// depends on remembering to take it measures the sites somebody remembered.
-    pub const fn record_paint(&mut self, full: bool, micros: u64) {
-        if full {
-            self.full_paint_us = Some(micros);
-        } else {
-            self.dirty_paint_us = Some(micros);
-        }
+    /// Records the boot-time split of a paint's cost.
+    pub const fn record_bench(&mut self, bench: BusBench) {
+        self.bench = Some(bench);
     }
 
     #[cfg(feature = "ui-animations")]
@@ -121,41 +114,68 @@ impl TestScreen {
         let style = hint_text(Rgb565::WHITE, Rgb565::BLACK);
         Self::draw_metric_line(canvas, "F", self.forward_metrics, 154, style)?;
         Self::draw_metric_line(canvas, "B", self.backward_metrics, 170, style)?;
-        Self::draw_max_line(
-            canvas,
-            self.forward_metrics,
-            self.backward_metrics,
-            190,
-            style,
-        )?;
-        // Where the stripe count used to be. That number is `STRIPE_THICKNESS`
-        // divided into the panel and could never say anything a constant does
-        // not; these two can, and there is no fifth line in this band.
-        //
-        // Microseconds for both, and said so. A full repaint runs to six digits
-        // and a partial one to three or four, so the pair only reads as a
-        // comparison if it is in one unit - which is the whole reason they sit
-        // on the same line.
-        let mut paint_line = String::<32>::new();
-        let _ = paint_line.push_str("PAINT us");
-        match self.full_paint_us {
-            Some(micros) => {
-                let _ = write!(paint_line, " F{micros}");
-            }
-            None => {
-                let _ = paint_line.push_str(" F---");
-            }
-        }
-        match self.dirty_paint_us {
-            Some(micros) => {
-                let _ = write!(paint_line, " D{micros}");
-            }
-            None => {
-                let _ = paint_line.push_str(" D---");
-            }
-        }
-        draw_mono_text_visible(&paint_line, Point::new(0, 206), style, canvas)?;
+        // Where the worst-stripe line used to be. It timed the slowest stripe of
+        // a transition, which the two lines above already characterise; these
+        // two answer a question nothing else on this watch can.
+        self.draw_bus_line(canvas, 190, style)?;
+        self.draw_pack_line(canvas, 206, style)?;
         Ok(())
+    }
+
+    /// A frame's worth of bytes onto the bus, one figure per write size.
+    ///
+    /// The sizes are not printed, because five labels and five numbers do not
+    /// fit on 240 pixels and the shape is what is being read anyway: the entries
+    /// run from 255 bytes per write doubling to 4,080, so a row that falls to
+    /// the right means the cost is per call and a bigger buffer would pay again,
+    /// and a flat row means it is per 255-byte DMA chunk and no buffer size
+    /// helps. Against 115 ms, which is what the bus owes for a frame at 8 MHz.
+    fn draw_bus_line(
+        &self,
+        canvas: &mut Canvas<'_>,
+        baseline: i32,
+        style: AaTextStyle,
+    ) -> Result<(), CanvasError> {
+        let mut line = String::<32>::new();
+        let _ = line.push_str("BUS255+");
+        match self.bench {
+            Some(bench) => {
+                for micros in bench.bus_us {
+                    let _ = write!(line, " {}", micros / 1_000);
+                }
+            }
+            None => {
+                let _ = line.push_str(" ---");
+            }
+        }
+        draw_mono_text_visible(&line, Point::new(0, baseline), style, canvas)
+    }
+
+    /// Packing a frame's worth of colours with no bus involved: through a
+    /// concrete iterator, then through a `dyn` one. The gap is what `Canvas`
+    /// costs every screen, one indirect call per pixel.
+    fn draw_pack_line(
+        &self,
+        canvas: &mut Canvas<'_>,
+        baseline: i32,
+        style: AaTextStyle,
+    ) -> Result<(), CanvasError> {
+        let mut line = String::<32>::new();
+        let _ = line.push_str("PACK");
+        match self.bench {
+            Some(bench) => {
+                let _ = write!(
+                    line,
+                    " C{} D{}",
+                    bench.pack_concrete_us / 1_000,
+                    bench.pack_dyn_us / 1_000
+                );
+            }
+            None => {
+                let _ = line.push_str(" ---");
+            }
+        }
+        draw_mono_text_visible(&line, Point::new(0, baseline), style, canvas)
     }
 
     /// Touch contact state, relocated here from the watchface status row.
@@ -197,19 +217,6 @@ impl TestScreen {
         draw_mono_text_visible(&line, Point::new(0, baseline), style, canvas)
     }
 
-    fn draw_max_line(
-        canvas: &mut Canvas<'_>,
-        forward: Option<RenderMetrics>,
-        backward: Option<RenderMetrics>,
-        baseline: i32,
-        style: AaTextStyle,
-    ) -> Result<(), CanvasError> {
-        let mut line = String::<24>::new();
-        let forward_max = forward.map_or(0, |metrics| metrics.max_stripe_us / 1_000);
-        let backward_max = backward.map_or(0, |metrics| metrics.max_stripe_us / 1_000);
-        let _ = write!(line, "MAX F{forward_max} B{backward_max}");
-        draw_mono_text_visible(&line, Point::new(0, baseline), style, canvas)
-    }
 }
 
 impl Paint for TestScreen {
