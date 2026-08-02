@@ -55,7 +55,7 @@ use pineforge_state::{
 
 use crate::{
     canvas::{Canvas, CanvasError},
-    font::{JETBRAINS_MONO_8X18, JETBRAINS_MONO_10X22, body_text, hint_text, ui_text},
+    font::{LIBERATION_MONO_8X18, LIBERATION_MONO_10X22, body_text, hint_text, ui_text},
     render::{PANEL, ROW_WIDTH, ROW_X, draw_mono_text_visible, draw_page_marks, round_corners},
     screen::{Paint, Screen},
     status::STATUS_HEIGHT,
@@ -106,8 +106,8 @@ const HINT_BASELINE_Y: i32 = 232;
 /// written out, so a later change of face moves the wrap with it instead of
 /// silently cutting text a few pixels early or running it off the card.
 const CONTENT_WIDTH_PX: u32 = CONTENT_WIDTH.unsigned_abs();
-const TITLE_COLUMNS: usize = (CONTENT_WIDTH_PX / JETBRAINS_MONO_10X22.cell.width) as usize;
-const BODY_COLUMNS: usize = (CONTENT_WIDTH_PX / JETBRAINS_MONO_8X18.cell.width) as usize;
+const TITLE_COLUMNS: usize = (CONTENT_WIDTH_PX / LIBERATION_MONO_10X22.cell.width) as usize;
+const BODY_COLUMNS: usize = (CONTENT_WIDTH_PX / LIBERATION_MONO_8X18.cell.width) as usize;
 const _: () = assert!(
     BODY_COLUMNS * BODY_LINES >= NOTIFICATION_BODY_MAX,
     "the card cannot hold the longest body the parser accepts"
@@ -455,7 +455,7 @@ mod tests {
     fn the_card_clears_the_corner_above_it_and_the_hint_below() {
         assert!(CARD_TOP >= STATUS_HEIGHT, "the card runs under the corner");
         assert!(
-            CARD_BOTTOM < HINT_BASELINE_Y - JETBRAINS_MONO_10X22.baseline.cast_signed(),
+            CARD_BOTTOM < HINT_BASELINE_Y - LIBERATION_MONO_10X22.baseline.cast_signed(),
             "the card runs into the hint"
         );
         assert!(
@@ -486,8 +486,8 @@ mod tests {
     /// card can still have its descenders drawn over the edge.
     #[test]
     fn the_body_fits_between_the_rule_and_the_cards_foot() {
-        let baseline = JETBRAINS_MONO_8X18.baseline.cast_signed();
-        let height = JETBRAINS_MONO_8X18.cell.height.cast_signed();
+        let baseline = LIBERATION_MONO_8X18.baseline.cast_signed();
+        let height = LIBERATION_MONO_8X18.cell.height.cast_signed();
         let last = BODY_FIRST_BASELINE_Y + BODY_LINE_STEP * (BODY_LINES as i32 - 1);
         let first_top = BODY_FIRST_BASELINE_Y - baseline;
         let last_bottom = last - baseline + height;
@@ -504,7 +504,7 @@ mod tests {
     #[test]
     fn body_lines_are_set_with_leading() {
         assert!(
-            BODY_LINE_STEP > JETBRAINS_MONO_8X18.cell.height.cast_signed(),
+            BODY_LINE_STEP > LIBERATION_MONO_8X18.cell.height.cast_signed(),
             "body lines are set solid or overlapping"
         );
     }

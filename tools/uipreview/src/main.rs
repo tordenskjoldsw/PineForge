@@ -21,8 +21,8 @@ use embedded_graphics::{
 use pineforge_state::{
     AccelerometerKind, AppEvent, BatteryStatus, BleState, CalendarDate, DfuFailReason,
     DisplaySettings, FirmwareImageState, FlashStatus, HeartRateSensorKind, HeartRateState,
-    MusicState, PeripheralStatus, ScreenId, StackUsage, SwipeDirection, WallTime, parse_new_alert,
-    StopwatchControl,
+    MusicState, PeripheralStatus, ScreenId, StackUsage, StopwatchControl, SwipeDirection,
+    TimerControl, WallTime, parse_new_alert,
 };
 use pineforge_ui::{
     about::BuildInfo,
@@ -31,6 +31,7 @@ use pineforge_ui::{
     pairing::draw_pairing,
     registry::Screens,
     status::StatusCorner,
+    timer::draw_expired_modal,
 };
 
 const SIDE: u32 = 240;
@@ -195,6 +196,9 @@ fn populate(screens: &mut Screens, status: &mut StatusCorner) {
     screens.stopwatch.control(StopwatchControl::Start, 1_000);
     let _ = screens.handle(ScreenId::Stopwatch, AppEvent::StopwatchTick(754_490));
 
+    let _ = screens.timer.control(TimerControl::Start, 1_000);
+    let _ = screens.handle(ScreenId::Timer, AppEvent::TimerTick(67_000));
+
     // Two messages, so the notification screen shows its paging rather than its
     // empty state.
     for payload in [
@@ -266,7 +270,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         &'a dyn Fn(&mut Canvas<'_>) -> Result<(), CanvasError>,
     );
 
-    let modals: [Modal<'_>; 6] = [
+    let modals: [Modal<'_>; 7] = [
         ("modal-dfu-progress", &|c| {
             draw_dfu_progress(c, 42, &mut || {})
         }),
@@ -283,6 +287,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             draw_storage_progress(c, 66, &mut || {})
         }),
         ("modal-pairing", &|c| draw_pairing(c, 123_456, &mut || {})),
+        ("modal-timer", &|c| draw_expired_modal(c, &mut || {})),
     ];
     for (name, draw) in modals {
         let mut framebuffer = Framebuffer::new();

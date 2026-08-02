@@ -26,9 +26,9 @@ use heapless::String;
 use pineforge_state::{AppEvent, ScreenAction};
 
 use crate::canvas::{Canvas, CanvasError};
-use crate::font::JETBRAINS_MONO_6X14;
+use crate::font::LIBERATION_MONO_6X14;
 use crate::{
-    render::{PANEL, draw_centred, fill},
+    render::{PANEL, draw_centred, draw_instrument_centred, fill},
     screen::{Paint, Screen},
     segment::{SegmentSize, draw_cell, right_aligned},
     theme,
@@ -210,7 +210,7 @@ impl StepsScreen {
         // between the parts are filled, and every part covers its own area.
         fill(canvas, 0, 0, panel_right, DIGITS_Y, theme::BACKGROUND)?;
         keep_alive();
-        draw_centred("STEPS", LABEL_BASELINE_Y, theme::TEXT, canvas)?;
+        draw_instrument_centred("STEPS", LABEL_BASELINE_Y, theme::ACCENT, canvas)?;
 
         // Beside the digits, over their rows.
         fill(
@@ -337,9 +337,9 @@ impl Screen for StepsScreen {
         fill(
             canvas,
             0,
-            FOOTER_BASELINE_Y - JETBRAINS_MONO_6X14.baseline.cast_signed(),
+            FOOTER_BASELINE_Y - LIBERATION_MONO_6X14.baseline.cast_signed(),
             PANEL.size.width.cast_signed(),
-            JETBRAINS_MONO_6X14.cell.height.cast_signed(),
+            LIBERATION_MONO_6X14.cell.height.cast_signed(),
             theme::BACKGROUND,
         )?;
         draw_centred(&footer, FOOTER_BASELINE_Y, ink, canvas)

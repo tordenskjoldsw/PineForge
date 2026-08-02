@@ -14,7 +14,7 @@ use heapless::String;
 use pineforge_state::{BleState, CalendarDate};
 
 use crate::canvas::{Canvas, CanvasError};
-use crate::font::{JETBRAINS_MONO_10X22, ui_text};
+use crate::font::{LIBERATION_MONO_10X22, ui_text};
 use crate::render::draw_mono_text_visible;
 
 pub const ROW_HEIGHT: u32 = 25;
@@ -24,7 +24,7 @@ const VALUE_X: i32 = 70;
 /// Read from the font rather than written out, so a later change of face moves
 /// the redraw boundaries with it instead of silently shifting them off the
 /// glyphs they are meant to land between.
-const GLYPH_WIDTH: i32 = JETBRAINS_MONO_10X22.cell.width.cast_signed();
+const GLYPH_WIDTH: i32 = LIBERATION_MONO_10X22.cell.width.cast_signed();
 /// Baseline of a row's text, measured from its top edge.
 const BASELINE_OFFSET: i32 = 20;
 
@@ -194,8 +194,8 @@ pub fn draw(
     let right = left + width;
 
     // Where the glyph cells actually sit, taken from the face being drawn in.
-    let band_top = baseline - JETBRAINS_MONO_10X22.baseline.cast_signed();
-    let band_bottom = band_top + JETBRAINS_MONO_10X22.cell.height.cast_signed();
+    let band_top = baseline - LIBERATION_MONO_10X22.baseline.cast_signed();
+    let band_bottom = band_top + LIBERATION_MONO_10X22.cell.height.cast_signed();
 
     // Above and below the text, full width.
     fill(canvas, left, top, width, band_top - top)?;

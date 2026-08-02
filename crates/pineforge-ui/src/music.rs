@@ -131,9 +131,9 @@ const HINT_BASELINE_Y: i32 = 232;
 /// Characters of each line that fit across the panel, from the faces
 /// themselves so a later change of face moves the cut with them.
 const TITLE_COLUMNS: usize =
-    (PANEL.size.width / crate::font::JETBRAINS_MONO_10X22.cell.width - 2) as usize;
+    (PANEL.size.width / crate::font::LIBERATION_MONO_10X22.cell.width - 2) as usize;
 const ARTIST_COLUMNS: usize =
-    (PANEL.size.width / crate::font::JETBRAINS_MONO_8X18.cell.width - 2) as usize;
+    (PANEL.size.width / crate::font::LIBERATION_MONO_8X18.cell.width - 2) as usize;
 
 /// Which control a slot holds. Ordered as they are drawn, left to right.
 const SLOTS: usize = 3;

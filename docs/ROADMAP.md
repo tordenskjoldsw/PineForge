@@ -23,10 +23,12 @@ milestone should leave the sealed PineTime in a testable and recoverable state.
   About/system-status view. Both have run on the known watch. Music sleep,
   reconnection and media-application switching, rare status failures and other
   PineTime variants remain untested.
-- `v0.6.0` development: the FORGE-style stopwatch is implemented with a
-  host-tested monotonic model and partial rendering, and has passed its first
-  hardware test on the known watch. The timer remains next; neither needs a new
-  phone integration.
+- `v0.6.0` development: the FORGE-style stopwatch has passed its first hardware
+  test on the known watch. The countdown timer is implemented with a
+  host-tested monotonic deadline, partial rendering and a system-wide wake and
+  alarm path. Its first hardware build worked; the heavier labels and longer
+  cancellable alarm requested from that test await a second hardware check.
+  Neither needs a new phone integration.
 
 Work that has landed on `main` but not in a tagged release is marked
 *unreleased* below. Everything else in a **Complete** section has shipped.
@@ -213,14 +215,20 @@ than as a firmware experiment. It is not reached.
   Its elapsed time is anchored to monotonic uptime rather than repaint ticks,
   and controls, navigation away and display sleep have passed on the known
   watch as well as in host tests.
+- *unreleased*: a 1-to-99-minute FORGE countdown with pause, resume and cancel.
+  A monotonic deadline remains scheduled while another app is showing or the
+  panel sleeps; at zero it raises a full-screen dismissible modal, wakes the
+  display and plays a cancellable alarm pattern for about five seconds. Its
+  primary labels use a dedicated heavier FORGE cut. Model, modal precedence and
+  rendering are host-tested; the original timer passed on hardware and these
+  two refinements await retesting.
 
 ### Open
 
 - notification text in a face the panel can show - the screen reads the ASCII
   range the atlas covers, so accented characters draw as gaps
-- timer is next and can reuse the stopwatch's proven monotonic time primitive
-  without a new phone integration. Alarms follow once countdown timing is
-  proven.
+- wall-clock alarms and reminders can reuse the countdown's system wake and
+  modal path once the timer has passed hardware validation
 - activity summaries over time; steps are counted and shown for the day, but
   not retained across days
 - weather

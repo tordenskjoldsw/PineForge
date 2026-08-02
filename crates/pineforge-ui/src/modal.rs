@@ -18,6 +18,7 @@ use crate::{
     canvas::{Canvas, CanvasError},
     dfu::{draw_dfu_failed, draw_dfu_progress, draw_storage_progress, refresh_progress},
     pairing::draw_pairing,
+    timer::draw_expired_modal,
 };
 
 /// Draws the modal that owns the screen.
@@ -31,6 +32,7 @@ pub fn draw(
         Modal::Pairing(passkey) => draw_pairing(canvas, passkey, keep_alive),
         Modal::DfuProgress(percent) => draw_dfu_progress(canvas, percent, keep_alive),
         Modal::DfuFailed(reason) => draw_dfu_failed(canvas, reason, keep_alive),
+        Modal::TimerExpired => draw_expired_modal(canvas, keep_alive),
     }
 }
 
@@ -49,6 +51,8 @@ pub fn refresh(
         Modal::StorageFormat(percent) | Modal::DfuProgress(percent) => {
             refresh_progress(canvas, percent, keep_alive)
         }
-        Modal::Pairing(_) | Modal::DfuFailed(_) => draw(canvas, modal, keep_alive),
+        Modal::Pairing(_) | Modal::DfuFailed(_) | Modal::TimerExpired => {
+            draw(canvas, modal, keep_alive)
+        }
     }
 }

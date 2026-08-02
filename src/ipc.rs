@@ -135,6 +135,19 @@ pub static BOND_LOADED: Signal<CriticalSectionRawMutex, Option<StoredBond>> = Si
 pub static VIBRATION_COMMANDS: Channel<CriticalSectionRawMutex, VibrationPattern, 4> =
     Channel::new();
 
+/// Latched countdown alarm for the vibration task.
+///
+/// Unlike button feedback this must not be dropped when the ordinary queue is
+/// full. A signal remains set while the motor finishes its current pattern and
+/// is consumed before the task waits again.
+#[derive(Clone, Copy)]
+pub enum VibrationAlarmSignal {
+    Start,
+    Cancel,
+}
+
+pub static VIBRATION_ALARM: Signal<CriticalSectionRawMutex, VibrationAlarmSignal> = Signal::new();
+
 /// Latest battery measurement for the BLE battery service.
 pub static BATTERY_STATUS: Watch<CriticalSectionRawMutex, BatteryStatus, 2> = Watch::new();
 

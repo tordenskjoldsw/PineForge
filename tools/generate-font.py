@@ -18,10 +18,10 @@ buy nothing.
 
 Example:
     tools/generate-font.py \
-        --font third_party/jetbrains-mono/JetBrainsMono-Medium.ttf \
+        --font third_party/liberation-mono/LiberationMono-Bold.ttf \
         --em 20 --cell 12x27 --bpp 4 \
-        --name JETBRAINS_MONO_12X27 \
-        --out src/ui/font/jetbrains_mono_12x27.rs
+        --name LIBERATION_MONO_12X27 \
+        --out src/ui/font/liberation_mono_12x27.rs
 """
 
 import argparse

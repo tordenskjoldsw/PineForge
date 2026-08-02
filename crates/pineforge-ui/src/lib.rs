@@ -54,6 +54,7 @@ pub mod stopwatch;
 #[cfg(feature = "diagnostics")]
 pub mod test_screen;
 pub mod theme;
+pub mod timer;
 #[cfg(feature = "ui-animations")]
 pub mod transition;
 pub mod watchface;
@@ -160,7 +161,7 @@ mod tests {
     /// Every prompt that can own the panel, with a value that exercises its
     /// widest layout: the longest passkey, a percentage of three digits, and
     /// the failure carrying the most text.
-    fn every_modal() -> [pineforge_state::Modal; 5] {
+    fn every_modal() -> [pineforge_state::Modal; 6] {
         use pineforge_state::{DfuFailReason, Modal};
         [
             Modal::StorageFormat(100),
@@ -168,6 +169,7 @@ mod tests {
             Modal::DfuProgress(100),
             Modal::DfuFailed(DfuFailReason::FlashUnrecognized([0xde, 0xad, 0xbe])),
             Modal::DfuFailed(DfuFailReason::NotConfirmed),
+            Modal::TimerExpired,
         ]
     }
 

@@ -1,5 +1,5 @@
 use defmt::{error, info};
-use embassy_futures::select::{Either, Either3, Either4, select, select3, select4};
+use embassy_futures::select::{Either3, Either4, select3, select4};
 use embassy_nrf::gpio::{Level, Output, OutputDrive};
 use embassy_time::{Delay, Duration, Instant, Timer};
 use mipidsi::interface::SpiInterface;
@@ -13,14 +13,14 @@ use crate::{
     drivers::backlight::Backlight,
     ipc::{
         MUSIC_CONTROL, NOTIFICATIONS, POWER_COMMANDS, SETTINGS_COMMANDS, UI_EVENTS,
-        VIBRATION_COMMANDS, display_settings_receiver, music_state_receiver, system_power_receiver,
-        wall_clock_receiver,
+        VIBRATION_ALARM, VIBRATION_COMMANDS, VibrationAlarmSignal, display_settings_receiver,
+        music_state_receiver, system_power_receiver, wall_clock_receiver,
     },
 };
 use pineforge_state::{
-    AppEffect, AppEvent, AppState, DisplaySettings, HeartRateCommand, ModalOutcome, ModalState,
-    MusicControl, MusicState, Notification, PowerCommand, ScreenId, SystemPowerState,
-    VibrationPattern, panel_backlight,
+    AppEffect, AppEvent, AppState, DisplaySettings, HeartRateCommand, Modal, ModalOutcome,
+    ModalState, MusicControl, MusicState, Notification, PowerCommand, ScreenId, SystemPowerState,
+    TimerOutcome, VibrationPattern, panel_backlight,
 };
 use pineforge_ui::{
     about::BuildInfo,
@@ -73,6 +73,33 @@ fn refresh_interval(active: ScreenId) -> Duration {
         STOPWATCH_REFRESH
     } else {
         Duration::from_secs(1)
+    }
+}
+
+/// Absolute Embassy deadline corresponding to the timer's task-relative
+/// monotonic value. `MAX` is a pending timer without allocating another
+/// optional future when no countdown is running.
+fn timer_deadline(screens: &Screens, started_at: Instant) -> Instant {
+    screens
+        .timer
+        .deadline_millis()
+        .map_or(Instant::MAX, |millis| {
+            started_at + Duration::from_millis(millis)
+        })
+}
+
+/// Advances the retained countdown and raises its one-shot alarm event.
+fn expire_timer(screens: &mut Screens, started_at: Instant, now: Instant) -> Option<AppEvent> {
+    if matches!(
+        screens
+            .timer
+            .observe(now.duration_since(started_at).as_millis()),
+        TimerOutcome::Expired
+    ) {
+        VIBRATION_ALARM.signal(VibrationAlarmSignal::Start);
+        Some(AppEvent::TimerExpired)
+    } else {
+        None
     }
 }
 
@@ -258,7 +285,7 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
         // inbox by the time the watch is woken, and leaving it queued would
         // block the one behind it.
         let display_event = if power == SystemPowerState::Sleeping {
-            match select(
+            match select3(
                 select4(
                     UI_EVENTS.receive(),
                     power_receiver.changed(),
@@ -266,23 +293,31 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                     NOTIFICATIONS.receive(),
                 ),
                 music.changed(),
+                Timer::at(timer_deadline(&screens, started_at)),
             )
             .await
             {
-                Either::Second(state) => play(&mut screens, &state, started_at),
-                Either::First(Either4::First(event)) => DisplayEvent::Ui(event),
-                Either::First(Either4::Second(state)) => DisplayEvent::Power(state),
-                Either::First(Either4::Third(snapshot)) => DisplayEvent::Settings(snapshot),
-                Either::First(Either4::Fourth(notification)) => file(&mut screens, notification),
+                Either3::Second(state) => play(&mut screens, &state, started_at),
+                Either3::Third(()) => {
+                    let Some(event) = expire_timer(&mut screens, started_at, Instant::now()) else {
+                        continue;
+                    };
+                    DisplayEvent::Ui(event)
+                }
+                Either3::First(Either4::First(event)) => DisplayEvent::Ui(event),
+                Either3::First(Either4::Second(state)) => DisplayEvent::Power(state),
+                Either3::First(Either4::Third(snapshot)) => DisplayEvent::Settings(snapshot),
+                Either3::First(Either4::Fourth(notification)) => file(&mut screens, notification),
             }
         } else {
             // Nested because there is no `select6`, and the notification and
             // the music record are the inputs least entangled with the other
             // four - both are filed straight into the screen that holds them.
+            let scheduled = next_tick.min(timer_deadline(&screens, started_at));
             match select3(
                 select4(
                     UI_EVENTS.receive(),
-                    Timer::at(next_tick),
+                    Timer::at(scheduled),
                     power_receiver.changed(),
                     settings_receiver.changed(),
                 ),
@@ -296,29 +331,40 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                 Either3::First(Either4::First(event)) => DisplayEvent::Ui(event),
                 Either3::First(Either4::Second(())) => {
                     let now = Instant::now();
-                    let interval = refresh_interval(app.active_screen());
-                    while next_tick <= now {
-                        next_tick += interval;
-                    }
-                    if app.active_screen() == ScreenId::Stopwatch {
-                        DisplayEvent::Ui(AppEvent::StopwatchTick(
-                            now.duration_since(started_at).as_millis(),
-                        ))
+                    if timer_deadline(&screens, started_at) <= now {
+                        let Some(event) = expire_timer(&mut screens, started_at, now) else {
+                            continue;
+                        };
+                        DisplayEvent::Ui(event)
                     } else {
-                        if let Some(reference) = wall_clock.try_changed() {
-                            wall_clock_reference = Some(reference);
+                        let interval = refresh_interval(app.active_screen());
+                        while next_tick <= now {
+                            next_tick += interval;
                         }
-                        // The wall-clock reference is anchored to absolute uptime,
-                        // so it must be sampled with the same base; the displayed
-                        // uptime stays relative to this task's start.
-                        let uptime_seconds = now.duration_since(started_at).as_secs();
-                        DisplayEvent::Ui(AppEvent::Tick {
-                            uptime_seconds,
-                            wall_time: wall_clock_reference
-                                .map(|reference| reference.wall_time_at(now.as_secs())),
-                            date: wall_clock_reference
-                                .map(|reference| reference.date_at(now.as_secs())),
-                        })
+                        if app.active_screen() == ScreenId::Stopwatch {
+                            DisplayEvent::Ui(AppEvent::StopwatchTick(
+                                now.duration_since(started_at).as_millis(),
+                            ))
+                        } else if app.active_screen() == ScreenId::Timer {
+                            DisplayEvent::Ui(AppEvent::TimerTick(
+                                now.duration_since(started_at).as_millis(),
+                            ))
+                        } else {
+                            if let Some(reference) = wall_clock.try_changed() {
+                                wall_clock_reference = Some(reference);
+                            }
+                            // The wall-clock reference is anchored to absolute uptime,
+                            // so it must be sampled with the same base; the displayed
+                            // uptime stays relative to this task's start.
+                            let uptime_seconds = now.duration_since(started_at).as_secs();
+                            DisplayEvent::Ui(AppEvent::Tick {
+                                uptime_seconds,
+                                wall_time: wall_clock_reference
+                                    .map(|reference| reference.wall_time_at(now.as_secs())),
+                                date: wall_clock_reference
+                                    .map(|reference| reference.date_at(now.as_secs())),
+                            })
+                        }
                     }
                 }
                 Either3::First(Either4::Third(state)) => DisplayEvent::Power(state),
@@ -353,8 +399,14 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                             if let Some(reference) = wall_clock.try_changed() {
                                 wall_clock_reference = Some(reference);
                             }
+                            let uptime_millis = now.duration_since(started_at).as_millis();
                             let tick = if app.active_screen() == ScreenId::Stopwatch {
-                                AppEvent::StopwatchTick(now.duration_since(started_at).as_millis())
+                                AppEvent::StopwatchTick(uptime_millis)
+                            } else if app.active_screen() == ScreenId::Timer {
+                                if let Some(event) = expire_timer(&mut screens, started_at, now) {
+                                    let _ = UI_EVENTS.try_send(event);
+                                }
+                                AppEvent::TimerTick(uptime_millis)
                             } else {
                                 let uptime_seconds = now.duration_since(started_at).as_secs();
                                 AppEvent::Tick {
@@ -476,7 +528,11 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
 
         // System modals rank above the screen stack, so they claim the event
         // first; only `None` leaves it to the active screen.
+        let timer_alarm_showing = matches!(modals.current(), Some(Modal::TimerExpired));
         let modal_outcome = modals.handle(event);
+        if timer_alarm_showing && matches!(modal_outcome, ModalOutcome::Dismissed { .. }) {
+            VIBRATION_ALARM.signal(VibrationAlarmSignal::Cancel);
+        }
         match modal_outcome {
             ModalOutcome::Show(showing) | ModalOutcome::Refresh(showing) => {
                 let _ = display.wake(&mut delay);
@@ -676,6 +732,25 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                     &mut || watchdog.pet(),
                 );
             }
+            AppEffect::TimerControl(control) => {
+                let outcome = screens
+                    .timer
+                    .control(control, now.duration_since(started_at).as_millis());
+                if matches!(outcome, TimerOutcome::Expired) {
+                    VIBRATION_ALARM.signal(VibrationAlarmSignal::Start);
+                    let _ = UI_EVENTS.try_send(AppEvent::TimerExpired);
+                } else {
+                    let _ = VIBRATION_COMMANDS.try_send(VibrationPattern::Tap);
+                }
+                // Starting aligns the first decrement with the touch that set
+                // the deadline; pausing or cancelling drops the old cadence.
+                next_tick = now + refresh_interval(app.active_screen());
+                let _ = screens.draw_dirty(
+                    app.active_screen(),
+                    &mut Canvas::new(&mut display),
+                    &mut || watchdog.pet(),
+                );
+            }
             AppEffect::Reboot | AppEffect::RequestRollback => {
                 info!("Restart requested from software");
                 // The haptic tick is the acknowledgement the user gets; the
@@ -695,6 +770,10 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                         ScreenId::Stopwatch,
                         AppEvent::StopwatchTick(now.duration_since(started_at).as_millis()),
                     );
+                } else if app.active_screen() == ScreenId::Timer
+                    && let Some(event) = expire_timer(&mut screens, started_at, now)
+                {
+                    let _ = UI_EVENTS.try_send(event);
                 }
                 next_tick = now + refresh_interval(app.active_screen());
                 // Asks what is playing, the way `InfiniTime` asks it. Nothing

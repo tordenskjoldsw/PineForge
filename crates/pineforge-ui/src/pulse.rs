@@ -36,7 +36,7 @@ use pineforge_state::{
 use crate::canvas::{Canvas, CanvasError};
 use crate::{
     icons::{self, ICON_SIZE, Icon, draw_icon},
-    render::{PANEL, draw_centred, draw_visible},
+    render::{PANEL, draw_centred, draw_instrument_centred, draw_visible},
     screen::{Paint, Screen},
     segment::{Cell, SegmentSize, draw_cell, right_aligned},
     theme,
@@ -216,7 +216,7 @@ impl PulseScreen {
             canvas,
         )?;
         keep_alive();
-        draw_centred("PULSE", LABEL_BASELINE_Y, theme::TEXT, canvas)?;
+        draw_instrument_centred("PULSE", LABEL_BASELINE_Y, theme::ACCENT, canvas)?;
         self.draw_value(canvas, keep_alive)?;
         draw_icon(self.frame(), HEART_BOX.top_left, theme::ACCENT, canvas)?;
 
@@ -224,7 +224,7 @@ impl PulseScreen {
         // is held at the 3:1 a non-text element needs and would be
         // under-contrast as words; the size is what carries the hierarchy.
         let (status, offer) = readout(self.state);
-        draw_centred(status, STATUS_BASELINE, theme::TEXT, canvas)?;
+        draw_instrument_centred(status, STATUS_BASELINE, theme::ACCENT, canvas)?;
         draw_centred(offer, OFFER_BASELINE, theme::TEXT, canvas)
     }
 }

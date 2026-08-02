@@ -35,6 +35,7 @@ unknown rather than as working.
 | Music control against a phone | Yes, on the one known Gadgetbridge setup: title and artist display correctly; previous, next, pause, resume, volume up, and volume down all work from the watch. |
 | Three-page About/system status | Yes, flashed and displayed on the known sealed PineTime: build, hardware and system pages are reachable. Rare failure values and alternative hardware IDs have not been deliberately exercised. |
 | FORGE stopwatch | Yes, flashed as the `0.6.0+1` development image and exercised on the known sealed PineTime: display, start, pause, resume, reset, navigation away and display sleep all work. |
+| FORGE timer | The `0.6.0+2` development image was flashed and its countdown and alarm worked on the known sealed PineTime. That test found the phase labels too small and thin and the vibration too brief; both are revised in `0.6.0+7`. |
 | Daily wear | Since late July 2026, on my own watch - waking, timekeeping, notifications, settings and charging in ordinary use. Days, not months. |
 
 ## Not established
@@ -51,6 +52,7 @@ unknown rather than as working.
 | Heart-rate accuracy | Readings are produced on demand and on an interval, but never compared against a reference monitor. Neither the accuracy nor the effect of the sampling interval on battery life is known. |
 | Music robustness | Core display and control paths work against the known Gadgetbridge setup. Progress after display sleep, Bluetooth disconnection and reconnection, and switching media applications mid-track have not yet been exercised. |
 | Stopwatch long-run behaviour | Core controls, navigation and display sleep work on hardware, but an extended run has not been compared against a reference clock. |
+| Timer and typography `0.6.0+7` refinements | The larger, genuinely bold timer, stopwatch, steps and pulse labels, the unified Liberation Mono UI family, turquoise normal-state ink and approximately five-second cancellable vibration are host-verified but have not yet been checked on the watch. |
 
 ## Reporting a configuration
 

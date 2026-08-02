@@ -20,6 +20,8 @@ pub enum Modal {
     /// A firmware transfer failed. Terminal, so the user can dismiss it -
     /// otherwise the sealed watch would be stuck until a reboot.
     DfuFailed(DfuFailReason),
+    /// A countdown completed. Any deliberate input acknowledges it.
+    TimerExpired,
 }
 
 impl Modal {
@@ -71,12 +73,17 @@ pub enum ModalOutcome {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ModalState {
     current: Option<Modal>,
+    /// A timer alarm that occurred behind a higher-priority system flow.
+    timer_pending: bool,
 }
 
 impl ModalState {
     #[must_use]
     pub const fn new() -> Self {
-        Self { current: None }
+        Self {
+            current: None,
+            timer_pending: false,
+        }
     }
 
     /// The modal to redraw after waking, if one outlived sleep.
@@ -87,7 +94,39 @@ impl ModalState {
 
     /// Applies an event and reports what the display task should do with it.
     pub const fn handle(&mut self, event: AppEvent) -> ModalOutcome {
+        if matches!(event, AppEvent::TimerExpired) {
+            if matches!(self.current, Some(Modal::TimerExpired)) {
+                return ModalOutcome::Suppressed;
+            }
+            if self.current.is_none() {
+                self.current = Some(Modal::TimerExpired);
+                self.timer_pending = false;
+                return ModalOutcome::Show(Modal::TimerExpired);
+            }
+            self.timer_pending = true;
+            return ModalOutcome::Suppressed;
+        }
+
+        // Pairing, DFU and first-boot formatting outrank the alarm, but taking
+        // the panel from it must remember to restore it afterwards.
+        if matches!(self.current, Some(Modal::TimerExpired))
+            && matches!(
+                event,
+                AppEvent::StorageUpdated(StorageState::Formatting(_))
+                    | AppEvent::BleUpdated(
+                        BleState::Pairing(_) | BleState::DfuProgress(_) | BleState::DfuFailed(_)
+                    )
+            )
+        {
+            self.timer_pending = true;
+        }
+
         let outcome = self.outcome_for(event);
+        if matches!(outcome, ModalOutcome::Dismissed { .. }) && self.timer_pending {
+            self.current = Some(Modal::TimerExpired);
+            self.timer_pending = false;
+            return ModalOutcome::Show(Modal::TimerExpired);
+        }
         match outcome {
             ModalOutcome::Show(modal) | ModalOutcome::Refresh(modal) => self.current = Some(modal),
             ModalOutcome::Dismissed { .. } => self.current = None,
@@ -105,6 +144,7 @@ impl ModalState {
                 | (Some(Modal::Pairing(_)), Modal::Pairing(_))
                 | (Some(Modal::DfuProgress(_)), Modal::DfuProgress(_))
                 | (Some(Modal::DfuFailed(_)), Modal::DfuFailed(_))
+                | (Some(Modal::TimerExpired), Modal::TimerExpired)
         );
         if same {
             ModalOutcome::Refresh(modal)
@@ -146,12 +186,20 @@ impl ModalState {
             return ModalOutcome::None;
         };
         match event {
+            // Connection changes belong behind an alarm; they must not
+            // acknowledge a prompt only the user may dismiss.
+            AppEvent::BleUpdated(_) if matches!(modal, Modal::TimerExpired) => {
+                ModalOutcome::UpdateBehind
+            }
             // Only a terminal BLE state clears a pairing prompt or a transfer,
             // and the screen behind wants that state for its status line.
             AppEvent::BleUpdated(_) => ModalOutcome::Dismissed { deliver: true },
             // A failure screen is terminal, so a tap or swipe dismisses it.
             // The input is consumed here and never also navigates.
             _ if matches!(modal, Modal::DfuFailed(_)) && event.is_user_activity() => {
+                ModalOutcome::Dismissed { deliver: false }
+            }
+            _ if matches!(modal, Modal::TimerExpired) && event.is_user_activity() => {
                 ModalOutcome::Dismissed { deliver: false }
             }
             // Sensor ticks and everything else stay off the prompt.
@@ -176,6 +224,7 @@ mod tests {
         assert!(Modal::DfuProgress(50).renews_activity());
         assert!(!Modal::DfuFailed(DfuFailReason::EraseFailed).renews_activity());
         assert!(!Modal::DfuFailed(DfuFailReason::NotConfirmed).renews_activity());
+        assert!(Modal::TimerExpired.renews_activity());
     }
 
     const TICK: AppEvent = AppEvent::Tick {
@@ -220,6 +269,40 @@ mod tests {
             ModalOutcome::Dismissed { deliver: true }
         );
         assert_eq!(modals.current(), None);
+    }
+
+    #[test]
+    fn a_timer_alarm_requires_user_acknowledgement() {
+        let mut modals = ModalState::new();
+        assert_eq!(
+            modals.handle(AppEvent::TimerExpired),
+            ModalOutcome::Show(Modal::TimerExpired)
+        );
+        assert_eq!(modals.handle(TICK), ModalOutcome::Suppressed);
+        assert_eq!(
+            modals.handle(AppEvent::BleUpdated(BleState::Connected)),
+            ModalOutcome::UpdateBehind
+        );
+        assert_eq!(
+            modals.handle(SWIPE),
+            ModalOutcome::Dismissed { deliver: false }
+        );
+        assert_eq!(modals.current(), None);
+    }
+
+    #[test]
+    fn a_timer_alarm_waits_behind_a_higher_priority_modal() {
+        let mut modals = ModalState::new();
+        let _ = modals.handle(AppEvent::BleUpdated(BleState::Pairing(123_456)));
+        assert_eq!(
+            modals.handle(AppEvent::TimerExpired),
+            ModalOutcome::Suppressed
+        );
+        assert_eq!(modals.current(), Some(Modal::Pairing(123_456)));
+        assert_eq!(
+            modals.handle(AppEvent::BleUpdated(BleState::Connected)),
+            ModalOutcome::Show(Modal::TimerExpired)
+        );
     }
 
     /// A percentage that moved is a refresh, not a new prompt.

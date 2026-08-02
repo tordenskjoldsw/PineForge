@@ -19,7 +19,8 @@ use crate::canvas::{Canvas, CanvasError};
 use crate::font::ui_text;
 use crate::{
     render::{
-        PANEL, ROW_HEIGHT, ROW_WIDTH, ROW_X, draw_centred, draw_visible, fill, round_corners,
+        PANEL, ROW_HEIGHT, ROW_WIDTH, ROW_X, draw_centred, draw_instrument_centred, draw_visible,
+        fill, round_corners,
     },
     screen::{Paint, Screen},
     segment::{Cell, SegmentSize, draw_cell},
@@ -28,7 +29,7 @@ use crate::{
 
 const PANEL_WIDTH: i32 = PANEL.size.width.cast_signed();
 const PANEL_HEIGHT: i32 = PANEL.size.height.cast_signed();
-const TITLE_BASELINE_Y: i32 = 42;
+const TITLE_BASELINE_Y: i32 = 46;
 
 /// `MM:SS.T`, large enough to read as FORGE rather than as menu text.
 const DIGIT: SegmentSize = SegmentSize::new(36, 49, 6);
@@ -49,7 +50,7 @@ const CLOCK_X_OF: [i32; CLOCK_PLACES] = [
 const COLON_X: i32 = CLOCK_X + 2 * (DIGIT.width + DIGIT_GAP);
 const DOT_X: i32 = CLOCK_X + 4 * (DIGIT.width + DIGIT_GAP) + COLON_WIDTH + DIGIT_GAP;
 
-const STATE_BASELINE_Y: i32 = 140;
+const STATE_BASELINE_Y: i32 = 145;
 const CONTROLS_Y: i32 = 158;
 const CONTROL_GAP: i32 = 10;
 const CONTROL_WIDTH: i32 = (ROW_WIDTH - CONTROL_GAP) / 2;
@@ -242,8 +243,8 @@ impl StopwatchScreen {
     }
 
     fn draw_state(&self, canvas: &mut Canvas<'_>) -> Result<(), CanvasError> {
-        fill(canvas, 0, 119, PANEL_WIDTH, 27, theme::BACKGROUND)?;
-        draw_centred(self.state_text(), STATE_BASELINE_Y, theme::TEXT, canvas)
+        fill(canvas, 0, 115, PANEL_WIDTH, 36, theme::BACKGROUND)?;
+        draw_instrument_centred(self.state_text(), STATE_BASELINE_Y, theme::ACCENT, canvas)
     }
 
     fn draw_control(&self, slot: usize, canvas: &mut Canvas<'_>) -> Result<(), CanvasError> {
@@ -292,7 +293,7 @@ impl StopwatchScreen {
     ) -> Result<(), CanvasError> {
         fill(canvas, 0, 0, PANEL_WIDTH, PANEL_HEIGHT, theme::BACKGROUND)?;
         keep_alive();
-        draw_centred("STOPWATCH", TITLE_BASELINE_Y, theme::TEXT, canvas)?;
+        draw_instrument_centred("STOPWATCH", TITLE_BASELINE_Y, theme::ACCENT, canvas)?;
         self.draw_clock(true, canvas, keep_alive)?;
         self.draw_state(canvas)?;
         for slot in 0..CONTROL_COUNT {

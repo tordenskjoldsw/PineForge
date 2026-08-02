@@ -55,10 +55,12 @@ all three status pages have also been flashed and displayed. Music recovery
 after sleep, reconnection and media-application switching, uncommon status
 failures, and other PineTime variants remain untested - see
 [`docs/releases/v0.5.0.md`](docs/releases/v0.5.0.md).
-Development toward `v0.6.0` has started with a FORGE-style stopwatch. Its
-state and rendering are host-tested, and start, pause, resume, reset,
-navigation and display sleep have been exercised successfully on the known
-watch. It is not yet part of a release.
+Development toward `v0.6.0` has started with FORGE-style stopwatch and timer
+applications. The stopwatch has passed its first hardware test. The timer has
+a host-tested monotonic deadline, partial rendering and a system alarm that can
+wake the display; its first hardware build worked, and a heavier type cut plus
+longer cancellable vibration are awaiting a second hardware check. Neither is
+yet part of a release.
 [`docs/ROADMAP.md`](docs/ROADMAP.md) records what is done and what is not.
 
 Wearing it myself every day is one watch's worth of evidence, and it does
@@ -119,6 +121,10 @@ On the watch:
 - an unreleased FORGE-style stopwatch showing minutes, seconds and tenths, with
   start, pause, resume and reset; its monotonic anchor keeps elapsed time across
   display sleep
+- an unreleased FORGE-style countdown from 1 to 99 minutes, with pause, resume
+  and cancel; reaching zero wakes a full-screen alarm and an approximately
+  five-second repeating haptic even when another application is open or the
+  display is asleep
 - step counting, and heart-rate measurement on a background interval
 - a firmware screen for image confirmation and a software restart, and a
   three-page About view naming the build and bootloader, showing sensor and

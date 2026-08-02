@@ -71,6 +71,12 @@ pub use storage::{
 mod stopwatch;
 pub use stopwatch::{StopwatchControl, StopwatchState};
 
+mod timer;
+pub use timer::{
+    TIMER_DEFAULT_MINUTES, TIMER_MAX_MINUTES, TIMER_MIN_MINUTES, TimerControl, TimerOutcome,
+    TimerPhase, TimerState,
+};
+
 pub const SCREEN_STACK_CAPACITY: usize = 4;
 
 /// Steps in a day, and what every gauge showing progress divides against.
@@ -476,6 +482,8 @@ pub enum VibrationPattern {
     Double,
     /// One long pulse for alerts.
     Long,
+    /// Repeating alert used when a countdown reaches zero.
+    Alarm,
 }
 
 impl VibrationPattern {
@@ -486,6 +494,8 @@ impl VibrationPattern {
             Self::Tap => (25, 0, 1),
             Self::Double => (50, 100, 2),
             Self::Long => (150, 0, 1),
+            // About five seconds if it is not acknowledged first.
+            Self::Alarm => (250, 180, 12),
         }
     }
 }
@@ -875,6 +885,8 @@ pub enum ScreenId {
     Music,
     /// A monotonic stopwatch with start, pause, resume, and reset.
     Stopwatch,
+    /// A monotonic countdown that raises a system alarm at zero.
+    Timer,
     #[cfg(feature = "diagnostics")]
     TouchTest,
 }
@@ -882,9 +894,9 @@ pub enum ScreenId {
 impl ScreenId {
     /// How many screens this build has.
     pub const COUNT: usize = if cfg!(feature = "diagnostics") {
-        18
+        19
     } else {
-        17
+        18
     };
 
     /// Every screen, so anything that has to hold for all of them can be
@@ -915,6 +927,7 @@ impl ScreenId {
         Self::Steps,
         Self::Music,
         Self::Stopwatch,
+        Self::Timer,
         #[cfg(feature = "diagnostics")]
         Self::TouchTest,
     ];
@@ -965,8 +978,9 @@ impl ScreenId {
             Self::Steps => 14,
             Self::Music => 15,
             Self::Stopwatch => 16,
+            Self::Timer => 17,
             #[cfg(feature = "diagnostics")]
-            Self::TouchTest => 17,
+            Self::TouchTest => 18,
         }
     }
 }
@@ -1030,6 +1044,10 @@ pub enum AppEvent {
     MusicUpdated,
     /// A high-resolution monotonic observation addressed to the stopwatch.
     StopwatchTick(u64),
+    /// A monotonic observation addressed to the countdown screen.
+    TimerTick(u64),
+    /// The countdown crossed zero and its system modal is owed.
+    TimerExpired,
     DisplaySettingsUpdated(DisplaySettings),
     BleUpdated(BleState),
     StorageUpdated(StorageState),
@@ -1095,7 +1113,7 @@ impl AppEvent {
             | Self::BackPressed
             | Self::Tick { .. }
             | Self::DisplaySettingsUpdated(_) => false,
-            Self::StopwatchTick(_) => false,
+            Self::StopwatchTick(_) | Self::TimerTick(_) | Self::TimerExpired => false,
         }
     }
 }
@@ -1139,6 +1157,7 @@ pub enum ScreenAction {
     /// Ask the phone to do something to what it is playing.
     MusicControl(MusicControl),
     StopwatchControl(StopwatchControl),
+    TimerControl(TimerControl),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1153,6 +1172,7 @@ pub enum AppEffect {
     StopHeartRate,
     MusicControl(MusicControl),
     StopwatchControl(StopwatchControl),
+    TimerControl(TimerControl),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1453,6 +1473,7 @@ impl AppState {
             ScreenAction::StopHeartRate => AppEffect::StopHeartRate,
             ScreenAction::MusicControl(control) => AppEffect::MusicControl(control),
             ScreenAction::StopwatchControl(control) => AppEffect::StopwatchControl(control),
+            ScreenAction::TimerControl(control) => AppEffect::TimerControl(control),
             ScreenAction::Back => self.pop(),
             ScreenAction::Push(screen) => self.push(screen, None),
         }
@@ -1841,6 +1862,7 @@ mod tests {
             VibrationPattern::Tap,
             VibrationPattern::Double,
             VibrationPattern::Long,
+            VibrationPattern::Alarm,
         ] {
             let (on_millis, pause_millis, count) = pattern.pulses();
             assert!(on_millis > 0 && on_millis <= 500);

@@ -14,7 +14,7 @@ use pineforge_state::{
 };
 
 use crate::canvas::{Canvas, CanvasError};
-use crate::font::{JETBRAINS_MONO_10X22, ui_text};
+use crate::font::{LIBERATION_MONO_10X22, ui_text};
 use crate::{
     icons::{self, ICON_SIZE, Icon, draw_icon},
     render::{draw_mono_text_visible, draw_page_marks, draw_visible, round_corners},
@@ -71,6 +71,11 @@ const TILES: &[Tile] = &[
         label: "STOPWATCH",
         target: ScreenId::Stopwatch,
     },
+    Tile {
+        icon: &icons::TIMER,
+        label: "TIMER",
+        target: ScreenId::Timer,
+    },
     #[cfg(feature = "diagnostics")]
     Tile {
         icon: &icons::CROSSHAIR,
@@ -106,7 +111,7 @@ const GRID_BOTTOM: i32 = TOP + 2 * TILE_HEIGHT + GAP;
 /// Placed so the rail's thickness clears the bottom edge of the panel.
 const DOT_Y: i32 = GRID_BOTTOM + 14;
 /// Width of one character in the UI face, for centring a label by hand.
-const CHARACTER_WIDTH: i32 = JETBRAINS_MONO_10X22.cell.width.cast_signed();
+const CHARACTER_WIDTH: i32 = LIBERATION_MONO_10X22.cell.width.cast_signed();
 
 // Kept proportional to the tile as it shrank, so the icon still sits above the
 // label with the label nearer the foot than the icon is to the head.

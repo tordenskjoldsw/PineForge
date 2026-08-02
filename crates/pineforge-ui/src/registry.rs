@@ -35,6 +35,7 @@ use crate::{
     status::{StatusCorner, WithStatus, wears_status},
     steps::StepsScreen,
     stopwatch::StopwatchScreen,
+    timer::TimerScreen,
     watchface::WatchfaceScreen,
 };
 
@@ -69,6 +70,8 @@ pub struct Screens {
     pub music: MusicScreen,
     /// Keeps its monotonic anchor across navigation and display sleep.
     pub stopwatch: StopwatchScreen,
+    /// Owns the selected duration and monotonic deadline across every screen.
+    pub timer: TimerScreen,
     #[cfg(feature = "diagnostics")]
     pub touch_test: TestScreen,
 }
@@ -99,6 +102,7 @@ impl Screens {
             ScreenId::Steps => &self.steps,
             ScreenId::Music => &self.music,
             ScreenId::Stopwatch => &self.stopwatch,
+            ScreenId::Timer => &self.timer,
             // Every leaf is the same screen; `enter` has pointed it at the one
             // this id names before it can be drawn or touched.
             ScreenId::Brightness
@@ -125,6 +129,7 @@ impl Screens {
             ScreenId::Steps => &mut self.steps,
             ScreenId::Music => &mut self.music,
             ScreenId::Stopwatch => &mut self.stopwatch,
+            ScreenId::Timer => &mut self.timer,
             // Every leaf is the same screen; `enter` has pointed it at the one
             // this id names before it can be drawn or touched.
             ScreenId::Brightness
@@ -264,6 +269,7 @@ impl Screens {
         self.steps.mark_painted();
         self.music.mark_painted();
         self.stopwatch.mark_painted();
+        self.timer.mark_painted();
         self.about.mark_painted();
     }
 

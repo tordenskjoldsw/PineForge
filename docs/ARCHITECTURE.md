@@ -253,9 +253,11 @@ because the models above are already current.
 `AppEvent::is_reading()` is what tells the two halves apart. A reading is a fact
 about the watch rather than something addressed to whichever screen is up, and
 the watchface is the only screen that keeps one, so it is applied once during
-ingest instead of being routed through the active screen. The tick is the sole
-exemption: the display task raises it itself, only while awake, and only when
-it is about to repaint, so no gate can drop it.
+ingest instead of being routed through the active screen. Ordinary repaint
+ticks are the exemption: the display task raises them itself only while awake.
+A running countdown adds one deliberate deadline to the sleeping select, so
+reaching zero becomes an input that wakes the UI rather than a repaint that
+waits until something else does.
 
 This ordering is what a firmware bug came down to. The dispatch to the active
 screen sat below the sleep gate, and the one path that fed the face directly
@@ -300,6 +302,26 @@ detail: the two tasks read their clocks from different zeros, and the elapsed
 time is a difference between two readings. Only the task that raises the tick
 can supply the base the tick uses.
 
+## Countdown deadline and alarm ownership
+
+The timer is not decremented by UI ticks. `TimerState` stores one monotonic
+deadline while running and one remaining duration while paused; every displayed
+second is derived from those values. The display task already owns the retained
+screen models, Embassy time and the system-modal boundary, so it schedules that
+deadline beside its normal repaint wake instead of adding a second task and an
+IPC copy of the same clock. This also avoids another statically allocated task
+future in the nRF52832's tight RAM budget.
+
+The deadline remains in both the awake and sleeping `select`. Crossing it once
+changes the retained model to `Expired`, latches the distinct alarm haptic and
+raises `Modal::TimerExpired`; showing that modal sends the existing activity
+command, which wakes the power coordinator and panel. Pairing, DFU and storage
+formatting outrank the alarm, but `ModalState` retains a pending bit and restores
+the alarm when the higher-priority flow closes. Only deliberate touch, swipe or
+side-button input dismisses it; Bluetooth state changes cannot acknowledge an
+alarm on the user's behalf. The alarm repeats for about five seconds, and the
+same acknowledgement sends a cancellation signal so the motor stops at once.
+
 ## UI contract
 
 Screens implement the `Screen` trait. A screen receives hardware-independent `UiEvent` values, updates its private state, renders through an `embedded-graphics` draw target, and may return a high-level `ScreenAction`. It does not own or access touch, SPI, BLE, or sensor peripherals directly. Watchfaces will use the same boundary with application state supplied by services.
@@ -325,7 +347,7 @@ same margin, because they fail in opposite ways:
 - **RAM** is the tight one. A static that outgrows its budget eats into the
   stack, and the failure is silent, on hardware, and late. The production
   reserve is 16 KiB against a measured 10,432-byte peak. The current production
-  image uses 48,004 bytes of static RAM, 1,148 bytes below that design target.
+  image uses 48,316 bytes of static RAM, 836 bytes below that design target.
 - **Flash** is the loose one. An image that outgrows the 475,104-byte slot is
   refused by imgtool at packaging time, so the worst case is a build that
   produces nothing. The target exists to catch unnoticed growth, not to
@@ -333,7 +355,7 @@ same margin, because they fail in opposite ways:
   and had begun shaping features rather than catching bloat.
 
 BLE remains the dominant flash contributor. For scale, the current production
-image uses 404,560 bytes of flash, while a build without default features uses
+image uses 421,448 bytes of flash, while a build without default features uses
 154,280 bytes.
 
 The display-transition scratch is capped at 8 KiB and currently uses 5.6 KiB;

@@ -1,9 +1,11 @@
+use embassy_futures::select::{Either, select};
 use embassy_nrf::gpio::{Level, Output, OutputDrive};
 use embassy_time::Timer;
 
 use crate::{
-    board::peripherals::VibrationResources, drivers::vibration::VibrationMotor,
-    ipc::VIBRATION_COMMANDS,
+    board::peripherals::VibrationResources,
+    drivers::vibration::VibrationMotor,
+    ipc::{VIBRATION_ALARM, VIBRATION_COMMANDS, VibrationAlarmSignal},
 };
 
 /// Owns the vibration motor and plays requested haptic patterns.
@@ -17,14 +19,36 @@ pub async fn run(resources: VibrationResources) {
     ));
 
     loop {
-        let pattern = VIBRATION_COMMANDS.receive().await;
+        let pattern = match select(VIBRATION_ALARM.wait(), VIBRATION_COMMANDS.receive()).await {
+            Either::First(VibrationAlarmSignal::Start) => pineforge_state::VibrationPattern::Alarm,
+            Either::First(VibrationAlarmSignal::Cancel) => continue,
+            Either::Second(pattern) => pattern,
+        };
         let (on_millis, pause_millis, pulses) = pattern.pulses();
-        for pulse in 0..pulses {
+        let cancellable = matches!(pattern, pineforge_state::VibrationPattern::Alarm);
+        'pattern: for pulse in 0..pulses {
             motor.on();
-            Timer::after_millis(on_millis).await;
+            if cancellable {
+                match select(Timer::after_millis(on_millis), VIBRATION_ALARM.wait()).await {
+                    Either::First(()) | Either::Second(VibrationAlarmSignal::Start) => {}
+                    Either::Second(VibrationAlarmSignal::Cancel) => {
+                        motor.off();
+                        break 'pattern;
+                    }
+                }
+            } else {
+                Timer::after_millis(on_millis).await;
+            }
             motor.off();
             if pulse + 1 < pulses {
-                Timer::after_millis(pause_millis).await;
+                if cancellable {
+                    match select(Timer::after_millis(pause_millis), VIBRATION_ALARM.wait()).await {
+                        Either::First(()) | Either::Second(VibrationAlarmSignal::Start) => {}
+                        Either::Second(VibrationAlarmSignal::Cancel) => break 'pattern,
+                    }
+                } else {
+                    Timer::after_millis(pause_millis).await;
+                }
             }
         }
     }

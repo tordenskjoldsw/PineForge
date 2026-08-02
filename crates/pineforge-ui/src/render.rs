@@ -3,19 +3,19 @@ use embedded_graphics::{
     geometry::{Dimensions, Point, Size},
     pixelcolor::Rgb565,
     primitives::{Primitive, PrimitiveStyle, Rectangle},
-    text::Text,
+    text::{Alignment, Text},
 };
 
 use pineforge_state::{PageAxis, PagedList};
 
-use crate::font::{AaTextStyle, JETBRAINS_MONO_6X14, hint_text, ui_text};
+use crate::font::{AaTextStyle, LIBERATION_MONO_6X14, forge_text, hint_text, ui_text};
 use crate::{
     canvas::{Canvas, CanvasError},
     theme,
 };
 
 /// Width of one character of the hint face, for centring a line by hand.
-const HINT_WIDTH: i32 = JETBRAINS_MONO_6X14.cell.width.cast_signed();
+const HINT_WIDTH: i32 = LIBERATION_MONO_6X14.cell.width.cast_signed();
 
 /// A filled rectangle in panel coordinates, skipped when it has no area.
 ///
@@ -54,6 +54,24 @@ pub fn draw_centred(
         text,
         Point::new((PANEL.size.width.cast_signed() - width) / 2, baseline),
         hint_text(ink, theme::BACKGROUND),
+        canvas,
+    )
+}
+
+/// One line of the bold FORGE instrument face, centred across the panel.
+pub fn draw_instrument_centred(
+    text: &str,
+    baseline: i32,
+    ink: Rgb565,
+    canvas: &mut Canvas<'_>,
+) -> Result<(), CanvasError> {
+    draw_visible(
+        &Text::with_alignment(
+            text,
+            Point::new(PANEL.size.width.cast_signed() / 2, baseline),
+            forge_text(ink, theme::BACKGROUND),
+            Alignment::Center,
+        ),
         canvas,
     )
 }
