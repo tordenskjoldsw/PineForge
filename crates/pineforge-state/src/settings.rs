@@ -10,9 +10,9 @@ use crate::WatchfaceId;
 pub const SETTINGS_RECORD_LEN: usize = 32;
 
 const SETTINGS_MAGIC: [u8; 4] = *b"PFST";
-const SETTINGS_VERSION: u16 = 5;
+const SETTINGS_VERSION: u16 = 6;
 /// Versions this build still reads; older ones migrate on decode.
-const READABLE_VERSIONS: [u16; 5] = [1, 2, 3, 4, SETTINGS_VERSION];
+const READABLE_VERSIONS: [u16; 6] = [1, 2, 3, 4, 5, SETTINGS_VERSION];
 const CRC_OFFSET: usize = 28;
 
 /// The face a record without a usable choice falls back to.
@@ -174,6 +174,7 @@ pub enum SettingsError {
     OffNotAfterDim,
     InvalidHeartRateSettings,
     InvalidWakeGesture,
+    InvalidBleSetting,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -194,6 +195,7 @@ pub struct DisplaySettings {
     heart_rate_interval_seconds: u32,
     watchface: WatchfaceId,
     wake_gestures: WakeGestures,
+    ble_enabled: bool,
 }
 
 impl DisplaySettings {
@@ -205,6 +207,7 @@ impl DisplaySettings {
         heart_rate_interval_seconds: 300,
         watchface: DEFAULT_WATCHFACE,
         wake_gestures: WakeGestures::SINGLE_TAP,
+        ble_enabled: true,
     };
 
     pub const fn new(
@@ -229,6 +232,7 @@ impl DisplaySettings {
             heart_rate_interval_seconds: 300,
             watchface: DEFAULT_WATCHFACE,
             wake_gestures: WakeGestures::SINGLE_TAP,
+            ble_enabled: true,
         })
     }
 
@@ -429,7 +433,20 @@ impl DisplaySettings {
         }
     }
 
-    /// Serializes a version-5 record carrying the given sequence number.
+    #[must_use]
+    pub const fn ble_enabled(self) -> bool {
+        self.ble_enabled
+    }
+
+    #[must_use]
+    pub const fn with_ble_enabled(self, ble_enabled: bool) -> Self {
+        Self {
+            ble_enabled,
+            ..self
+        }
+    }
+
+    /// Serializes a version-6 record carrying the given sequence number.
     #[must_use]
     pub fn encode(self, sequence: u32) -> [u8; SETTINGS_RECORD_LEN] {
         let mut record = [0_u8; SETTINGS_RECORD_LEN];
@@ -443,6 +460,7 @@ impl DisplaySettings {
         record[20..24].copy_from_slice(&self.heart_rate_interval_seconds.to_le_bytes());
         record[24] = self.watchface.to_byte();
         record[25] = self.wake_gestures.to_byte();
+        record[26] = u8::from(self.ble_enabled);
         let crc = crc32(&record[..CRC_OFFSET]);
         record[CRC_OFFSET..].copy_from_slice(&crc.to_le_bytes());
         record
@@ -487,10 +505,18 @@ impl DisplaySettings {
                 .ok_or(DecodeError::InvalidContent(
                     SettingsError::InvalidWakeGesture,
                 ))?;
-        } else if version >= SETTINGS_VERSION {
+        } else if version >= 5 {
             settings.wake_gestures = WakeGestures::from_byte(record[25]).ok_or(
                 DecodeError::InvalidContent(SettingsError::InvalidWakeGesture),
             )?;
+        }
+        if version >= SETTINGS_VERSION {
+            if record[26] > 1 {
+                return Err(DecodeError::InvalidContent(
+                    SettingsError::InvalidBleSetting,
+                ));
+            }
+            settings.ble_enabled = record[26] != 0;
         }
         Ok((settings, sequence))
     }
@@ -719,7 +745,8 @@ mod tests {
             .toggle_heart_rate()
             .cycle_heart_rate_interval()
             .toggle_wake_gesture(WakeGesture::DoubleTap)
-            .toggle_wake_gesture(WakeGesture::RaiseWrist);
+            .toggle_wake_gesture(WakeGesture::RaiseWrist)
+            .with_ble_enabled(false);
         let record = settings.encode(41);
         assert_eq!(DisplaySettings::decode(&record), Ok((settings, 41)));
     }
@@ -841,6 +868,19 @@ mod tests {
     }
 
     #[test]
+    fn version_five_migrates_with_bluetooth_enabled() {
+        let mut record = DisplaySettings::DEFAULT.with_ble_enabled(false).encode(1);
+        record[4..6].copy_from_slice(&5_u16.to_le_bytes());
+        // Version 5 did not own this byte, so its value cannot disable BLE.
+        record[26] = 0;
+        let crc = crc32(&record[..CRC_OFFSET]);
+        record[CRC_OFFSET..].copy_from_slice(&crc.to_le_bytes());
+
+        let (settings, _) = DisplaySettings::decode(&record).unwrap();
+        assert!(settings.ble_enabled());
+    }
+
+    #[test]
     fn a_face_this_build_lacks_falls_back_without_losing_the_rest() {
         let mut record = DisplaySettings::DEFAULT.encode(1);
         record[24] = 0xFE;
@@ -874,6 +914,17 @@ mod tests {
             DisplaySettings::decode(&record),
             Err(DecodeError::InvalidContent(
                 SettingsError::InvalidWakeGesture
+            ))
+        );
+
+        let mut record = DisplaySettings::DEFAULT.encode(1);
+        record[26] = 2;
+        let crc = crc32(&record[..CRC_OFFSET]);
+        record[CRC_OFFSET..].copy_from_slice(&crc.to_le_bytes());
+        assert_eq!(
+            DisplaySettings::decode(&record),
+            Err(DecodeError::InvalidContent(
+                SettingsError::InvalidBleSetting
             ))
         );
     }

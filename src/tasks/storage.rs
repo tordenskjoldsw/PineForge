@@ -341,23 +341,11 @@ pub async fn run(spi: FlashSpi, watchdog: BootloaderWatchdog) {
     info!("BLE bond loaded: stored={}", bond.is_some());
     BOND_LOADED.signal(bond);
 
-    let storage_ready = if writable && crate::boot::confirm::is_validated() {
-        if initialize_storage(&mut flash, watchdog).await.is_err() {
-            warn!("PineForge storage initialization failed");
-            UI_EVENTS
-                .send(AppEvent::StorageUpdated(StorageState::Failed))
-                .await;
-            false
-        } else {
-            true
-        }
-    } else if writable {
-        info!("Storage remains reserved while firmware rollback is possible");
-        false
-    } else {
-        false
-    };
-
+    // Settings live above the data region, so publish them before a first
+    // confirmed boot spends time formatting that region. BLE consumes the
+    // persisted enable flag; delaying this snapshot would either advertise a
+    // radio the user disabled or keep an enabled watch offline for the whole
+    // format.
     let decision = if writable {
         select_slot(
             read_slot(&mut flash, SettingsSlot::A),
@@ -377,6 +365,23 @@ pub async fn run(spi: FlashSpi, watchdog: BootloaderWatchdog) {
         next_sequence
     );
     sender.send(current);
+
+    let storage_ready = if writable && crate::boot::confirm::is_validated() {
+        if initialize_storage(&mut flash, watchdog).await.is_err() {
+            warn!("PineForge storage initialization failed");
+            UI_EVENTS
+                .send(AppEvent::StorageUpdated(StorageState::Failed))
+                .await;
+            false
+        } else {
+            true
+        }
+    } else if writable {
+        info!("Storage remains reserved while firmware rollback is possible");
+        false
+    } else {
+        false
+    };
 
     // The clock journal deliberately lives in the confirmed-image data area.
     // A trial image must never initialize or mutate it, because MCUBoot may

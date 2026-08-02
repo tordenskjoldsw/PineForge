@@ -895,6 +895,8 @@ pub enum ScreenId {
     Time,
     /// Sets the local calendar date without a phone.
     Date,
+    /// Enables or disables Bluetooth advertising and connections.
+    Bluetooth,
     #[cfg(feature = "diagnostics")]
     TouchTest,
 }
@@ -902,9 +904,9 @@ pub enum ScreenId {
 impl ScreenId {
     /// How many screens this build has.
     pub const COUNT: usize = if cfg!(feature = "diagnostics") {
-        21
+        22
     } else {
-        20
+        21
     };
 
     /// Every screen, so anything that has to hold for all of them can be
@@ -938,6 +940,7 @@ impl ScreenId {
         Self::Timer,
         Self::Time,
         Self::Date,
+        Self::Bluetooth,
         #[cfg(feature = "diagnostics")]
         Self::TouchTest,
     ];
@@ -991,8 +994,9 @@ impl ScreenId {
             Self::Timer => 17,
             Self::Time => 18,
             Self::Date => 19,
+            Self::Bluetooth => 20,
             #[cfg(feature = "diagnostics")]
-            Self::TouchTest => 20,
+            Self::TouchTest => 21,
         }
     }
 }

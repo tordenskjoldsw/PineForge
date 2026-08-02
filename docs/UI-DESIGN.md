@@ -197,11 +197,11 @@ Four tiles per page, two by two, below the status strip:
 +-------------------------------------+
 ```
 
-Eleven production tiles today across three pages - settings, firmware, about,
-light, pulse, steps, music, stopwatch, timer, time, and date. Diagnostics adds
-touch as a twelfth tile on the third page. The grid always draws its full four
-slots: an empty slot still paints, because the surface has to be opaque or the
-previous page shows through.
+Twelve production tiles today across three pages - settings, firmware, about,
+light, pulse, steps, music, stopwatch, timer, time, date, and Bluetooth.
+Diagnostics adds touch as a thirteenth tile on a fourth page. The grid always
+draws its full four slots: an empty slot still paints, because the surface has
+to be opaque or the previous page shows through.
 
 The stopwatch deliberately borrows the FORGE instrument language rather than
 looking like another menu. Five rectangle-built digits show `MM:SS.T`; the
@@ -239,6 +239,14 @@ ordinary increment redraws only each numeral cell whose digit changed and the
 button that was touched. NEXT additionally repaints only the old and new field
 groups whose colour changes, the field label, and the two controls whose labels
 change. The title, separators, APPLY and untouched digits remain on the panel.
+
+The Bluetooth application is one decision rather than a settings list: a large
+constructed rune, the actual OFF/ADVERTISING/PAIRING/CONNECTED/UPDATING state,
+and one full-width ENABLE or DISABLE button. The desired state changes as soon
+as the button is released, while the system corner keeps its rune until the BLE
+task publishes actual OFF. OFF clears that corner cell and draws no replacement
+rune. During DFU the button is disabled, because disconnecting the transport
+that is installing the running image is not a valid setting change.
 
 Tiles are 105 x 88 with a ten-pixel gap and a ten-pixel margin, starting ten
 pixels below the status strip and leaving room under the second row for the page

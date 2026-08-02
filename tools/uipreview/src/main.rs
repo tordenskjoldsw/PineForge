@@ -254,6 +254,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("{}", path.display());
     }
 
+    // The registry entry reaches the first launcher page only. Render the two
+    // later production pages as well so a newly added application cannot hide
+    // beyond the host review sheet.
+    for page in 2..=3 {
+        let _ = screens.handle(ScreenId::Launcher, AppEvent::Swipe(SwipeDirection::Left));
+        let mut framebuffer = Framebuffer::new();
+        screens
+            .draw_full(
+                ScreenId::Launcher,
+                &status,
+                &mut Canvas::new(&mut framebuffer),
+                &mut || {},
+            )
+            .map_err(|_| format!("drawing launcher page {page} failed"))?;
+        let path = out.join(format!("launcher-page-{page}.png"));
+        framebuffer.write_png(&path)?;
+        println!("{}", path.display());
+    }
+
     // About owns three pages; render the two that its registry entry cannot
     // reach without gestures as separate review artifacts.
     for name in ["about-hardware", "about-system"] {

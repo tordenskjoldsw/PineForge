@@ -7,6 +7,7 @@
 
 use defmt::{info, warn};
 use embassy_executor::Spawner;
+use embassy_futures::select::{Either, select};
 use embassy_nrf::{bind_interrupts, mode::Async, peripherals, rng};
 use embassy_time::{Duration, with_timeout};
 use nrf_sdc::{
@@ -20,7 +21,8 @@ use trouble_host::prelude::*;
 use crate::{
     board::peripherals::BleResources,
     ipc::{
-        BOND_LOADED, BatteryStatusReceiver, UI_EVENTS, VIBRATION_COMMANDS, battery_status_receiver,
+        BOND_LOADED, BatteryStatusReceiver, DisplaySettingsReceiver, UI_EVENTS, VIBRATION_COMMANDS,
+        battery_status_receiver, display_settings_receiver,
     },
 };
 
@@ -163,16 +165,60 @@ pub async fn run(resources: BleResources, spawner: Spawner) {
     // binding it here marks it intentionally live for the borrow checker.
     let _dis = &server.device_information;
     let mut battery = battery_status_receiver();
+    let mut settings = display_settings_receiver();
 
-    embassy_futures::join::join(ble_runner(&mut runner), async {
-        loop {
-            if let Err(error) = advertise_and_serve(&mut peripheral, &server, &mut battery).await {
+    embassy_futures::join::join(
+        ble_runner(&mut runner),
+        manage_radio(&mut peripheral, &server, &mut battery, &mut settings),
+    )
+    .await;
+}
+
+/// Runs advertising and connections only while the persisted user setting is
+/// enabled. Dropping the advertising future cancels its controller command;
+/// dropping a live connection releases its last handle, which asks Trouble to
+/// disconnect it. The runner stays alive so those cancellations are processed
+/// and enabling again does not rebuild the controller or lose the bond.
+async fn manage_radio<C: Controller>(
+    peripheral: &mut Peripheral<'_, C, DefaultPacketPool>,
+    server: &Server<'_>,
+    battery: &mut BatteryStatusReceiver,
+    settings: &mut DisplaySettingsReceiver,
+) {
+    let mut enabled = settings.get().await.ble_enabled();
+    loop {
+        if !enabled {
+            UI_EVENTS.send(AppEvent::BleUpdated(BleState::Off)).await;
+            loop {
+                if settings.changed().await.ble_enabled() {
+                    enabled = true;
+                    break;
+                }
+            }
+        }
+
+        match select(
+            advertise_and_serve(peripheral, server, battery),
+            wait_until_disabled(settings),
+        )
+        .await
+        {
+            Either::First(Ok(())) => {}
+            Either::First(Err(error)) => {
                 warn!("BLE advertise error: {}", defmt::Debug2Format(&error));
                 embassy_time::Timer::after_secs(1).await;
             }
+            Either::Second(()) => enabled = false,
         }
-    })
-    .await;
+    }
+}
+
+async fn wait_until_disabled(settings: &mut DisplaySettingsReceiver) {
+    loop {
+        if !settings.changed().await.ble_enabled() {
+            return;
+        }
+    }
 }
 
 /// Installs the bond persisted by the storage service so a paired phone

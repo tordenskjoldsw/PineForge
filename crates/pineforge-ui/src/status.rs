@@ -118,7 +118,9 @@ impl StatusCorner {
         if self.unconfirmed {
             Self::draw_alert(canvas)?;
         }
-        if let Some(state) = self.ble {
+        if let Some(state) = self.ble
+            && !matches!(state, BleState::Off)
+        {
             self.draw_rune(canvas, theme::bluetooth(state))?;
         }
         if let Some(status) = self.battery {
@@ -254,6 +256,33 @@ impl Paint for WithStatus<'_> {
         self.screen.draw_full(canvas, keep_alive)?;
         keep_alive();
         self.status.draw(canvas)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::probe::Probe;
+
+    const RUNE_AREA: Rectangle = Rectangle::new(
+        Point::new(RUNE_X, RUNE_Y),
+        Size::new((RUNE_WIDTH + 1) as u32, (RUNE_HEIGHT + 1) as u32),
+    );
+
+    fn draw(state: BleState) -> Probe {
+        let mut status = StatusCorner::new();
+        let _ = status.set_ble(state);
+        let mut probe = Probe::new();
+        status
+            .draw(&mut Canvas::new(&mut probe))
+            .expect("the probe accepts every operation");
+        probe
+    }
+
+    #[test]
+    fn bluetooth_off_clears_the_rune_instead_of_drawing_it() {
+        assert!(!draw(BleState::Off).painted_other_than(RUNE_AREA, theme::BACKGROUND));
+        assert!(draw(BleState::Connected).painted_other_than(RUNE_AREA, theme::BACKGROUND));
     }
 }
 

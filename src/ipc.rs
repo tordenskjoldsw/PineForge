@@ -72,11 +72,11 @@ pub fn system_power_receiver() -> SystemPowerReceiver {
 }
 
 /// Latest validated display settings, published by the settings service.
-pub static DISPLAY_SETTINGS: Watch<CriticalSectionRawMutex, DisplaySettings, 2> = Watch::new();
+pub static DISPLAY_SETTINGS: Watch<CriticalSectionRawMutex, DisplaySettings, 3> = Watch::new();
 
-pub type DisplaySettingsReceiver = Receiver<'static, CriticalSectionRawMutex, DisplaySettings, 2>;
+pub type DisplaySettingsReceiver = Receiver<'static, CriticalSectionRawMutex, DisplaySettings, 3>;
 
-/// Reserves one of the fixed display and power subscriptions.
+/// Reserves one of the fixed display, power, and BLE subscriptions.
 pub fn display_settings_receiver() -> DisplaySettingsReceiver {
     DISPLAY_SETTINGS
         .receiver()

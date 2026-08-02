@@ -22,6 +22,7 @@ use pineforge_state::{AppEvent, CalendarDate, DisplaySettings, ScreenAction, Scr
 use crate::test_screen::TestScreen;
 use crate::{
     about::AboutScreen,
+    bluetooth::BluetoothScreen,
     canvas::{Canvas, CanvasError},
     clock_apps::{DateScreen, TimeScreen},
     firmware::FirmwareScreen,
@@ -75,6 +76,7 @@ pub struct Screens {
     pub timer: TimerScreen,
     pub time: TimeScreen,
     pub date: DateScreen,
+    pub bluetooth: BluetoothScreen,
     #[cfg(feature = "diagnostics")]
     pub touch_test: TestScreen,
 }
@@ -108,6 +110,7 @@ impl Screens {
             ScreenId::Timer => &self.timer,
             ScreenId::Time => &self.time,
             ScreenId::Date => &self.date,
+            ScreenId::Bluetooth => &self.bluetooth,
             // Every leaf is the same screen; `enter` has pointed it at the one
             // this id names before it can be drawn or touched.
             ScreenId::Brightness
@@ -137,6 +140,7 @@ impl Screens {
             ScreenId::Timer => &mut self.timer,
             ScreenId::Time => &mut self.time,
             ScreenId::Date => &mut self.date,
+            ScreenId::Bluetooth => &mut self.bluetooth,
             // Every leaf is the same screen; `enter` has pointed it at the one
             // this id names before it can be drawn or touched.
             ScreenId::Brightness
@@ -175,12 +179,14 @@ impl Screens {
         // while another app is showing. About is a retained status surface,
         // not a live-only diagnostic view.
         let _ = self.about.handle_event(event);
+        let _ = self.bluetooth.handle_event(event);
         match active {
             ScreenId::Watchface => self.watchface.moved(),
             ScreenId::Pulse => self.pulse.moved(),
             ScreenId::Steps => self.steps.moved(),
             ScreenId::Music => self.music.moved(),
             ScreenId::About => self.about.moved(),
+            ScreenId::Bluetooth => self.bluetooth.moved(),
             _ => false,
         }
     }
@@ -195,6 +201,7 @@ impl Screens {
                 | ScreenId::Steps
                 | ScreenId::Music
                 | ScreenId::About
+                | ScreenId::Bluetooth
         )
     }
 
@@ -218,6 +225,9 @@ impl Screens {
         // The lamp opens dark, whichever way it was left.
         if active == ScreenId::Flashlight {
             self.flashlight.put_out();
+        }
+        if active == ScreenId::Bluetooth {
+            self.bluetooth.open(settings);
         }
         // This is what carries a dismissal back to the face: the notification
         // screen changes the inbox, and leaving it is when the face is told.
@@ -293,6 +303,7 @@ impl Screens {
         self.timer.mark_painted();
         self.time.mark_painted();
         self.date.mark_painted();
+        self.bluetooth.mark_painted();
         self.about.mark_painted();
     }
 

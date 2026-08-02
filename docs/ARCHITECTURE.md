@@ -98,8 +98,8 @@ owner task. The production firmware has:
   active `Screen`
 - storage task: owns the external flash and serializes settings, clock
   checkpoints, bonds, and DFU writes
-- BLE task: owns the radio and stack, GATT services, pairing, time sync, music,
-  and the DFU protocol
+- BLE task: owns the radio and stack, the persistent runtime radio gate, GATT
+  services, pairing, time sync, music, and the DFU protocol
 - button task: owns the side button, including back, panel-off, and held reset
 - vibration task: owns the motor and plays bounded haptic patterns
 - watchdog task: feeds the watchdog inherited from the bootloader
@@ -305,6 +305,20 @@ the saved value resumes from the new monotonic zero. An hourly checkpoint limits
 loss across an uncontrolled reset, while every manual or BLE update is written
 immediately. The next valid phone update intentionally replaces the restored or
 manual anchor.
+
+The persisted Bluetooth enable flag travels on the settings `Watch`; display,
+power and BLE are its three fixed subscribers. Storage publishes that snapshot
+before any potentially long first-boot data-area format, so a saved OFF state
+never advertises briefly during formatting and the default ON state is not held
+offline waiting for it.
+
+The controller runner remains alive in both states so it can process a clean
+advertising cancellation or disconnect and can resume without rebuilding the
+stack or losing the installed bond. The sibling radio-gate future selects the
+active advertise/GATT future against a settings change. Selecting OFF drops an
+advertiser (which Trouble cancellation-stops) or the last live connection
+handle (which requests a disconnect), then publishes `BleState::Off`. The UI
+refuses to change the setting while a DFU transfer is active.
 
 **Where the elapsed time is anchored, and why it has to be there.** The phone
 writes a position when it changes, not once a second, so the watch keeps it

@@ -28,6 +28,11 @@ milestone should leave the sealed PineTime in a testable and recoverable state.
   work without BLE and journal CRC-checked checkpoints in external flash.
   Interaction, cell-level partial rendering, restoration across reboots and a
   subsequent phone-time override passed on the known watch.
+- `v0.6.1` development: a dedicated Bluetooth application persistently enables
+  or disables advertising and connections. OFF removes the status rune;
+  disabling is refused during DFU. Model, migration and rendering paths are
+  host-tested. Runtime disconnect, advertising restart, status-rune removal and
+  persistence across reboots passed with the `0.6.1+1` image on the known watch.
 
 Work that has landed on `main` but not in a tagged release is marked
 *unreleased* below. Everything else in a **Complete** section has shipped.

@@ -102,9 +102,10 @@ Each slot holds one 32-byte record (defined in
 CRC32-checked). Format version 2 adds the background heart-rate enable flag
 and measurement interval; version-1 records migrate with heart-rate disabled
 and the five-minute default interval. Version 3 adds the watchface choice,
-version 4 adds one wake gesture, and version 5 replaces it with independently
-enabled wake sources. Version-4 records preserve their selected source; older
-records migrate to the existing single-tap behavior. Writes alternate between
+version 4 adds one wake gesture, version 5 replaces it with independently
+enabled wake sources, and version 6 adds the persistent Bluetooth enable flag.
+Version-4 records preserve their selected source; every older record migrates
+with Bluetooth enabled. Writes alternate between
 the slots: erase the inactive
 sector, program the record, read it back, and only then treat it as current.
 A power loss at any point leaves the previous record intact; boot picks the

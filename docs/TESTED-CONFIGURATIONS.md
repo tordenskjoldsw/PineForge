@@ -37,6 +37,7 @@ unknown rather than as working.
 | FORGE stopwatch | Yes, flashed as the `0.6.0+1` development image and exercised on the known sealed PineTime: display, start, pause, resume, reset, navigation away and display sleep all work. |
 | FORGE timer | The countdown and alarm work on the known sealed PineTime. The final larger phase labels, unified typography and approximately five-second cancellable repeating vibration were checked in the v0.6.0 development sequence. |
 | Manual TIME and DATE applications | `0.6.0+9` was flashed on the known sealed PineTime: both editors, APPLY, optimized cell-level partial redraw, restoration across reboots and subsequent override by the phone time all work. Field wrapping, leap dates, invalid-date clamping, CRC records and sequence wrap additionally pass host tests. |
+| Bluetooth application | `0.6.1+1` was exercised on the known sealed PineTime: disabling BLE disconnects the phone and removes the status rune, OFF persists across reboot, enabling restarts advertising and Gadgetbridge reconnects without re-pairing, and ON also persists across reboot. Settings migration, DFU lockout and rendering additionally pass host tests. |
 | Daily wear | Since late July 2026, on my own watch - waking, timekeeping, notifications, settings and charging in ordinary use. Days, not months. |
 
 ## Not established

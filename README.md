@@ -62,6 +62,9 @@ phone and restore CRC-checked checkpoints from external flash after a reboot;
 a later valid Gadgetbridge time remains authoritative. All four applications
 use cell-level partial rendering and have run on the known watch - see
 [`docs/releases/v0.6.0.md`](docs/releases/v0.6.0.md).
+Development toward `v0.6.1` adds a dedicated Bluetooth application: the radio
+can be disabled and enabled on the watch, the choice survives a reboot, and an
+actually disabled radio leaves no Bluetooth rune in the status corner.
 [`docs/ROADMAP.md`](docs/ROADMAP.md) records what is done and what is not.
 
 Wearing it myself every day is one watch's worth of evidence, and it does
@@ -119,6 +122,8 @@ On the watch:
 - music control for whatever is playing on the phone: the title and artist, the
   elapsed time in the watchface's numerals over a progress bar, and a transport
   of previous, play/pause and next, with volume on the up and down swipes
+- a Bluetooth application that enables or disables advertising and active
+  connections on the watch; OFF is persistent and removes the status rune
 - an unreleased FORGE-style stopwatch showing minutes, seconds and tenths, with
   start, pause, resume and reset; its monotonic anchor keeps elapsed time across
   display sleep

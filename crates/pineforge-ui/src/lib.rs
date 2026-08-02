@@ -23,6 +23,7 @@
 extern crate std;
 
 pub mod about;
+pub mod bluetooth;
 pub mod canvas;
 pub mod clock_apps;
 pub mod dfu;
