@@ -96,6 +96,7 @@ impl Screen for DisplaySettingsScreen {
     fn handle_event(&mut self, event: AppEvent) -> ScreenAction {
         match self.menu.handle(&MENU, event) {
             MenuOutcome::Navigate(target) => ScreenAction::Push(target),
+            MenuOutcome::Paged(motion) => ScreenAction::Paged(motion),
             MenuOutcome::Chose(_) | MenuOutcome::None => ScreenAction::None,
         }
     }

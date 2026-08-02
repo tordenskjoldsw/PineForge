@@ -20,6 +20,12 @@ design decision below respects them:
 - **A page change is one full redraw**, which is why lists paginate instead of
   scrolling. Kinetic scrolling would be a redraw per frame, and the SPI bus is
   too slow for it.
+- **Vertical movement is free, horizontal movement is not.** The controller
+  holds 240x320 pixels and shows a 240-row window of them, and which rows are
+  shown is a register. So a screen or a page can be slid on vertically for the
+  price of one frame, while across the panel nothing can move at all and the
+  best available is a strip-by-strip reveal. Anything that should look like it
+  moves belongs on the vertical axis; see the launcher.
 
 The backlight has three levels, and the watch dims to the lowest one before
 sleeping. **A colour that disappears at level 1 is unusable**, which rules out
@@ -248,12 +254,20 @@ task publishes actual OFF. OFF clears that corner cell and draws no replacement
 rune. During DFU the button is disabled, because disconnecting the transport
 that is installing the running image is not a valid setting change.
 
-Tiles are 105 x 88 with a ten-pixel gap and a ten-pixel margin, starting ten
-pixels below the status strip and leaving room under the second row for the page
-rail. The grid deliberately does not reach the edges of the panel; it used to,
-at 115 x 106, and being as large as the layout allowed is what made the launcher
-feel heavy. The launcher is opened by swiping up, so navigation owns the
-vertical axis and **pages turn horizontally**.
+Tiles are 105 x 88 with a ten-pixel gap and a ten-pixel margin, centred in what
+the status strip leaves, with the page rail standing upright to their right. The
+grid deliberately does not reach the edges of the panel; it used to, at
+115 x 106, and being as large as the layout allowed is what made the launcher
+feel heavy.
+
+**Pages turn vertically, the same way the launcher was opened.** Up carries on
+into the next page and down comes back, and from the first page down is the
+watchface again. That is the one place a screen pages along the axis it was
+entered on, and it is allowed only because the screen declares each gesture in
+advance: it claims the swipe while it has a page that way and hands it back at
+the ends, where it becomes the way out. The reason it is worth the exception is
+below, under transitions - the panel can only slide its picture vertically, so
+this is the axis on which a page turn can be a movement rather than a wipe.
 
 Four to a page rather than six. `InfiniTime` shows six because it has around ten
 applications; borrowing its proportions is worth more here than borrowing its
@@ -267,8 +281,8 @@ component.
 **The rail runs along the axis the screen pages on.** That is the whole content
 of the message: a column of marks beside a list that pages up and down says
 there is more that way, while the same marks in a row underneath would point
-across a movement that never goes across. So the launcher's rail lies flat
-under the tiles and a menu's stands upright beside the rows.
+across a movement that never goes across. Every rail in the firmware stands
+upright beside its content, because everything pages vertically.
 
 **The showing page is a bar, the rest are squares** - 24 pixels against 6,
 6 across, 6 apart. Two treatments rather than one, because the second is
@@ -368,11 +382,33 @@ crooked must not be able to delete the message being read.
 No watchface carries a notification count. What is pending is read where it is
 read, and a tally on a face would only be a second place to keep it right.
 
+## Transitions
+
+A screen arrives the way the gesture that called for it travelled, and what
+that costs depends entirely on the axis.
+
+**Vertically it is a real slide.** Each step composes one 12-row band of the
+incoming screen into the rows the panel is not showing, then moves the window
+by exactly that band, so the band just written is the strip the move uncovers.
+The screen being left is carried off without a single one of its pixels being
+sent again, and the whole movement costs one frame - the same 240x240 an
+ordinary redraw costs. Every vertical navigation uses it, and so does every
+page turn on a vertically paged screen.
+
+The price is that the window does not return to where it started: after a slide
+screen row 0 is some other memory row, for good. The translation lives in the
+display task's panel wrapper and nothing above it knows, which is the only
+reason this is affordable at all.
+
+**Horizontally nothing can move**, because the register only scrolls one way.
+The incoming screen is revealed strip by strip from the edge it enters through,
+which reads as arriving from the right side without anything sliding.
+
 ## What this does not decide
 
-- **Animation timing.** Transitions currently run as fast as SPI allows, with
-  no easing, because that would need a timer inside the transition. A design
-  must not depend on motion curves before that exists.
+- **Animation timing.** Transitions run as fast as SPI allows, with no easing,
+  because that would need a timer inside the transition. A design must not
+  depend on motion curves before that exists.
 - **Full-screen artwork.** It would live in external flash, which shares the
   SPI bus with the display, so it is read once per screen change and never per
   redraw. Fonts and symbols stay in internal flash for exactly that reason.

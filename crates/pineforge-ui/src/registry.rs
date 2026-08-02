@@ -16,7 +16,9 @@
 //! settings leaf, because nothing outside [`Screens::enter`] may point it
 //! anywhere.
 
-use pineforge_state::{AppEvent, CalendarDate, DisplaySettings, ScreenAction, ScreenId, WallTime};
+use pineforge_state::{
+    AppEvent, CalendarDate, DisplaySettings, ScreenAction, ScreenId, SwipeDirection, WallTime,
+};
 
 #[cfg(feature = "diagnostics")]
 use crate::test_screen::TestScreen;
@@ -207,6 +209,16 @@ impl Screens {
 
     pub fn handle(&mut self, active: ScreenId, event: AppEvent) -> ScreenAction {
         self.active_mut(active).handle_event(event)
+    }
+
+    /// Whether the active screen will spend this swipe on itself.
+    ///
+    /// Asked before navigation is offered the gesture, and answered no by
+    /// everything except a screen paging along the axis it was entered on. See
+    /// [`Screen::claims`] for why that question has to be put in advance.
+    #[must_use]
+    pub fn claims(&self, active: ScreenId, direction: SwipeDirection) -> bool {
+        self.active(active).claims(direction)
     }
 
     /// Hands the screen that is now on top whatever it needs to be correct.

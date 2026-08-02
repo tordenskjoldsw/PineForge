@@ -14,10 +14,14 @@ use crate::{AppEvent, Button, ButtonBounds, ButtonOutcome, ButtonState, SwipeDir
 
 /// The axis a list pages on.
 ///
-/// This is not a free choice: a screen is left by the reverse of the gesture
-/// that opened it, so the axis of the entry gesture belongs to navigation and
-/// the list has to page on the other one. A launcher opened by swiping up pages
-/// horizontally.
+/// A screen is left by the reverse of the gesture that opened it, so the axis it
+/// was entered on is spoken for. A list may still page along it, but only by
+/// declaring each gesture in advance through [`ListSlots::claims`]: it keeps the
+/// swipe while there is a page to turn to and gives it up at the end of the
+/// pages, where it becomes the way out. A launcher opened by swiping up pages
+/// upwards and returns to the watchface from its first page.
+///
+/// The other axis needs no such care, because nothing else wants it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PageAxis {
     Horizontal,
@@ -119,9 +123,24 @@ impl PagedList {
         if entry < self.len { Some(entry) } else { None }
     }
 
+    /// Whether there is a page to turn to in this direction.
+    ///
+    /// Asked before a page is turned as well as after, because a list that
+    /// pages on the axis it was entered on has to say in advance whether the
+    /// gesture is its own: at the ends of the list it is not, and the swipe
+    /// belongs to navigation instead. See [`ListSlots::claims`].
+    #[must_use]
+    pub const fn can_turn(&self, forward: bool) -> bool {
+        if forward {
+            self.page + 1 < self.page_count()
+        } else {
+            self.page > 0
+        }
+    }
+
     /// Turns to the next page, reporting whether there was one.
     pub const fn next_page(&mut self) -> bool {
-        if self.page + 1 >= self.page_count() {
+        if !self.can_turn(true) {
             return false;
         }
         self.page += 1;
@@ -130,7 +149,7 @@ impl PagedList {
 
     /// Turns to the previous page, reporting whether there was one.
     pub const fn previous_page(&mut self) -> bool {
-        if self.page == 0 {
+        if !self.can_turn(false) {
             return false;
         }
         self.page -= 1;
@@ -168,7 +187,11 @@ pub enum ListOutcome {
     /// worst - a changed entry count shifts every slot's content at once.
     Redraw(Option<usize>),
     /// The visible page changed; redraw the page and its indicator.
-    Paged,
+    ///
+    /// The gesture that turned it, when a gesture did. A page also moves when
+    /// entries disappear under it, and that one has no direction: it did not
+    /// travel anywhere and must not be drawn as though the user had pushed it.
+    Paged(Option<SwipeDirection>),
     /// The user chose this entry.
     Activated(usize),
 }
@@ -212,7 +235,8 @@ impl<const N: usize> ListSlots<N> {
     /// Replaces the entry count; see [`PagedList::set_len`].
     pub const fn set_len(&mut self, len: usize) -> ListOutcome {
         if self.list.set_len(len) {
-            ListOutcome::Paged
+            // Pulled back by entries that went away, not pushed by a finger.
+            ListOutcome::Paged(None)
         } else {
             // A different entry count can change what every slot shows, so this
             // one cannot name a single slot.
@@ -234,6 +258,26 @@ impl<const N: usize> ListSlots<N> {
         self.slots.get(slot).map(Button::state)
     }
 
+    /// Whether this list would spend the gesture on a page of its own.
+    ///
+    /// This is what lets a screen page along the axis it was opened on, which
+    /// the rule on [`PageAxis`] otherwise forbids. The gesture is claimed only
+    /// while there is a page to turn to, so the list keeps the swipe through its
+    /// pages and hands it back at the end of them - and the end of them is where
+    /// navigation takes it and leaves the screen. A launcher opened by swiping
+    /// up pages upwards and returns to the watchface from its first page, the
+    /// same one gesture throughout.
+    ///
+    /// Nothing here decides who is asked first; the screen that owns the list
+    /// answers, and the display task puts the question before navigation sees
+    /// the swipe.
+    #[must_use]
+    pub fn claims(&self, direction: SwipeDirection) -> bool {
+        self.axis
+            .paging(direction)
+            .is_some_and(|forward| self.list.can_turn(forward))
+    }
+
     pub fn handle_event(&mut self, event: AppEvent) -> ListOutcome {
         match event {
             AppEvent::Swipe(direction) => self.turn_page(direction),
@@ -253,8 +297,8 @@ impl<const N: usize> ListSlots<N> {
 
     fn turn_page(&mut self, direction: SwipeDirection) -> ListOutcome {
         let Some(forward) = self.axis.paging(direction) else {
-            // The other axis is how this screen was entered, so the gesture
-            // belongs to navigation and must not also turn a page.
+            // The other axis belongs to navigation on this screen, so a gesture
+            // along it must not also turn a page.
             return ListOutcome::None;
         };
         let turned = if forward {
@@ -265,7 +309,7 @@ impl<const N: usize> ListSlots<N> {
         if turned {
             // The press that was in flight belongs to the page that just left.
             self.release();
-            ListOutcome::Paged
+            ListOutcome::Paged(Some(direction))
         } else {
             ListOutcome::None
         }
@@ -437,7 +481,7 @@ mod tests {
         // The same slot means a different entry one page on.
         assert_eq!(
             slots.handle_event(AppEvent::Swipe(SwipeDirection::Up)),
-            ListOutcome::Paged
+            ListOutcome::Paged(Some(SwipeDirection::Up))
         );
         assert_eq!(activate(&mut slots, 0), ListOutcome::Activated(6));
     }
@@ -477,18 +521,57 @@ mod tests {
         }
     }
 
+    /// The rule that lets a screen page along the axis it was entered on.
+    ///
+    /// A list that claimed the gesture at the end of its pages would be a
+    /// screen with no way out, because the way out is that same gesture. So the
+    /// claim has to stop exactly where the pages do: the launcher pages up and
+    /// down, and down from the first page is the watchface.
+    #[test]
+    fn a_list_claims_a_gesture_only_while_it_has_a_page_that_way() {
+        let mut tiles = ListSlots::new(rows(), PageAxis::Vertical, 13);
+
+        assert!(tiles.claims(SwipeDirection::Up));
+        // The first page: down is the way out, not the page before.
+        assert!(!tiles.claims(SwipeDirection::Down));
+        // The other axis is never claimed, whichever page is showing.
+        assert!(!tiles.claims(SwipeDirection::Left));
+        assert!(!tiles.claims(SwipeDirection::Right));
+
+        let _ = tiles.handle_event(AppEvent::Swipe(SwipeDirection::Up));
+        assert!(tiles.claims(SwipeDirection::Down));
+
+        while tiles.list().can_turn(true) {
+            let _ = tiles.handle_event(AppEvent::Swipe(SwipeDirection::Up));
+        }
+        // The last page hands the gesture back the same way the first one does.
+        assert!(!tiles.claims(SwipeDirection::Up));
+        assert!(tiles.claims(SwipeDirection::Down));
+    }
+
+    /// A page that moved because its entries did has no direction to have come
+    /// from, and must not be drawn as though a finger had pushed it.
+    #[test]
+    fn only_a_gesture_gives_a_page_turn_a_direction() {
+        let mut slots = ListSlots::new(rows(), PageAxis::Vertical, 13);
+        let _ = slots.handle_event(AppEvent::Swipe(SwipeDirection::Up));
+        let _ = slots.handle_event(AppEvent::Swipe(SwipeDirection::Up));
+
+        assert_eq!(slots.set_len(3), ListOutcome::Paged(None));
+    }
+
     #[test]
     fn the_page_follows_the_finger() {
         let mut tiles = ListSlots::new(rows(), PageAxis::Horizontal, 12);
 
         assert_eq!(
             tiles.handle_event(AppEvent::Swipe(SwipeDirection::Left)),
-            ListOutcome::Paged
+            ListOutcome::Paged(Some(SwipeDirection::Left))
         );
         assert_eq!(tiles.list().page(), 1);
         assert_eq!(
             tiles.handle_event(AppEvent::Swipe(SwipeDirection::Right)),
-            ListOutcome::Paged
+            ListOutcome::Paged(Some(SwipeDirection::Right))
         );
         assert_eq!(tiles.list().page(), 0);
         // A swipe with no page behind it is not this list's business either.

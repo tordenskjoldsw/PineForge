@@ -18,6 +18,8 @@ use crate::{
         wall_clock_receiver,
     },
 };
+#[cfg(feature = "ui-animations")]
+use pineforge_state::Navigation;
 use pineforge_state::{
     AppEffect, AppEvent, AppState, ClockSnapshot, DisplaySettings, HeartRateCommand, Modal,
     ModalOutcome, ModalState, MusicControl, MusicState, Notification, PowerCommand, ScreenId,
@@ -29,7 +31,12 @@ use pineforge_ui::{
     modal,
     registry::Screens,
     status::{StatusCorner, wears_status},
+    theme,
 };
+
+mod panel;
+
+use panel::ScrollPanel;
 #[cfg(feature = "ui-animations")]
 use pineforge_ui::{scratch::UiScratch, transition::draw_slide_reveal};
 
@@ -150,6 +157,11 @@ fn play(screens: &mut Screens, state: &MusicState, started_at: Instant) -> Displ
 }
 
 /// The panel, once it is up and pointed the right way round.
+///
+/// Declared as the whole of the controller's frame memory rather than as the
+/// 240x240 that is fitted, which is what lets [`ScrollPanel`] reach the rows the
+/// panel is not showing. Nothing else may address them: the wrapper is what
+/// every other part of this task draws through, and it presents the watch.
 type Panel = mipidsi::Display<
     SpiInterface<'static, DisplaySpi, Output<'static>>,
     mipidsi::models::ST7789,
@@ -170,10 +182,10 @@ fn init_panel(
     reset: Output<'static>,
     spi: DisplaySpi,
     delay: &mut Delay,
-) -> Option<Panel> {
+) -> Option<ScrollPanel<Panel>> {
     let interface = SpiInterface::new(spi, dc, DISPLAY_BUFFER.init([0; DISPLAY_BUFFER_BYTES]));
     let panel = mipidsi::Builder::new(mipidsi::models::ST7789, interface)
-        .display_size(pins::DISPLAY_WIDTH, pins::DISPLAY_HEIGHT)
+        .display_size(pins::DISPLAY_WIDTH, panel::MEMORY_ROWS)
         .invert_colors(ColorInversion::Inverted)
         .reset_pin(reset)
         .init(delay);
@@ -191,6 +203,27 @@ fn init_panel(
     if let Err(error) = panel.set_orientation(Orientation::new()) {
         error!(
             "Display orientation rejected, continuing without a screen: {}",
+            defmt::Debug2Format(&error)
+        );
+        return None;
+    }
+    // Stated rather than inherited: the window has to be free to travel the
+    // whole of frame memory, and a reset default is a poor thing to rest an
+    // animation on.
+    if let Err(error) = panel.set_vertical_scroll_region(0, 0) {
+        error!(
+            "Display scroll region rejected, continuing without a screen: {}",
+            defmt::Debug2Format(&error)
+        );
+        return None;
+    }
+    let mut panel = ScrollPanel::new(panel);
+    // The staging rows come up holding whatever the controller powered on with,
+    // and the first slide would carry that into view ahead of the screen it is
+    // bringing in. Paid once, at boot, for 80 rows.
+    if let Err(error) = panel.clear_memory(theme::BACKGROUND) {
+        error!(
+            "Display clear failed, continuing without a screen: {}",
             defmt::Debug2Format(&error)
         );
         return None;
@@ -278,7 +311,7 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
     );
     backlight.set_level(panel_backlight(power, lamp_lit(&app, &screens), settings));
     if power == SystemPowerState::Sleeping {
-        let _ = display.sleep(&mut delay);
+        let _ = display.inner().sleep(&mut delay);
     }
 
     loop {
@@ -389,7 +422,7 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                 power = next;
                 match next {
                     SystemPowerState::Interactive if was_sleeping => {
-                        let _ = display.wake(&mut delay);
+                        let _ = display.inner().wake(&mut delay);
                         // A modal outlives sleep and still owns the screen.
                         if let Some(showing) = modals.current() {
                             let _ =
@@ -461,7 +494,7 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                         .set_level(panel_backlight(power, lamp_lit(&app, &screens), settings)),
                     SystemPowerState::Sleeping => {
                         backlight.set_level(0);
-                        let _ = display.sleep(&mut delay);
+                        let _ = display.inner().sleep(&mut delay);
                     }
                 }
                 continue;
@@ -536,7 +569,7 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
         }
         match modal_outcome {
             ModalOutcome::Show(showing) | ModalOutcome::Refresh(showing) => {
-                let _ = display.wake(&mut delay);
+                let _ = display.inner().wake(&mut delay);
                 backlight.set_level(panel_backlight(
                     SystemPowerState::Interactive,
                     lamp_lit(&app, &screens),
@@ -647,6 +680,14 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
         // content; a back press that leads nowhere is at the root and is simply
         // absorbed, so it never reaches a screen as content.
         let effect = match event {
+            // Navigation resolves first, with one exception it has to ask about:
+            // a screen that pages along the axis it was entered on claims the
+            // gesture while it still has a page that way. Nothing else answers
+            // yes, and a screen that does still gives the gesture up at the end
+            // of its pages - which is where it becomes the way out.
+            AppEvent::Swipe(direction) if screens.claims(app.active_screen(), direction) => {
+                app.transition(screens.handle(app.active_screen(), event))
+            }
             AppEvent::Swipe(direction) => match app.navigate(direction) {
                 AppEffect::None => app.transition(screens.handle(app.active_screen(), event)),
                 navigated => navigated,
@@ -871,6 +912,38 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                 let _ = screens.draw_full(
                     app.active_screen(),
                     &status,
+                    &mut Canvas::new(&mut display),
+                    &mut || watchdog.pet(),
+                );
+            }
+            AppEffect::PageTurn(motion) => {
+                // The stack has not moved, so nothing is entered and no screen
+                // is left; only what one screen shows has changed. It is drawn
+                // like a navigation because that is what it looks like, and
+                // because a page that slides in is the whole point of paging
+                // along the axis the panel can slide on.
+                #[cfg(not(feature = "ui-animations"))]
+                let _ = motion;
+                #[cfg(feature = "ui-animations")]
+                {
+                    let active = app.active_screen();
+                    let result = screens.surface(active, &status, &mut |surface| {
+                        draw_slide_reveal(
+                            surface,
+                            &mut display,
+                            ui_scratch,
+                            Navigation::forward(motion),
+                            &mut || watchdog.pet(),
+                        )
+                    });
+                    // Composed through `surface` rather than `draw_dirty`, so
+                    // the readings it drew have to be marked as shown here.
+                    screens.painted();
+                    let _ = result;
+                }
+                #[cfg(not(feature = "ui-animations"))]
+                let _ = screens.draw_dirty(
+                    app.active_screen(),
                     &mut Canvas::new(&mut display),
                     &mut || watchdog.pet(),
                 );

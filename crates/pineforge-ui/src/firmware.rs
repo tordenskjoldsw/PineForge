@@ -105,6 +105,7 @@ impl Screen for FirmwareScreen {
         match self.menu.handle(&MENU, event) {
             MenuOutcome::Chose(1) if !self.confirmed => ScreenAction::ConfirmFirmware,
             MenuOutcome::Chose(2) => ScreenAction::Reboot,
+            MenuOutcome::Paged(motion) => ScreenAction::Paged(motion),
             _ => ScreenAction::None,
         }
     }

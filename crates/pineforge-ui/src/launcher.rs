@@ -1,4 +1,12 @@
-//! The application launcher: four tiles per page, opened by swiping up.
+//! The application launcher: four tiles per page, opened by swiping up and
+//! paged by carrying on upwards.
+//!
+//! Up and down do everything here. The gesture that opened the launcher keeps
+//! going through its pages, and the first page is where down means the
+//! watchface again rather than the page before. It is worth the special case in
+//! [`Screen::claims`]: the panel's controller can only slide its picture
+//! vertically, so pages that turn this way are the ones that can be slid rather
+//! than swept in.
 //!
 //! What a tile means lives in the table below, not in the drawing code and not
 //! in the list model: entries are indices everywhere else. Adding an
@@ -11,17 +19,21 @@ use embedded_graphics::{
 };
 use pineforge_state::{
     AppEvent, ButtonBounds, ButtonState, ListOutcome, ListSlots, PageAxis, ScreenAction, ScreenId,
+    SwipeDirection,
 };
 
 use crate::canvas::{Canvas, CanvasError};
 use crate::font::{LIBERATION_MONO_10X22, ui_text};
 use crate::{
     icons::{self, ICON_SIZE, Icon, draw_icon},
-    render::{draw_mono_text_visible, draw_page_marks, draw_visible, round_corners},
+    render::{PANEL, draw_mono_text_visible, draw_page_marks, draw_visible, round_corners},
     screen::{Dirty, Paint, Screen},
     status::STATUS_HEIGHT,
     theme,
 };
+
+/// The panel's height, for centring the grid in what the corner leaves.
+const PANEL_HEIGHT: i32 = PANEL.size.height.cast_signed();
 
 /// One tile: what it shows, what it says, and where it goes.
 struct Tile {
@@ -117,14 +129,23 @@ const MARGIN: i32 = 10;
 const GAP: i32 = 10;
 const TILE_WIDTH: i32 = 105;
 const TILE_HEIGHT: i32 = 88;
-/// Clear of the status corner rather than flush against it.
-const TOP: i32 = STATUS_HEIGHT + 10;
 
-/// Where the tiles stop, and the strip below them begins.
-const GRID_BOTTOM: i32 = TOP + 2 * TILE_HEIGHT + GAP;
-/// Centre line of the page rail, in the strip the tiles leave below them.
-/// Placed so the rail's thickness clears the bottom edge of the panel.
-const DOT_Y: i32 = GRID_BOTTOM + 14;
+/// How tall the two rows of tiles are together.
+const GRID_HEIGHT: i32 = 2 * TILE_HEIGHT + GAP;
+
+/// Where the tiles begin, below the status corner.
+///
+/// Centred in what the corner leaves rather than set at a fixed distance from
+/// it. The rail moved to the right-hand edge when the pages did, which left the
+/// strip under the grid empty; splitting that space above and below is what
+/// keeps the grid from sitting high on the panel with a gap beneath it.
+const TOP: i32 = STATUS_HEIGHT + (PANEL_HEIGHT - STATUS_HEIGHT - GRID_HEIGHT) / 2;
+
+/// Centre of the page rail, in the strip the tiles leave to their right.
+///
+/// The rail runs along the axis the pages turn on, which is now the vertical
+/// one, so it stands beside the grid instead of lying under it.
+const RAIL_CENTER: Point = Point::new(MARGIN + 2 * TILE_WIDTH + GAP + 5, TOP + GRID_HEIGHT / 2);
 /// Width of one character in the UI face, for centring a label by hand.
 const CHARACTER_WIDTH: i32 = LIBERATION_MONO_10X22.cell.width.cast_signed();
 
@@ -167,9 +188,12 @@ impl Default for LauncherScreen {
                     tile_bounds(2),
                     tile_bounds(3),
                 ],
-                // Opened by swiping up, so navigation owns the vertical axis
-                // and the pages turn horizontally.
-                PageAxis::Horizontal,
+                // The pages turn the way the launcher was opened: on up, which
+                // brought it in, and back down again. That axis is also the way
+                // out, so it is shared rather than taken - see `claims` below,
+                // which is what keeps the watchface one swipe from the first
+                // page instead of unreachable.
+                PageAxis::Vertical,
                 TILES.len(),
             ),
             dirty: Dirty::Nothing,
@@ -250,12 +274,7 @@ impl LauncherScreen {
     /// Only the position is local; the marks and the clearing behind them are
     /// the shared component every paginated screen uses.
     fn draw_pages(&self, canvas: &mut Canvas<'_>) -> Result<(), CanvasError> {
-        draw_page_marks(
-            canvas,
-            PageAxis::Horizontal,
-            self.slots.list(),
-            Point::new(120, DOT_Y),
-        )
+        draw_page_marks(canvas, PageAxis::Vertical, self.slots.list(), RAIL_CENTER)
     }
 }
 
@@ -273,6 +292,15 @@ impl Paint for LauncherScreen {
 }
 
 impl Screen for LauncherScreen {
+    /// The swipe is the launcher's for as long as it has a page that way.
+    ///
+    /// Down from the first page is deliberately not claimed: that is the
+    /// watchface, and the way back to it has to stay one gesture from where the
+    /// launcher opens.
+    fn claims(&self, direction: SwipeDirection) -> bool {
+        self.slots.claims(direction)
+    }
+
     fn handle_event(&mut self, event: AppEvent) -> ScreenAction {
         self.dirty = Dirty::Nothing;
         match self.slots.handle_event(event) {
@@ -283,9 +311,11 @@ impl Screen for LauncherScreen {
                 self.dirty = slot.map_or(Dirty::Everything, Dirty::Slot);
                 ScreenAction::None
             }
-            ListOutcome::Paged => {
+            ListOutcome::Paged(motion) => {
                 self.dirty = Dirty::Everything;
-                ScreenAction::None
+                // A page that moved under a finger is slid in; one that moved
+                // because its entries changed has nowhere to have come from.
+                motion.map_or(ScreenAction::None, ScreenAction::Paged)
             }
             ListOutcome::None => ScreenAction::None,
         }
@@ -315,9 +345,9 @@ mod tests {
         geometry::{Point, Size},
         primitives::Rectangle,
     };
-    use pineforge_state::AppEvent;
+    use pineforge_state::{AppEvent, ScreenAction, SwipeDirection};
 
-    use super::{LauncherScreen, SLOTS, tile_bounds};
+    use super::{LauncherScreen, RAIL_CENTER, SLOTS, TILE_WIDTH, tile_bounds};
     use crate::{canvas::Canvas, probe::Probe, screen::Screen};
 
     /// The panel area one tile occupies.
@@ -392,5 +422,46 @@ mod tests {
                 "slot {other} was repainted for a release it had no part in"
             );
         }
+    }
+
+    /// The one gesture the launcher must never keep for itself.
+    ///
+    /// It pages on the axis it was opened on, which is only safe because the
+    /// first page hands the downward swipe back: that is the way to the
+    /// watchface, and it has to be one gesture from where the launcher opens.
+    #[test]
+    fn the_first_page_leaves_the_way_back_to_the_watchface() {
+        let mut launcher = LauncherScreen::default();
+
+        assert!(!launcher.claims(SwipeDirection::Down));
+        assert!(launcher.claims(SwipeDirection::Up));
+
+        // Paging reports which way it went, because that is what decides which
+        // edge the page is slid in from.
+        assert_eq!(
+            launcher.handle_event(AppEvent::Swipe(SwipeDirection::Up)),
+            ScreenAction::Paged(SwipeDirection::Up)
+        );
+        // A page in, down is the page before rather than the way out.
+        assert!(launcher.claims(SwipeDirection::Down));
+        assert_eq!(
+            launcher.handle_event(AppEvent::Swipe(SwipeDirection::Down)),
+            ScreenAction::Paged(SwipeDirection::Down)
+        );
+        assert!(!launcher.claims(SwipeDirection::Down));
+    }
+
+    /// The rail moved to the right-hand edge when the pages turned vertical,
+    /// and it has to stand clear of the tiles it reports on.
+    #[test]
+    fn the_page_rail_stands_beside_the_grid_rather_than_over_it() {
+        let right_edge = tile_bounds(1).x() + TILE_WIDTH;
+
+        assert!(
+            RAIL_CENTER.x > right_edge,
+            "the rail at {} overlaps the tiles, which end at {right_edge}",
+            RAIL_CENTER.x
+        );
+        assert!(RAIL_CENTER.x < super::PANEL.size.width.cast_signed());
     }
 }

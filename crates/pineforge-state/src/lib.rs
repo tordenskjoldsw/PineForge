@@ -1176,12 +1176,19 @@ pub enum ScreenAction {
     TimerControl(TimerControl),
     SetTime(WallTime),
     SetDate(CalendarDate),
+    /// The screen turned to another of its own pages, the way the gesture
+    /// travelled. The stack has not moved, so this is not a navigation - but it
+    /// looks like one to the eye and is drawn like one.
+    Paged(SwipeDirection),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AppEffect {
     None,
     Navigate(Navigation),
+    /// Redraw the active screen as having moved this way; see
+    /// [`ScreenAction::Paged`].
+    PageTurn(SwipeDirection),
     RequestRollback,
     ApplySettings(DisplaySettings),
     ConfirmFirmware,
@@ -1496,6 +1503,7 @@ impl AppState {
             ScreenAction::TimerControl(control) => AppEffect::TimerControl(control),
             ScreenAction::SetTime(time) => AppEffect::SetTime(time),
             ScreenAction::SetDate(date) => AppEffect::SetDate(date),
+            ScreenAction::Paged(motion) => AppEffect::PageTurn(motion),
             ScreenAction::Back => self.pop(),
             ScreenAction::Push(screen) => self.push(screen, None),
         }

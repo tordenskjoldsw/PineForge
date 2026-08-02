@@ -1,4 +1,4 @@
-use pineforge_state::{AppEvent, ScreenAction};
+use pineforge_state::{AppEvent, ScreenAction, SwipeDirection};
 
 use crate::canvas::{Canvas, CanvasError};
 
@@ -68,6 +68,21 @@ pub trait Paint {
 /// Application-facing contract implemented by screens and watchfaces.
 pub trait Screen: Paint {
     fn handle_event(&mut self, event: AppEvent) -> ScreenAction;
+
+    /// Whether this screen will spend the swipe on itself.
+    ///
+    /// Navigation is offered a gesture first, and for good reason: a screen is
+    /// left by the reverse of what opened it, and a screen that could swallow
+    /// that gesture would be a screen with no way out. This is the one
+    /// exception, and it is narrow by construction - a paged screen answers yes
+    /// only while it has a page to turn to in that direction, so the way out is
+    /// still there, one page further on.
+    ///
+    /// Answering yes commits the screen to consuming the event: it will be
+    /// handed on unconditionally, and navigation never sees it.
+    fn claims(&self, _direction: SwipeDirection) -> bool {
+        false
+    }
 
     /// Draws only regions changed by the most recently handled event.
     fn draw_dirty(

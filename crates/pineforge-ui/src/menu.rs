@@ -21,6 +21,7 @@
 use embedded_graphics::{geometry::Point, prelude::*, primitives::Rectangle};
 use pineforge_state::{
     AppEvent, ButtonBounds, ButtonState, ListOutcome, ListSlots, PageAxis, PagedList, ScreenId,
+    SwipeDirection,
 };
 
 use crate::{
@@ -119,6 +120,9 @@ pub enum MenuOutcome {
     Navigate(ScreenId),
     /// A value or choice row was chosen, by entry index.
     Chose(usize),
+    /// The menu turned to another page, the way the gesture travelled. Passed
+    /// on so the rows are slid in rather than replaced where they stand.
+    Paged(SwipeDirection),
 }
 
 /// The fixed part of a menu: everything that does not depend on state.
@@ -336,9 +340,11 @@ impl<const N: usize> MenuState<N> {
                 MenuOutcome::None
             }
             // A new page moves every row and the rail with them.
-            ListOutcome::Paged => {
+            ListOutcome::Paged(motion) => {
                 self.dirty = Dirty::Everything;
-                MenuOutcome::None
+                // A page pulled back by rows that disappeared has no direction
+                // to have come from, and is simply redrawn.
+                motion.map_or(MenuOutcome::None, MenuOutcome::Paged)
             }
             ListOutcome::None => {
                 self.dirty = Dirty::Nothing;

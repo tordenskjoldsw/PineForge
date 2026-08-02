@@ -127,8 +127,11 @@ impl Screen for SettingPickerScreen {
             return ScreenAction::None;
         }
 
-        let MenuOutcome::Chose(entry) = chosen else {
-            return ScreenAction::None;
+        let entry = match chosen {
+            MenuOutcome::Chose(entry) => entry,
+            // The presets carry on past one page on the smaller settings.
+            MenuOutcome::Paged(motion) => return ScreenAction::Paged(motion),
+            _ => return ScreenAction::None,
         };
         // A preset the setters refuse - an off timeout before dimming - leaves
         // the marker where it was, which is the screen saying no.
