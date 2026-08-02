@@ -68,6 +68,9 @@ pub use storage::{
     storage_header_version,
 };
 
+mod stopwatch;
+pub use stopwatch::{StopwatchControl, StopwatchState};
+
 pub const SCREEN_STACK_CAPACITY: usize = 4;
 
 /// Steps in a day, and what every gauge showing progress divides against.
@@ -870,6 +873,8 @@ pub enum ScreenId {
     Steps,
     /// What the phone is playing, and the transport that changes it.
     Music,
+    /// A monotonic stopwatch with start, pause, resume, and reset.
+    Stopwatch,
     #[cfg(feature = "diagnostics")]
     TouchTest,
 }
@@ -877,9 +882,9 @@ pub enum ScreenId {
 impl ScreenId {
     /// How many screens this build has.
     pub const COUNT: usize = if cfg!(feature = "diagnostics") {
-        17
+        18
     } else {
-        16
+        17
     };
 
     /// Every screen, so anything that has to hold for all of them can be
@@ -909,6 +914,7 @@ impl ScreenId {
         Self::Pulse,
         Self::Steps,
         Self::Music,
+        Self::Stopwatch,
         #[cfg(feature = "diagnostics")]
         Self::TouchTest,
     ];
@@ -958,8 +964,9 @@ impl ScreenId {
             Self::Pulse => 13,
             Self::Steps => 14,
             Self::Music => 15,
+            Self::Stopwatch => 16,
             #[cfg(feature = "diagnostics")]
-            Self::TouchTest => 16,
+            Self::TouchTest => 17,
         }
     }
 }
@@ -1021,6 +1028,8 @@ pub enum AppEvent {
     /// straight into the screen that shows it, exactly as an arriving
     /// notification is, and this says only that it moved.
     MusicUpdated,
+    /// A high-resolution monotonic observation addressed to the stopwatch.
+    StopwatchTick(u64),
     DisplaySettingsUpdated(DisplaySettings),
     BleUpdated(BleState),
     StorageUpdated(StorageState),
@@ -1086,6 +1095,7 @@ impl AppEvent {
             | Self::BackPressed
             | Self::Tick { .. }
             | Self::DisplaySettingsUpdated(_) => false,
+            Self::StopwatchTick(_) => false,
         }
     }
 }
@@ -1128,6 +1138,7 @@ pub enum ScreenAction {
     StopHeartRate,
     /// Ask the phone to do something to what it is playing.
     MusicControl(MusicControl),
+    StopwatchControl(StopwatchControl),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1141,6 +1152,7 @@ pub enum AppEffect {
     MeasureHeartRate,
     StopHeartRate,
     MusicControl(MusicControl),
+    StopwatchControl(StopwatchControl),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1440,6 +1452,7 @@ impl AppState {
             ScreenAction::MeasureHeartRate => AppEffect::MeasureHeartRate,
             ScreenAction::StopHeartRate => AppEffect::StopHeartRate,
             ScreenAction::MusicControl(control) => AppEffect::MusicControl(control),
+            ScreenAction::StopwatchControl(control) => AppEffect::StopwatchControl(control),
             ScreenAction::Back => self.pop(),
             ScreenAction::Push(screen) => self.push(screen, None),
         }

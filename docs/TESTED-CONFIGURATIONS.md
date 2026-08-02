@@ -34,6 +34,7 @@ unknown rather than as working.
 | Time synchronisation from Gadgetbridge | Yes. |
 | Music control against a phone | Yes, on the one known Gadgetbridge setup: title and artist display correctly; previous, next, pause, resume, volume up, and volume down all work from the watch. |
 | Three-page About/system status | Yes, flashed and displayed on the known sealed PineTime: build, hardware and system pages are reachable. Rare failure values and alternative hardware IDs have not been deliberately exercised. |
+| FORGE stopwatch | Yes, flashed as the `0.6.0+1` development image and exercised on the known sealed PineTime: display, start, pause, resume, reset, navigation away and display sleep all work. |
 | Daily wear | Since late July 2026, on my own watch - waking, timekeeping, notifications, settings and charging in ordinary use. Days, not months. |
 
 ## Not established
@@ -49,6 +50,7 @@ unknown rather than as working.
 | Step-count accuracy | Steps are counted and shown, but never checked against a counted walk or another tracker. The figure is indicative; tuning is expected. |
 | Heart-rate accuracy | Readings are produced on demand and on an interval, but never compared against a reference monitor. Neither the accuracy nor the effect of the sampling interval on battery life is known. |
 | Music robustness | Core display and control paths work against the known Gadgetbridge setup. Progress after display sleep, Bluetooth disconnection and reconnection, and switching media applications mid-track have not yet been exercised. |
+| Stopwatch long-run behaviour | Core controls, navigation and display sleep work on hardware, but an extended run has not been compared against a reference clock. |
 
 ## Reporting a configuration
 

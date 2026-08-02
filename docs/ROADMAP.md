@@ -23,8 +23,10 @@ milestone should leave the sealed PineTime in a testable and recoverable state.
   About/system-status view. Both have run on the known watch. Music sleep,
   reconnection and media-application switching, rare status failures and other
   PineTime variants remain untested.
-- next release: stopwatch and timer, both modelled and host-tested without a new
-  phone integration
+- `v0.6.0` development: the FORGE-style stopwatch is implemented with a
+  host-tested monotonic model and partial rendering, and has passed its first
+  hardware test on the known watch. The timer remains next; neither needs a new
+  phone integration.
 
 Work that has landed on `main` but not in a tagged release is marked
 *unreleased* below. Everything else in a **Complete** section has shipped.
@@ -207,13 +209,18 @@ than as a firmware experiment. It is not reached.
   through sleep rather than strings recovered from logs. All three pages have
   been flashed and displayed on the known watch; rare failure states and other
   hardware variants remain untested.
+- *unreleased*: a FORGE-style stopwatch with start, pause, resume and reset.
+  Its elapsed time is anchored to monotonic uptime rather than repaint ticks,
+  and controls, navigation away and display sleep have passed on the known
+  watch as well as in host tests.
 
 ### Open
 
 - notification text in a face the panel can show - the screen reads the ASCII
   range the atlas covers, so accented characters draw as gaps
-- stopwatch and timer are next: both can be modelled and host-tested without a
-  new phone integration. Alarms follow once those time primitives are proven.
+- timer is next and can reuse the stopwatch's proven monotonic time primitive
+  without a new phone integration. Alarms follow once countdown timing is
+  proven.
 - activity summaries over time; steps are counted and shown for the day, but
   not retained across days
 - weather

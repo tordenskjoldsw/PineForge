@@ -194,10 +194,19 @@ Four tiles per page, two by two, below the status strip:
 +-------------------------------------+
 ```
 
-Seven production tiles today across two pages - settings, firmware, about,
-light, pulse, steps, and music - with diagnostics filling the eighth slot when
-enabled. The grid always draws its full four slots: an empty slot still paints,
-because the surface has to be opaque or the previous page shows through.
+Eight production tiles today across two pages - settings, firmware, about,
+light, pulse, steps, music, and stopwatch. Diagnostics adds touch as a ninth
+tile on a third page. The grid always draws its full four slots: an empty slot
+still paints, because the surface has to be opaque or the previous page shows
+through.
+
+The stopwatch deliberately borrows the FORGE instrument language rather than
+looking like another menu. Five rectangle-built digits show `MM:SS.T`; the
+running digits use the accent colour, while paused and ready values use normal
+text. RESET and the changing START/PAUSE/RESUME control remain ordinary touch
+buttons so their interaction state is unambiguous. Elapsed time is derived from
+monotonic uptime, not counted repaint by repaint, so display sleep and leaving
+the app do not lose time.
 
 Tiles are 105 x 88 with a ten-pixel gap and a ten-pixel margin, starting ten
 pixels below the status strip and leaving room under the second row for the page

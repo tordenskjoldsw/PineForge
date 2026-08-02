@@ -22,6 +22,7 @@ use pineforge_state::{
     AccelerometerKind, AppEvent, BatteryStatus, BleState, CalendarDate, DfuFailReason,
     DisplaySettings, FirmwareImageState, FlashStatus, HeartRateSensorKind, HeartRateState,
     MusicState, PeripheralStatus, ScreenId, StackUsage, SwipeDirection, WallTime, parse_new_alert,
+    StopwatchControl,
 };
 use pineforge_ui::{
     about::BuildInfo,
@@ -188,6 +189,11 @@ fn populate(screens: &mut Screens, status: &mut StatusCorner) {
     let _ = music.set_position(&134_u32.to_be_bytes());
     let _ = music.set_length(&463_u32.to_be_bytes());
     let _ = screens.music.apply(&music, 0);
+
+    // A running value with carries in every field exercises the whole FORGE
+    // stopwatch layout and its active colour.
+    screens.stopwatch.control(StopwatchControl::Start, 1_000);
+    let _ = screens.handle(ScreenId::Stopwatch, AppEvent::StopwatchTick(754_490));
 
     // Two messages, so the notification screen shows its paging rather than its
     // empty state.

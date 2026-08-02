@@ -1301,7 +1301,7 @@ checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 
 [[package]]
 name = "pineforge"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "bt-hci",
  "cortex-m",
@@ -1333,7 +1333,7 @@ dependencies = [
 
 [[package]]
 name = "pineforge-state"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "heapless 0.9.3",
  "microfft",
@@ -1341,7 +1341,7 @@ dependencies = [
 
 [[package]]
 name = "pineforge-ui"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "embassy-time",
  "embedded-graphics",

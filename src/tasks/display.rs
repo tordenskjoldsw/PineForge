@@ -64,6 +64,18 @@ static UI_SCRATCH: StaticCell<UiScratch> = StaticCell::new();
 /// the screen, and every one of them inside that window was dropped.
 const WAKE_INPUT_GUARD: Duration = Duration::from_millis(250);
 
+/// The FORGE stopwatch shows tenths; other screens only need the one-second
+/// cadence used by the wall clock and retained readings.
+const STOPWATCH_REFRESH: Duration = Duration::from_millis(100);
+
+fn refresh_interval(active: ScreenId) -> Duration {
+    if active == ScreenId::Stopwatch {
+        STOPWATCH_REFRESH
+    } else {
+        Duration::from_secs(1)
+    }
+}
+
 /// Whether the lamp app is showing and lit.
 ///
 /// The one question the backlight decision has to put to a screen. Every other
@@ -284,23 +296,30 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                 Either3::First(Either4::First(event)) => DisplayEvent::Ui(event),
                 Either3::First(Either4::Second(())) => {
                     let now = Instant::now();
+                    let interval = refresh_interval(app.active_screen());
                     while next_tick <= now {
-                        next_tick += Duration::from_secs(1);
+                        next_tick += interval;
                     }
-                    if let Some(reference) = wall_clock.try_changed() {
-                        wall_clock_reference = Some(reference);
+                    if app.active_screen() == ScreenId::Stopwatch {
+                        DisplayEvent::Ui(AppEvent::StopwatchTick(
+                            now.duration_since(started_at).as_millis(),
+                        ))
+                    } else {
+                        if let Some(reference) = wall_clock.try_changed() {
+                            wall_clock_reference = Some(reference);
+                        }
+                        // The wall-clock reference is anchored to absolute uptime,
+                        // so it must be sampled with the same base; the displayed
+                        // uptime stays relative to this task's start.
+                        let uptime_seconds = now.duration_since(started_at).as_secs();
+                        DisplayEvent::Ui(AppEvent::Tick {
+                            uptime_seconds,
+                            wall_time: wall_clock_reference
+                                .map(|reference| reference.wall_time_at(now.as_secs())),
+                            date: wall_clock_reference
+                                .map(|reference| reference.date_at(now.as_secs())),
+                        })
                     }
-                    // The wall-clock reference is anchored to absolute uptime,
-                    // so it must be sampled with the same base; the displayed
-                    // uptime stays relative to this task's start.
-                    let uptime_seconds = now.duration_since(started_at).as_secs();
-                    DisplayEvent::Ui(AppEvent::Tick {
-                        uptime_seconds,
-                        wall_time: wall_clock_reference
-                            .map(|reference| reference.wall_time_at(now.as_secs())),
-                        date: wall_clock_reference
-                            .map(|reference| reference.date_at(now.as_secs())),
-                    })
                 }
                 Either3::First(Either4::Third(state)) => DisplayEvent::Power(state),
                 Either3::First(Either4::Fourth(snapshot)) => DisplayEvent::Settings(snapshot),
@@ -334,13 +353,17 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                             if let Some(reference) = wall_clock.try_changed() {
                                 wall_clock_reference = Some(reference);
                             }
-                            let uptime_seconds = now.duration_since(started_at).as_secs();
-                            let tick = AppEvent::Tick {
-                                uptime_seconds,
-                                wall_time: wall_clock_reference
-                                    .map(|reference| reference.wall_time_at(now.as_secs())),
-                                date: wall_clock_reference
-                                    .map(|reference| reference.date_at(now.as_secs())),
+                            let tick = if app.active_screen() == ScreenId::Stopwatch {
+                                AppEvent::StopwatchTick(now.duration_since(started_at).as_millis())
+                            } else {
+                                let uptime_seconds = now.duration_since(started_at).as_secs();
+                                AppEvent::Tick {
+                                    uptime_seconds,
+                                    wall_time: wall_clock_reference
+                                        .map(|reference| reference.wall_time_at(now.as_secs())),
+                                    date: wall_clock_reference
+                                        .map(|reference| reference.date_at(now.as_secs())),
+                                }
                             };
                             let _ = screens.handle(app.active_screen(), tick);
                             screens.enter(app.active_screen(), settings);
@@ -379,7 +402,7 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                             settings,
                         ));
                         ignore_input_until = Instant::now() + WAKE_INPUT_GUARD;
-                        next_tick = Instant::now() + Duration::from_secs(1);
+                        next_tick = Instant::now() + refresh_interval(app.active_screen());
                     }
                     SystemPowerState::Interactive | SystemPowerState::Idle => backlight
                         .set_level(panel_backlight(power, lamp_lit(&app, &screens), settings)),
@@ -642,6 +665,17 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                     &mut || watchdog.pet(),
                 );
             }
+            AppEffect::StopwatchControl(control) => {
+                screens
+                    .stopwatch
+                    .control(control, now.duration_since(started_at).as_millis());
+                let _ = VIBRATION_COMMANDS.try_send(VibrationPattern::Tap);
+                let _ = screens.draw_dirty(
+                    app.active_screen(),
+                    &mut Canvas::new(&mut display),
+                    &mut || watchdog.pet(),
+                );
+            }
             AppEffect::Reboot | AppEffect::RequestRollback => {
                 info!("Restart requested from software");
                 // The haptic tick is the acknowledgement the user gets; the
@@ -656,6 +690,13 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                 // settings leaf, and a leaf must edit the record that is
                 // current rather than one it kept from an earlier visit.
                 screens.enter(app.active_screen(), settings);
+                if app.active_screen() == ScreenId::Stopwatch {
+                    let _ = screens.handle(
+                        ScreenId::Stopwatch,
+                        AppEvent::StopwatchTick(now.duration_since(started_at).as_millis()),
+                    );
+                }
+                next_tick = now + refresh_interval(app.active_screen());
                 // Asks what is playing, the way `InfiniTime` asks it. Nothing
                 // may be expected of the answer: Gadgetbridge drops this event
                 // rather than replying to it, so the screen fills in when the

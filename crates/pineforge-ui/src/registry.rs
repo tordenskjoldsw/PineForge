@@ -34,6 +34,7 @@ use crate::{
     settings::DisplaySettingsScreen,
     status::{StatusCorner, WithStatus, wears_status},
     steps::StepsScreen,
+    stopwatch::StopwatchScreen,
     watchface::WatchfaceScreen,
 };
 
@@ -66,6 +67,8 @@ pub struct Screens {
     /// the same reason - a track that changed while the face was up must not
     /// leave a stale title here.
     pub music: MusicScreen,
+    /// Keeps its monotonic anchor across navigation and display sleep.
+    pub stopwatch: StopwatchScreen,
     #[cfg(feature = "diagnostics")]
     pub touch_test: TestScreen,
 }
@@ -95,6 +98,7 @@ impl Screens {
             ScreenId::Pulse => &self.pulse,
             ScreenId::Steps => &self.steps,
             ScreenId::Music => &self.music,
+            ScreenId::Stopwatch => &self.stopwatch,
             // Every leaf is the same screen; `enter` has pointed it at the one
             // this id names before it can be drawn or touched.
             ScreenId::Brightness
@@ -120,6 +124,7 @@ impl Screens {
             ScreenId::Pulse => &mut self.pulse,
             ScreenId::Steps => &mut self.steps,
             ScreenId::Music => &mut self.music,
+            ScreenId::Stopwatch => &mut self.stopwatch,
             // Every leaf is the same screen; `enter` has pointed it at the one
             // this id names before it can be drawn or touched.
             ScreenId::Brightness
@@ -258,6 +263,7 @@ impl Screens {
         self.notifications.mark_painted();
         self.steps.mark_painted();
         self.music.mark_painted();
+        self.stopwatch.mark_painted();
         self.about.mark_painted();
     }
 

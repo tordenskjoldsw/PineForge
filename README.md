@@ -55,6 +55,10 @@ all three status pages have also been flashed and displayed. Music recovery
 after sleep, reconnection and media-application switching, uncommon status
 failures, and other PineTime variants remain untested - see
 [`docs/releases/v0.5.0.md`](docs/releases/v0.5.0.md).
+Development toward `v0.6.0` has started with a FORGE-style stopwatch. Its
+state and rendering are host-tested, and start, pause, resume, reset,
+navigation and display sleep have been exercised successfully on the known
+watch. It is not yet part of a release.
 [`docs/ROADMAP.md`](docs/ROADMAP.md) records what is done and what is not.
 
 Wearing it myself every day is one watch's worth of evidence, and it does
@@ -112,6 +116,9 @@ On the watch:
 - music control for whatever is playing on the phone: the title and artist, the
   elapsed time in the watchface's numerals over a progress bar, and a transport
   of previous, play/pause and next, with volume on the up and down swipes
+- an unreleased FORGE-style stopwatch showing minutes, seconds and tenths, with
+  start, pause, resume and reset; its monotonic anchor keeps elapsed time across
+  display sleep
 - step counting, and heart-rate measurement on a background interval
 - a firmware screen for image confirmation and a software restart, and a
   three-page About view naming the build and bootloader, showing sensor and
@@ -161,7 +168,7 @@ for `imgtool`, and a `.venv` with pinned Python tooling. It is safe to re-run.
 
 `build-dfu.sh` takes the version from `Cargo.toml` when called without an
 argument. Pass one to add build metadata that distinguishes two packages of the
-same release, for example `./scripts/build-dfu.sh 0.5.0+1`.
+same release, for example `./scripts/build-dfu.sh 0.6.0+1`.
 
 The DFU script builds the production profile with normal UI animations by
 default. Diagnostic screens and render metrics are opt-in:
@@ -179,7 +186,7 @@ Output:
 dist/pineforge-mcuboot-app-dfu-<version>.zip
 ```
 
-named after the `version` in `Cargo.toml` - `0.5.0` as this was written.
+named after the `version` in `Cargo.toml` - `0.6.0` as this was written.
 
 This ZIP can be installed through the Gadgetbridge firmware installer.
 
