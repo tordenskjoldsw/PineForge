@@ -74,7 +74,7 @@ jobs:
         include:
           - name: production
             features: ""
-            # 420 KiB, against a 475,104-byte slot. A design target rather than
+            # 432 KiB, against a 475,104-byte slot. A design target rather than
             # the slot limit, so unnoticed growth still fails a build - but the
             # v0.2 target of 360 KiB was leaving 104 KiB of the slot unused and
             # had started shaping features rather than catching bloat.
@@ -85,7 +85,11 @@ jobs:
             # refused by imgtool at packaging time, so the worst case is a build
             # that does not produce a ZIP. Two thirds of what is used is the BLE
             # stack; a build without the `ble` feature is 125,708 bytes.
-            flash: 430080
+            # TIME, DATE and their power-loss-tolerant clock journal deliberately
+            # raised the previous 420 KiB target. The new target retains about
+            # 32 KiB before the physical image ceiling and 11 KiB over the
+            # measured production image, so growth remains visible in CI.
+            flash: 442368
             # 48 KiB, reserving 16 KiB of the 65,528-byte RAM region for stack
             # growth. Enforcing the target and not just the ceiling is what
             # keeps it from drifting back.

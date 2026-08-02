@@ -87,9 +87,10 @@ strip = false
 # still the right default for a firmware two thirds of which is a BLE stack that
 # spends its life waiting, but these four crates are where the loops are.
 #
-# Whole-image `opt-level = 3` was measured first and is not affordable: 465,940
-# bytes against a 430,080 budget. Confined to these four it costs 5,960 bytes and
-# no RAM at all, which leaves the flash target 35,984 bytes of headroom.
+# Whole-image `opt-level = 3` was measured first and was not affordable: 465,940
+# bytes against the then-current 430,080-byte budget. Confined to these four it
+# cost 5,960 bytes and no RAM at all, leaving 35,984 bytes of headroom at the
+# time of that measurement.
 [profile.release.package.pineforge-ui]
 opt-level = 3
 [profile.release.package.embedded-graphics]

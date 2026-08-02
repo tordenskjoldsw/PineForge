@@ -350,7 +350,7 @@ Screens implement the `Screen` trait. A screen receives hardware-independent `Ui
 - release builds use LTO and size optimization
 
 CI enforces capacity budgets rather than early-project baseline sizes.
-Production is limited to 420 KiB flash and 48 KiB static RAM, diagnostics to
+Production is limited to 432 KiB flash and 48 KiB static RAM, diagnostics to
 448 KiB and 56 KiB. The production RAM target reserves 16 KiB of the
 65,528-byte RAM region for stack growth; diagnostics reserves 8 KiB. Size
 changes remain visible in CI output even when they stay below the limits.
