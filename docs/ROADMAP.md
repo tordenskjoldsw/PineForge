@@ -33,6 +33,12 @@ milestone should leave the sealed PineTime in a testable and recoverable state.
   disabling is refused during DFU. Model, migration and rendering paths are
   host-tested. Runtime disconnect, advertising restart, status-rune removal and
   persistence across reboots passed with the `0.6.1+1` image on the known watch.
+- `v0.6.1` development: vertical transitions slide through the panel's own
+  scroll window instead of being revealed in strips, which costs one frame
+  rather than one frame per step. The launcher pages on that axis with it, and
+  returns to the watchface from its first page. The claim rule that makes
+  paging on the entry axis safe is host-tested; the movement itself passed with
+  the `0.6.1+2` image on the known watch.
 
 Work that has landed on `main` but not in a tagged release is marked
 *unreleased* below. Everything else in a **Complete** section has shipped.

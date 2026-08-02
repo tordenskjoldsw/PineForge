@@ -124,6 +124,9 @@ On the watch:
   of previous, play/pause and next, with volume on the up and down swipes
 - a Bluetooth application that enables or disables advertising and active
   connections on the watch; OFF is persistent and removes the status rune
+- screens that slide vertically rather than appearing in strips, done by moving
+  the panel controller's own display window over frame memory it is not showing,
+  so the movement costs one frame instead of one per step
 - an unreleased FORGE-style stopwatch showing minutes, seconds and tenths, with
   start, pause, resume and reset; its monotonic anchor keeps elapsed time across
   display sleep
