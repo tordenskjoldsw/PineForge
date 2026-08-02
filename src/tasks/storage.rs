@@ -11,12 +11,13 @@
 
 use defmt::{info, warn};
 use embassy_futures::select::{Either3, select3};
-use embassy_time::{Duration, Instant, with_deadline};
+use embassy_time::{Duration, Instant, Timer, with_deadline};
 use pineforge_state::{
-    AppEvent, BOND_RECORD_LEN, DFU_SLOT_SIZE, DfuFailReason, DisplaySettings, FlashStatus,
-    SETTINGS_RECORD_LEN, STORAGE_BASE, STORAGE_DATA_SECTOR_COUNT, STORAGE_FORMAT_VERSION,
-    STORAGE_HEADER_LEN, STORAGE_PROGRESS_OFFSET, STORAGE_READY_HEADER_OFFSET, STORAGE_SECTOR_SIZE,
-    SettingsSlot, StorageHeader, StorageState, bond_schema_tag, decode_storage_header,
+    AppEvent, BOND_RECORD_LEN, CLOCK_JOURNAL_A_ADDRESS, CLOCK_JOURNAL_B_ADDRESS, CLOCK_RECORD_LEN,
+    ClockSnapshot, DFU_SLOT_SIZE, DfuFailReason, DisplaySettings, FlashStatus, SETTINGS_RECORD_LEN,
+    STORAGE_BASE, STORAGE_DATA_SECTOR_COUNT, STORAGE_FORMAT_VERSION, STORAGE_HEADER_LEN,
+    STORAGE_PROGRESS_OFFSET, STORAGE_READY_HEADER_OFFSET, STORAGE_SECTOR_SIZE, SettingsSlot,
+    StorageHeader, StorageState, bond_schema_tag, clock_sequence_is_newer, decode_storage_header,
     encode_storage_header, frame_bond, parse_bond, select_slot, storage_header_version,
 };
 
@@ -26,7 +27,7 @@ use crate::{
     drivers::xt25f32::{Error as FlashError, Xt25f32, is_supported_jedec_id},
     ipc::{
         BOND_LOADED, BOND_STORE, DFU_FLASH_COMMANDS, DFU_FLASH_RESULT, DISPLAY_SETTINGS,
-        DfuFlashCommand, SETTINGS_COMMANDS, StoredBond, UI_EVENTS,
+        DfuFlashCommand, SETTINGS_COMMANDS, StoredBond, UI_EVENTS, WALL_CLOCK, wall_clock_receiver,
     },
 };
 
@@ -99,6 +100,118 @@ const DFU_SLOT_BASE: u32 = 0x0004_0000;
 
 /// Collapses bursts of preset cycling into a single flash write.
 const PERSIST_DEBOUNCE: Duration = Duration::from_secs(2);
+const CLOCK_CHECKPOINT_INTERVAL: Duration = Duration::from_secs(60 * 60);
+const CLOCK_RECORDS_PER_SECTOR: usize = STORAGE_SECTOR_SIZE as usize / CLOCK_RECORD_LEN;
+
+#[derive(Clone, Copy)]
+struct ClockJournal {
+    current: Option<ClockSnapshot>,
+    active_sector: u32,
+    next_address: Option<u32>,
+    next_sequence: u32,
+}
+
+fn record_erased(record: &[u8; CLOCK_RECORD_LEN]) -> bool {
+    record.iter().all(|byte| *byte == 0xff)
+}
+
+fn read_clock_journal(flash: &mut Xt25f32<FlashSpi>) -> ClockJournal {
+    let mut latest: Option<(ClockSnapshot, u32, u32)> = None;
+    let mut record = [0_u8; CLOCK_RECORD_LEN];
+    for sector in [CLOCK_JOURNAL_A_ADDRESS, CLOCK_JOURNAL_B_ADDRESS] {
+        for index in 0..CLOCK_RECORDS_PER_SECTOR {
+            let address =
+                sector + u32::try_from(index * CLOCK_RECORD_LEN).unwrap_or(STORAGE_SECTOR_SIZE);
+            if flash.read(address, &mut record).is_err() {
+                continue;
+            }
+            let Some((snapshot, sequence)) = ClockSnapshot::decode(&record) else {
+                continue;
+            };
+            if latest.is_none_or(|(_, current, _)| clock_sequence_is_newer(sequence, current)) {
+                latest = Some((snapshot, sequence, address));
+            }
+        }
+    }
+
+    let Some((snapshot, sequence, latest_address)) = latest else {
+        let next_address = [CLOCK_JOURNAL_A_ADDRESS, CLOCK_JOURNAL_B_ADDRESS]
+            .into_iter()
+            .find_map(|sector| first_erased(flash, sector, sector));
+        let active_sector =
+            if next_address.is_some_and(|address| address >= CLOCK_JOURNAL_B_ADDRESS) {
+                CLOCK_JOURNAL_B_ADDRESS
+            } else {
+                CLOCK_JOURNAL_A_ADDRESS
+            };
+        return ClockJournal {
+            current: None,
+            active_sector,
+            next_address,
+            next_sequence: 0,
+        };
+    };
+
+    let active_sector = if latest_address < CLOCK_JOURNAL_B_ADDRESS {
+        CLOCK_JOURNAL_A_ADDRESS
+    } else {
+        CLOCK_JOURNAL_B_ADDRESS
+    };
+    ClockJournal {
+        current: Some(snapshot),
+        active_sector,
+        next_address: first_erased(
+            flash,
+            active_sector,
+            latest_address + u32::try_from(CLOCK_RECORD_LEN).unwrap_or(32),
+        ),
+        next_sequence: sequence.wrapping_add(1),
+    }
+}
+
+fn first_erased(flash: &mut Xt25f32<FlashSpi>, sector: u32, start: u32) -> Option<u32> {
+    let end = sector + STORAGE_SECTOR_SIZE;
+    let mut address = start;
+    let mut record = [0_u8; CLOCK_RECORD_LEN];
+    while address + u32::try_from(CLOCK_RECORD_LEN).ok()? <= end {
+        flash.read(address, &mut record).ok()?;
+        if record_erased(&record) {
+            return Some(address);
+        }
+        address += u32::try_from(CLOCK_RECORD_LEN).ok()?;
+    }
+    None
+}
+
+async fn persist_clock(
+    flash: &mut Xt25f32<FlashSpi>,
+    journal: &mut ClockJournal,
+    snapshot: ClockSnapshot,
+) -> Result<(), FlashError<<FlashSpi as embedded_hal::spi::ErrorType>::Error>> {
+    if journal.current == Some(snapshot) {
+        return Ok(());
+    }
+    let address = if let Some(address) = journal.next_address {
+        address
+    } else {
+        let next_sector = if journal.active_sector == CLOCK_JOURNAL_A_ADDRESS {
+            CLOCK_JOURNAL_B_ADDRESS
+        } else {
+            CLOCK_JOURNAL_A_ADDRESS
+        };
+        flash.erase_sector(next_sector).await?;
+        journal.active_sector = next_sector;
+        next_sector
+    };
+    let record = snapshot.encode(journal.next_sequence);
+    flash.program_verified(address, &record).await?;
+    journal.current = Some(snapshot);
+    journal.next_sequence = journal.next_sequence.wrapping_add(1);
+    let following = address + u32::try_from(CLOCK_RECORD_LEN).unwrap_or(32);
+    journal.next_address =
+        (following < journal.active_sector + STORAGE_SECTOR_SIZE).then_some(following);
+    Ok(())
+}
 
 /// Names the serialized bond layout this build reads and writes.
 ///
@@ -187,6 +300,7 @@ async fn run_dfu_command(
 pub async fn run(spi: FlashSpi, watchdog: BootloaderWatchdog) {
     let mut flash = Xt25f32::new(spi);
     let sender = DISPLAY_SETTINGS.sender();
+    let mut clock_receiver = wall_clock_receiver();
 
     // A missing or foreign chip degrades to RAM-only settings; the firmware
     // must stay fully usable without persistence. When it is not writable we
@@ -227,16 +341,22 @@ pub async fn run(spi: FlashSpi, watchdog: BootloaderWatchdog) {
     info!("BLE bond loaded: stored={}", bond.is_some());
     BOND_LOADED.signal(bond);
 
-    if writable && crate::boot::confirm::is_validated() {
+    let storage_ready = if writable && crate::boot::confirm::is_validated() {
         if initialize_storage(&mut flash, watchdog).await.is_err() {
             warn!("PineForge storage initialization failed");
             UI_EVENTS
                 .send(AppEvent::StorageUpdated(StorageState::Failed))
                 .await;
+            false
+        } else {
+            true
         }
     } else if writable {
         info!("Storage remains reserved while firmware rollback is possible");
-    }
+        false
+    } else {
+        false
+    };
 
     let decision = if writable {
         select_slot(
@@ -258,15 +378,56 @@ pub async fn run(spi: FlashSpi, watchdog: BootloaderWatchdog) {
     );
     sender.send(current);
 
+    // The clock journal deliberately lives in the confirmed-image data area.
+    // A trial image must never initialize or mutate it, because MCUBoot may
+    // still roll back to firmware that knows nothing about PineForge storage.
+    let mut clock_journal = storage_ready.then(|| read_clock_journal(&mut flash));
+    let mut current_reference = clock_receiver.try_changed();
+    if current_reference.is_none()
+        && let Some(snapshot) = clock_journal.as_ref().and_then(|journal| journal.current)
+    {
+        let now = Instant::now().as_secs();
+        let reference = snapshot.reference_at(now);
+        current_reference = Some(reference);
+        WALL_CLOCK.sender().send(reference);
+        info!("Wall clock restored from external flash");
+    }
+    // A BLE reference may have arrived while storage was formatting. Since
+    // `try_changed` consumes it above, persist it here rather than waiting for
+    // the first hourly checkpoint. A restored reference is a duplicate and
+    // `persist_clock` intentionally turns that into no write.
+    if let Some(reference) = current_reference
+        && let Some(journal) = clock_journal.as_mut()
+        && let Err(error) = persist_clock(
+            &mut flash,
+            journal,
+            ClockSnapshot::from_reference(reference, Instant::now().as_secs()),
+        )
+        .await
+    {
+        warn!("Initial clock write failed; continuing without persistence");
+        writable = false;
+        flash_fault = fail_reason(&error, DfuFailReason::ProgramFailed);
+    }
+    let mut next_clock_checkpoint = if current_reference.is_some() {
+        Instant::now() + CLOCK_CHECKPOINT_INTERVAL
+    } else {
+        Instant::MAX
+    };
+
     loop {
         match select3(
-            SETTINGS_COMMANDS.receive(),
-            BOND_STORE.receive(),
-            DFU_FLASH_COMMANDS.receive(),
+            select3(
+                SETTINGS_COMMANDS.receive(),
+                BOND_STORE.receive(),
+                DFU_FLASH_COMMANDS.receive(),
+            ),
+            clock_receiver.changed(),
+            Timer::at(next_clock_checkpoint),
         )
         .await
         {
-            Either3::First(first) => {
+            Either3::First(Either3::First(first)) => {
                 let mut pending = first;
                 sender.send(pending);
                 while let Ok(next) = with_deadline(
@@ -306,7 +467,7 @@ pub async fn run(spi: FlashSpi, watchdog: BootloaderWatchdog) {
                 }
                 current = pending;
             }
-            Either3::Second(payload) => {
+            Either3::First(Either3::Second(payload)) => {
                 if !writable {
                     continue;
                 }
@@ -326,7 +487,7 @@ pub async fn run(spi: FlashSpi, watchdog: BootloaderWatchdog) {
                     warn!("Bond write failed; pairing will not survive reboot");
                 }
             }
-            Either3::Third(command) => {
+            Either3::First(Either3::Third(command)) => {
                 let result = if writable {
                     run_dfu_command(&mut flash, command).await
                 } else {
@@ -334,6 +495,42 @@ pub async fn run(spi: FlashSpi, watchdog: BootloaderWatchdog) {
                     Err(flash_fault)
                 };
                 DFU_FLASH_RESULT.send(result).await;
+            }
+            Either3::Second(reference) => {
+                current_reference = Some(reference);
+                next_clock_checkpoint = Instant::now() + CLOCK_CHECKPOINT_INTERVAL;
+                let now = Instant::now().as_secs();
+                if writable
+                    && let Some(journal) = clock_journal.as_mut()
+                    && let Err(error) = persist_clock(
+                        &mut flash,
+                        journal,
+                        ClockSnapshot::from_reference(reference, now),
+                    )
+                    .await
+                {
+                    warn!("Clock write failed; continuing without persistence");
+                    writable = false;
+                    flash_fault = fail_reason(&error, DfuFailReason::ProgramFailed);
+                }
+            }
+            Either3::Third(()) => {
+                let now = Instant::now();
+                if let Some(reference) = current_reference
+                    && writable
+                    && let Some(journal) = clock_journal.as_mut()
+                    && let Err(error) = persist_clock(
+                        &mut flash,
+                        journal,
+                        ClockSnapshot::from_reference(reference, now.as_secs()),
+                    )
+                    .await
+                {
+                    warn!("Clock checkpoint failed; continuing without persistence");
+                    writable = false;
+                    flash_fault = fail_reason(&error, DfuFailReason::ProgramFailed);
+                }
+                next_clock_checkpoint = now + CLOCK_CHECKPOINT_INTERVAL;
             }
         }
     }

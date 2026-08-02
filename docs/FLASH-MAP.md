@@ -22,12 +22,15 @@ InfiniTime must then recreate its littlefs.
 | --------------------- | --------- | ------------------------------------------------- | ---------------- |
 | `0x000000`-`0x03FFFF` | 256 KiB   | MCUBoot bootloader graphics assets                | never write      |
 | `0x040000`-`0x0B3FFF` | 464 KiB   | MCUBoot secondary slot / DFU staging              | DFU service only  |
-| `0x0B4000`-`0x3FCFFF` | 3,364 KiB | **PineForge data/assets** after confirmation      | read/write; reserved while rollback exists |
+| `0x0B4000`-`0x0B4FFF` | 4 KiB     | **PineForge storage metadata** after confirmation | read/write; reserved while rollback exists |
+| `0x0B5000`-`0x0B5FFF` | 4 KiB     | **Clock journal A** after confirmation             | append/rotate |
+| `0x0B6000`-`0x0B6FFF` | 4 KiB     | **Clock journal B** after confirmation             | append/rotate |
+| `0x0B7000`-`0x3FCFFF` | 3,352 KiB | **Remaining PineForge data/assets**                 | read/write; reserved while rollback exists |
 | `0x3FD000`-`0x3FDFFF` | 4 KiB     | **PineForge BLE bond**                            | read/write       |
 | `0x3FE000`-`0x3FEFFF` | 4 KiB     | **PineForge settings slot A**                     | read/write       |
 | `0x3FF000`-`0x3FFFFF` | 4 KiB     | **PineForge settings slot B**                     | read/write       |
 
-The named constants mirroring this table live in `src/services/settings.rs`
+The named constants mirroring this table live in `src/tasks/storage.rs`
 (`SETTINGS_SLOT_A_ADDRESS`, `SETTINGS_SLOT_B_ADDRESS`, `BOND_ADDRESS`). These
 records sit at the top of the chip so they can stay put when the littlefs
 region is later reclaimed.
@@ -53,6 +56,28 @@ The ready header is written and read back only after all sector markers are
 complete. A valid ready header makes later boots constant-time. PineForge
 refuses to erase a header carrying an unknown newer format version; a future
 release must provide an explicit migration or reformat policy.
+
+## Wall-clock journal
+
+The first two data sectors form a power-loss-tolerant wall-clock journal. Each
+sector holds 128 fixed 32-byte records containing a complete date and time, a
+wrapping sequence number, format version, magic and CRC32. Manual TIME/DATE
+changes and valid BLE Current Time updates append immediately; while a clock is
+known, the storage task also appends an hourly checkpoint. Duplicate snapshots
+cost no write.
+
+Boot scans both sectors and selects the newest valid sequence. A partial or
+corrupt final record is ignored. Records append in the active sector until it
+is full, then the alternate sector is erased before its first new record; the
+previous sector therefore remains recoverable throughout rotation. Only the
+storage task touches the flash, and it does not read, erase or write this
+journal until the running image is confirmed and the PineForge storage header
+is ready.
+
+This preserves the last calendar checkpoint, not time spent without power. The
+nRF52832 monotonic timer restarts at boot and this design has no battery-backed
+RTC, so the restored clock resumes from the stored value. A later valid phone
+time deliberately supersedes it.
 
 The BLE bond sector holds one CRC32-checked record with the serialized bond
 keys, so a paired phone reconnects across reboots without re-pairing. A

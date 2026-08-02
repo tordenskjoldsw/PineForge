@@ -16,13 +16,14 @@
 //! settings leaf, because nothing outside [`Screens::enter`] may point it
 //! anywhere.
 
-use pineforge_state::{AppEvent, DisplaySettings, ScreenAction, ScreenId};
+use pineforge_state::{AppEvent, CalendarDate, DisplaySettings, ScreenAction, ScreenId, WallTime};
 
 #[cfg(feature = "diagnostics")]
 use crate::test_screen::TestScreen;
 use crate::{
     about::AboutScreen,
     canvas::{Canvas, CanvasError},
+    clock_apps::{DateScreen, TimeScreen},
     firmware::FirmwareScreen,
     flashlight::FlashlightScreen,
     launcher::LauncherScreen,
@@ -72,6 +73,8 @@ pub struct Screens {
     pub stopwatch: StopwatchScreen,
     /// Owns the selected duration and monotonic deadline across every screen.
     pub timer: TimerScreen,
+    pub time: TimeScreen,
+    pub date: DateScreen,
     #[cfg(feature = "diagnostics")]
     pub touch_test: TestScreen,
 }
@@ -103,6 +106,8 @@ impl Screens {
             ScreenId::Music => &self.music,
             ScreenId::Stopwatch => &self.stopwatch,
             ScreenId::Timer => &self.timer,
+            ScreenId::Time => &self.time,
+            ScreenId::Date => &self.date,
             // Every leaf is the same screen; `enter` has pointed it at the one
             // this id names before it can be drawn or touched.
             ScreenId::Brightness
@@ -130,6 +135,8 @@ impl Screens {
             ScreenId::Music => &mut self.music,
             ScreenId::Stopwatch => &mut self.stopwatch,
             ScreenId::Timer => &mut self.timer,
+            ScreenId::Time => &mut self.time,
+            ScreenId::Date => &mut self.date,
             // Every leaf is the same screen; `enter` has pointed it at the one
             // this id names before it can be drawn or touched.
             ScreenId::Brightness
@@ -219,6 +226,20 @@ impl Screens {
             .handle_event(AppEvent::NotificationsChanged(self.notifications.summary()));
     }
 
+    /// Opens a manual clock editor on the value current at navigation time.
+    pub fn enter_clock(
+        &mut self,
+        active: ScreenId,
+        wall_time: Option<WallTime>,
+        date: Option<CalendarDate>,
+    ) {
+        if active == ScreenId::Time {
+            self.time.open(wall_time.unwrap_or(WallTime::MIDNIGHT));
+        } else if active == ScreenId::Date {
+            self.date.open(date.unwrap_or(CalendarDate::DEFAULT));
+        }
+    }
+
     /// Paints a screen and, unless it is a watchface, the status corner over
     /// it. The two are drawn together so a transition composing this stripe by
     /// stripe carries the corner with it instead of adding it afterwards.
@@ -270,6 +291,8 @@ impl Screens {
         self.music.mark_painted();
         self.stopwatch.mark_painted();
         self.timer.mark_painted();
+        self.time.mark_painted();
+        self.date.mark_painted();
         self.about.mark_painted();
     }
 

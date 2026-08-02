@@ -197,11 +197,11 @@ Four tiles per page, two by two, below the status strip:
 +-------------------------------------+
 ```
 
-Nine production tiles today across three pages - settings, firmware, about,
-light, pulse, steps, music, stopwatch, and timer. Diagnostics adds touch as a
-tenth tile on the third page. The grid always draws its full four slots: an
-empty slot still paints, because the surface has to be opaque or the previous
-page shows through.
+Eleven production tiles today across three pages - settings, firmware, about,
+light, pulse, steps, music, stopwatch, timer, time, and date. Diagnostics adds
+touch as a twelfth tile on the third page. The grid always draws its full four
+slots: an empty slot still paints, because the surface has to be opaque or the
+previous page shows through.
 
 The stopwatch deliberately borrows the FORGE instrument language rather than
 looking like another menu. Five rectangle-built digits show `MM:SS.T`; the
@@ -226,6 +226,19 @@ outline, and only 26 glyphs in flash. A running value is `ACCENT`, a paused or r
 `TEXT`, and zero is `DANGER`. Expiry owns a full-screen red `00:00` modal above
 the navigation stack, because a vibration without an explanation is not an
 alarm.
+
+TIME and DATE are separate manual editors but deliberately share one control
+grammar. The selected field is turquoise in the large rectangle-built value;
+the remaining fields stay white. The upper buttons decrement and increment the
+selected field, NEXT advances through hour/minute or year/month/day, and APPLY
+updates the system clock. Invalid dates are impossible: changing year or month
+clamps the day to the destination month's valid range.
+
+Their partial repaint follows the timer rather than clearing the value row: an
+ordinary increment redraws only each numeral cell whose digit changed and the
+button that was touched. NEXT additionally repaints only the old and new field
+groups whose colour changes, the field label, and the two controls whose labels
+change. The title, separators, APPLY and untouched digits remain on the panel.
 
 Tiles are 105 x 88 with a ten-pixel gap and a ten-pixel margin, starting ten
 pixels below the status strip and leaving room under the second row for the page

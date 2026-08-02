@@ -24,6 +24,7 @@ extern crate std;
 
 pub mod about;
 pub mod canvas;
+pub mod clock_apps;
 pub mod dfu;
 pub mod firmware;
 pub mod flashlight;

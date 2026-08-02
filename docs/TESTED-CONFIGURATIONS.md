@@ -36,6 +36,7 @@ unknown rather than as working.
 | Three-page About/system status | Yes, flashed and displayed on the known sealed PineTime: build, hardware and system pages are reachable. Rare failure values and alternative hardware IDs have not been deliberately exercised. |
 | FORGE stopwatch | Yes, flashed as the `0.6.0+1` development image and exercised on the known sealed PineTime: display, start, pause, resume, reset, navigation away and display sleep all work. |
 | FORGE timer | The `0.6.0+2` development image was flashed and its countdown and alarm worked on the known sealed PineTime. That test found the phase labels too small and thin and the vibration too brief; both are revised in `0.6.0+7`. |
+| Manual TIME and DATE applications | `0.6.0+9` was flashed on the known sealed PineTime: both editors, APPLY, optimized cell-level partial redraw, restoration across reboots and subsequent override by the phone time all work. Field wrapping, leap dates, invalid-date clamping, CRC records and sequence wrap additionally pass host tests. |
 | Daily wear | Since late July 2026, on my own watch - waking, timekeeping, notifications, settings and charging in ordinary use. Days, not months. |
 
 ## Not established

@@ -76,6 +76,16 @@ const TILES: &[Tile] = &[
         label: "TIMER",
         target: ScreenId::Timer,
     },
+    Tile {
+        icon: &icons::CLOCK,
+        label: "TIME",
+        target: ScreenId::Time,
+    },
+    Tile {
+        icon: &icons::CALENDAR,
+        label: "DATE",
+        target: ScreenId::Date,
+    },
     #[cfg(feature = "diagnostics")]
     Tile {
         icon: &icons::CROSSHAIR,

@@ -199,6 +199,17 @@ fn populate(screens: &mut Screens, status: &mut StatusCorner) {
     let _ = screens.timer.control(TimerControl::Start, 1_000);
     let _ = screens.handle(ScreenId::Timer, AppEvent::TimerTick(67_000));
 
+    screens.time.open(WallTime {
+        hour: 14,
+        minute: 32,
+        second: 0,
+    });
+    screens.date.open(CalendarDate {
+        year: 2026,
+        month: 7,
+        day: 28,
+    });
+
     // Two messages, so the notification screen shows its paging rather than its
     // empty state.
     for payload in [

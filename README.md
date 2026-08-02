@@ -125,6 +125,10 @@ On the watch:
   and cancel; reaching zero wakes a full-screen alarm and an approximately
   five-second repeating haptic even when another application is open or the
   display is asleep
+- separate unreleased TIME and DATE applications for setting the wall clock
+  without a phone. APPLY updates the running clock immediately and journals a
+  reboot checkpoint to external flash; the next valid phone time remains
+  authoritative and replaces the manual value
 - step counting, and heart-rate measurement on a background interval
 - a firmware screen for image confirmation and a software restart, and a
   three-page About view naming the build and bootloader, showing sensor and
@@ -146,7 +150,8 @@ Over Bluetooth, with Gadgetbridge:
 
 Underneath:
 
-- Embassy on the nRF52832, no heap and no full-screen framebuffer
+- Embassy on the nRF52832, strict `no_std`, no heap and no full-screen
+  framebuffer
 - ST7789 display, CST816S touch, BMA421 motion, HRS3300 heart rate, XT25F32
   external flash
 - product policy in a host-tested crate, and screens that render into any

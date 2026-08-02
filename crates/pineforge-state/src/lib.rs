@@ -20,7 +20,11 @@ pub use bond::{
 };
 
 mod clock;
-pub use clock::{CalendarDate, WallClockReference, WallTime, parse_cts};
+pub use clock::{
+    CLOCK_RECORD_LEN, CLOCK_YEAR_MAX, CLOCK_YEAR_MIN, CalendarDate, ClockSnapshot, DateEditor,
+    DateField, TimeEditor, TimeField, WallClockReference, WallTime, clock_sequence_is_newer,
+    days_in_month, is_leap_year, parse_cts,
+};
 
 mod dfu;
 pub use dfu::{DFU_SLOT_SIZE, DfuEngine, DfuStep, crc16_update};
@@ -62,10 +66,10 @@ pub use touch::{SwipeRecognizer, TouchEvents, TouchReport, TouchRouter};
 
 mod storage;
 pub use storage::{
-    STORAGE_BASE, STORAGE_DATA_SECTOR_COUNT, STORAGE_END, STORAGE_FORMAT_VERSION,
-    STORAGE_HEADER_LEN, STORAGE_PROGRESS_OFFSET, STORAGE_READY_HEADER_OFFSET, STORAGE_SECTOR_COUNT,
-    STORAGE_SECTOR_SIZE, StorageHeader, decode_storage_header, encode_storage_header,
-    storage_header_version,
+    CLOCK_JOURNAL_A_ADDRESS, CLOCK_JOURNAL_B_ADDRESS, STORAGE_BASE, STORAGE_DATA_SECTOR_COUNT,
+    STORAGE_END, STORAGE_FORMAT_VERSION, STORAGE_HEADER_LEN, STORAGE_PROGRESS_OFFSET,
+    STORAGE_READY_HEADER_OFFSET, STORAGE_SECTOR_COUNT, STORAGE_SECTOR_SIZE, StorageHeader,
+    decode_storage_header, encode_storage_header, storage_header_version,
 };
 
 mod stopwatch;
@@ -887,6 +891,10 @@ pub enum ScreenId {
     Stopwatch,
     /// A monotonic countdown that raises a system alarm at zero.
     Timer,
+    /// Sets the local wall-clock hour and minute without a phone.
+    Time,
+    /// Sets the local calendar date without a phone.
+    Date,
     #[cfg(feature = "diagnostics")]
     TouchTest,
 }
@@ -894,9 +902,9 @@ pub enum ScreenId {
 impl ScreenId {
     /// How many screens this build has.
     pub const COUNT: usize = if cfg!(feature = "diagnostics") {
-        19
+        21
     } else {
-        18
+        20
     };
 
     /// Every screen, so anything that has to hold for all of them can be
@@ -928,6 +936,8 @@ impl ScreenId {
         Self::Music,
         Self::Stopwatch,
         Self::Timer,
+        Self::Time,
+        Self::Date,
         #[cfg(feature = "diagnostics")]
         Self::TouchTest,
     ];
@@ -979,8 +989,10 @@ impl ScreenId {
             Self::Music => 15,
             Self::Stopwatch => 16,
             Self::Timer => 17,
+            Self::Time => 18,
+            Self::Date => 19,
             #[cfg(feature = "diagnostics")]
-            Self::TouchTest => 18,
+            Self::TouchTest => 20,
         }
     }
 }
@@ -1158,6 +1170,8 @@ pub enum ScreenAction {
     MusicControl(MusicControl),
     StopwatchControl(StopwatchControl),
     TimerControl(TimerControl),
+    SetTime(WallTime),
+    SetDate(CalendarDate),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1173,6 +1187,8 @@ pub enum AppEffect {
     MusicControl(MusicControl),
     StopwatchControl(StopwatchControl),
     TimerControl(TimerControl),
+    SetTime(WallTime),
+    SetDate(CalendarDate),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1474,6 +1490,8 @@ impl AppState {
             ScreenAction::MusicControl(control) => AppEffect::MusicControl(control),
             ScreenAction::StopwatchControl(control) => AppEffect::StopwatchControl(control),
             ScreenAction::TimerControl(control) => AppEffect::TimerControl(control),
+            ScreenAction::SetTime(time) => AppEffect::SetTime(time),
+            ScreenAction::SetDate(date) => AppEffect::SetDate(date),
             ScreenAction::Back => self.pop(),
             ScreenAction::Push(screen) => self.push(screen, None),
         }
@@ -1879,6 +1897,23 @@ mod tests {
         assert_eq!(
             app.transition(ScreenAction::ApplySettings(settings)),
             AppEffect::ApplySettings(settings)
+        );
+        assert_eq!(app.active_screen(), ScreenId::Watchface);
+    }
+
+    #[test]
+    fn manual_clock_values_are_explicit_effects() {
+        let mut app = AppState::new(ScreenId::Watchface);
+        let time = WallTime::new(18, 42, 0).unwrap();
+        let date = CalendarDate::new(2028, 2, 29).unwrap();
+
+        assert_eq!(
+            app.transition(ScreenAction::SetTime(time)),
+            AppEffect::SetTime(time)
+        );
+        assert_eq!(
+            app.transition(ScreenAction::SetDate(date)),
+            AppEffect::SetDate(date)
         );
         assert_eq!(app.active_screen(), ScreenId::Watchface);
     }

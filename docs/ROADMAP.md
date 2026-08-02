@@ -28,7 +28,10 @@ milestone should leave the sealed PineTime in a testable and recoverable state.
   host-tested monotonic deadline, partial rendering and a system-wide wake and
   alarm path. Its first hardware build worked; the heavier labels and longer
   cancellable alarm requested from that test await a second hardware check.
-  Neither needs a new phone integration.
+  Separate TIME and DATE editors now allow manual clock setup without BLE and
+  journal CRC-checked checkpoints in external flash. Interaction, cell-level
+  partial rendering, restoration across reboots and a subsequent phone-time
+  override all passed on hardware with `0.6.0+9`.
 
 Work that has landed on `main` but not in a tagged release is marked
 *unreleased* below. Everything else in a **Complete** section has shipped.

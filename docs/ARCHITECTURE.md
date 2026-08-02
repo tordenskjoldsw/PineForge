@@ -96,8 +96,8 @@ owner task. The production firmware has:
 - battery task: owns the SAADC and both charger-status inputs
 - display task: owns the LCD and backlight, consumes UI events, and renders the
   active `Screen`
-- storage task: owns the external flash and serializes settings, bonds, and DFU
-  writes
+- storage task: owns the external flash and serializes settings, clock
+  checkpoints, bonds, and DFU writes
 - BLE task: owns the radio and stack, GATT services, pairing, time sync, music,
   and the DFU protocol
 - button task: owns the side button, including back, panel-off, and held reset
@@ -291,6 +291,20 @@ bounded channel would have to block the GATT loop or drop one, and a dropped
 write leaves the wrong artist standing under the right title. The BLE task
 assembles the record and publishes it whole, so a subscriber that misses an
 update misses nothing.
+
+The wall clock uses the same latest-value primitive with three possible
+producers: a valid BLE Current Time write, TIME/DATE APPLY, or boot restoration
+from storage. A BLE connection by itself changes nothing. The display task
+anchors any accepted calendar value to its absolute Embassy uptime and uses it
+immediately; the storage task independently observes that complete reference
+and persists it, so UI code never owns the flash.
+
+There is no battery-backed RTC in this design. The external-flash record is a
+calendar checkpoint, not an estimate of powered-off duration: after a reboot
+the saved value resumes from the new monotonic zero. An hourly checkpoint limits
+loss across an uncontrolled reset, while every manual or BLE update is written
+immediately. The next valid phone update intentionally replaces the restored or
+manual anchor.
 
 **Where the elapsed time is anchored, and why it has to be there.** The phone
 writes a position when it changes, not once a second, so the watch keeps it

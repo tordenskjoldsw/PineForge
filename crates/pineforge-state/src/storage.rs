@@ -7,6 +7,12 @@ pub const STORAGE_SECTOR_COUNT: usize =
     ((STORAGE_END - STORAGE_BASE) / STORAGE_SECTOR_SIZE) as usize;
 pub const STORAGE_DATA_SECTOR_COUNT: usize = STORAGE_SECTOR_COUNT - 1;
 
+/// Two append-only sectors for wall-clock checkpoints. Keeping them at the
+/// start of the data area makes their ownership explicit without moving the
+/// settings and bond records fixed at the top of the chip.
+pub const CLOCK_JOURNAL_A_ADDRESS: u32 = STORAGE_BASE + STORAGE_SECTOR_SIZE;
+pub const CLOCK_JOURNAL_B_ADDRESS: u32 = STORAGE_BASE + 2 * STORAGE_SECTOR_SIZE;
+
 pub const STORAGE_FORMAT_VERSION: u16 = 1;
 pub const STORAGE_HEADER_LEN: usize = 32;
 pub const STORAGE_READY_HEADER_OFFSET: u32 = 32;

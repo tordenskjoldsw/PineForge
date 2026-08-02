@@ -195,10 +195,10 @@ pub fn music_state_receiver() -> MusicStateReceiver {
         .expect("music state receiver capacity is fixed by architecture")
 }
 
-/// Wall-clock anchor written by the BLE Current Time Service.
-pub static WALL_CLOCK: Watch<CriticalSectionRawMutex, WallClockReference, 2> = Watch::new();
+/// Latest wall-clock anchor, written by BLE, manual editors, or restoration.
+pub static WALL_CLOCK: Watch<CriticalSectionRawMutex, WallClockReference, 3> = Watch::new();
 
-pub type WallClockReceiver = Receiver<'static, CriticalSectionRawMutex, WallClockReference, 2>;
+pub type WallClockReceiver = Receiver<'static, CriticalSectionRawMutex, WallClockReference, 3>;
 
 /// Reserves one of the fixed display and future consumer subscriptions.
 pub fn wall_clock_receiver() -> WallClockReceiver {

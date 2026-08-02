@@ -13,14 +13,15 @@ use crate::{
     drivers::backlight::Backlight,
     ipc::{
         MUSIC_CONTROL, NOTIFICATIONS, POWER_COMMANDS, SETTINGS_COMMANDS, UI_EVENTS,
-        VIBRATION_ALARM, VIBRATION_COMMANDS, VibrationAlarmSignal, display_settings_receiver,
-        music_state_receiver, system_power_receiver, wall_clock_receiver,
+        VIBRATION_ALARM, VIBRATION_COMMANDS, VibrationAlarmSignal, WALL_CLOCK,
+        display_settings_receiver, music_state_receiver, system_power_receiver,
+        wall_clock_receiver,
     },
 };
 use pineforge_state::{
-    AppEffect, AppEvent, AppState, DisplaySettings, HeartRateCommand, Modal, ModalOutcome,
-    ModalState, MusicControl, MusicState, Notification, PowerCommand, ScreenId, SystemPowerState,
-    TimerOutcome, VibrationPattern, panel_backlight,
+    AppEffect, AppEvent, AppState, ClockSnapshot, DisplaySettings, HeartRateCommand, Modal,
+    ModalOutcome, ModalState, MusicControl, MusicState, Notification, PowerCommand, ScreenId,
+    SystemPowerState, TimerOutcome, VibrationPattern, panel_backlight,
 };
 use pineforge_ui::{
     about::BuildInfo,
@@ -751,6 +752,34 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                     &mut || watchdog.pet(),
                 );
             }
+            AppEffect::SetTime(time) => {
+                let snapshot = wall_clock_reference.map_or(ClockSnapshot::DEFAULT, |reference| {
+                    ClockSnapshot::from_reference(reference, now.as_secs())
+                });
+                let reference = ClockSnapshot::new(snapshot.date, time).reference_at(now.as_secs());
+                wall_clock_reference = Some(reference);
+                WALL_CLOCK.sender().send(reference);
+                let _ = VIBRATION_COMMANDS.try_send(VibrationPattern::Tap);
+                let _ = screens.draw_dirty(
+                    app.active_screen(),
+                    &mut Canvas::new(&mut display),
+                    &mut || watchdog.pet(),
+                );
+            }
+            AppEffect::SetDate(date) => {
+                let snapshot = wall_clock_reference.map_or(ClockSnapshot::DEFAULT, |reference| {
+                    ClockSnapshot::from_reference(reference, now.as_secs())
+                });
+                let reference = ClockSnapshot::new(date, snapshot.time).reference_at(now.as_secs());
+                wall_clock_reference = Some(reference);
+                WALL_CLOCK.sender().send(reference);
+                let _ = VIBRATION_COMMANDS.try_send(VibrationPattern::Tap);
+                let _ = screens.draw_dirty(
+                    app.active_screen(),
+                    &mut Canvas::new(&mut display),
+                    &mut || watchdog.pet(),
+                );
+            }
             AppEffect::Reboot | AppEffect::RequestRollback => {
                 info!("Restart requested from software");
                 // The haptic tick is the acknowledgement the user gets; the
@@ -764,6 +793,16 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                 // Before anything paints: the screen now on top may be a
                 // settings leaf, and a leaf must edit the record that is
                 // current rather than one it kept from an earlier visit.
+                if let Some(reference) = wall_clock.try_changed() {
+                    wall_clock_reference = Some(reference);
+                }
+                let snapshot = wall_clock_reference
+                    .map(|reference| ClockSnapshot::from_reference(reference, now.as_secs()));
+                screens.enter_clock(
+                    app.active_screen(),
+                    snapshot.map(|value| value.time),
+                    snapshot.map(|value| value.date),
+                );
                 screens.enter(app.active_screen(), settings);
                 if app.active_screen() == ScreenId::Stopwatch {
                     let _ = screens.handle(
