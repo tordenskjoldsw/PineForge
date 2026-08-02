@@ -203,11 +203,11 @@ Four tiles per page, two by two, below the status strip:
 +-------------------------------------+
 ```
 
-Twelve production tiles today across three pages - settings, firmware, about,
-light, pulse, steps, music, stopwatch, timer, time, date, and Bluetooth.
-Diagnostics adds touch as a thirteenth tile on a fourth page. The grid always
-draws its full four slots: an empty slot still paints, because the surface has
-to be opaque or the previous page shows through.
+Thirteen production tiles today across four pages - settings, firmware, about,
+light, pulse, steps, music, stopwatch, timer, time, date, Bluetooth, and
+battery. Diagnostics adds touch as a fourteenth tile. The grid always draws its
+full four slots: an empty slot still paints, because the surface has to be
+opaque or the previous page shows through.
 
 The stopwatch deliberately borrows the FORGE instrument language rather than
 looking like another menu. Five rectangle-built digits show `MM:SS.T`; the

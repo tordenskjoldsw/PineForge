@@ -897,6 +897,9 @@ pub enum ScreenId {
     Date,
     /// Enables or disables Bluetooth advertising and connections.
     Bluetooth,
+    /// The charge, whether it is going up or down, and the cell voltage behind
+    /// both.
+    Battery,
     #[cfg(feature = "diagnostics")]
     TouchTest,
 }
@@ -904,9 +907,9 @@ pub enum ScreenId {
 impl ScreenId {
     /// How many screens this build has.
     pub const COUNT: usize = if cfg!(feature = "diagnostics") {
-        22
+        23
     } else {
-        21
+        22
     };
 
     /// Every screen, so anything that has to hold for all of them can be
@@ -941,6 +944,7 @@ impl ScreenId {
         Self::Time,
         Self::Date,
         Self::Bluetooth,
+        Self::Battery,
         #[cfg(feature = "diagnostics")]
         Self::TouchTest,
     ];
@@ -995,8 +999,9 @@ impl ScreenId {
             Self::Time => 18,
             Self::Date => 19,
             Self::Bluetooth => 20,
+            Self::Battery => 21,
             #[cfg(feature = "diagnostics")]
-            Self::TouchTest => 21,
+            Self::TouchTest => 22,
         }
     }
 }

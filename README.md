@@ -127,6 +127,9 @@ On the watch:
 - screens that slide vertically rather than appearing in strips, done by moving
   the panel controller's own display window over frame memory it is not showing,
   so the movement costs one frame instead of one per step
+- an unreleased battery application: the charge in the watchface's numerals,
+  whether it is charging, charged or discharging, and the cell voltage behind
+  the estimate
 - an unreleased FORGE-style stopwatch showing minutes, seconds and tenths, with
   start, pause, resume and reset; its monotonic anchor keeps elapsed time across
   display sleep

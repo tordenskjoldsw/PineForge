@@ -24,6 +24,7 @@ use pineforge_state::{
 use crate::test_screen::TestScreen;
 use crate::{
     about::AboutScreen,
+    battery::BatteryScreen,
     bluetooth::BluetoothScreen,
     canvas::{Canvas, CanvasError},
     clock_apps::{DateScreen, TimeScreen},
@@ -79,6 +80,7 @@ pub struct Screens {
     pub time: TimeScreen,
     pub date: DateScreen,
     pub bluetooth: BluetoothScreen,
+    pub battery: BatteryScreen,
     #[cfg(feature = "diagnostics")]
     pub touch_test: TestScreen,
 }
@@ -113,6 +115,7 @@ impl Screens {
             ScreenId::Time => &self.time,
             ScreenId::Date => &self.date,
             ScreenId::Bluetooth => &self.bluetooth,
+            ScreenId::Battery => &self.battery,
             // Every leaf is the same screen; `enter` has pointed it at the one
             // this id names before it can be drawn or touched.
             ScreenId::Brightness
@@ -143,6 +146,7 @@ impl Screens {
             ScreenId::Time => &mut self.time,
             ScreenId::Date => &mut self.date,
             ScreenId::Bluetooth => &mut self.bluetooth,
+            ScreenId::Battery => &mut self.battery,
             // Every leaf is the same screen; `enter` has pointed it at the one
             // this id names before it can be drawn or touched.
             ScreenId::Brightness
@@ -182,6 +186,9 @@ impl Screens {
         // not a live-only diagnostic view.
         let _ = self.about.handle_event(event);
         let _ = self.bluetooth.handle_event(event);
+        // The charge arrives on a ten-minute timer, so a screen that only took
+        // it while showing would open on whatever was true when it was last up.
+        let _ = self.battery.handle_event(event);
         match active {
             ScreenId::Watchface => self.watchface.moved(),
             ScreenId::Pulse => self.pulse.moved(),
@@ -189,6 +196,7 @@ impl Screens {
             ScreenId::Music => self.music.moved(),
             ScreenId::About => self.about.moved(),
             ScreenId::Bluetooth => self.bluetooth.moved(),
+            ScreenId::Battery => self.battery.moved(),
             _ => false,
         }
     }
@@ -204,6 +212,7 @@ impl Screens {
                 | ScreenId::Music
                 | ScreenId::About
                 | ScreenId::Bluetooth
+                | ScreenId::Battery
         )
     }
 
@@ -316,6 +325,7 @@ impl Screens {
         self.time.mark_painted();
         self.date.mark_painted();
         self.bluetooth.mark_painted();
+        self.battery.mark_painted();
         self.about.mark_painted();
     }
 

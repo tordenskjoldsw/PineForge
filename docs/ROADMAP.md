@@ -39,6 +39,12 @@ milestone should leave the sealed PineTime in a testable and recoverable state.
   returns to the watchface from its first page. The claim rule that makes
   paging on the entry axis safe is host-tested; the movement itself passed with
   the `0.6.1+2` image on the known watch.
+- `v0.6.2` development: a battery application shows the charge in the
+  watchface's numerals with a drawn percent sign, whether the watch is
+  charging, charged or discharging, and the cell voltage the estimate came
+  from. The three charger states, the voltage formatting and the partial
+  redraw are host-tested; the screen passed with the `0.6.2+1` image on the
+  known watch.
 
 Work that has landed on `main` but not in a tagged release is marked
 *unreleased* below. Everything else in a **Complete** section has shipped.

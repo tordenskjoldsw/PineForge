@@ -254,11 +254,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("{}", path.display());
     }
 
-    // The registry entry reaches the first launcher page only. Render the two
-    // later production pages as well so a newly added application cannot hide
-    // beyond the host review sheet.
-    for page in 2..=3 {
-        let _ = screens.handle(ScreenId::Launcher, AppEvent::Swipe(SwipeDirection::Left));
+    // The registry entry reaches the first launcher page only. Render the later
+    // production pages as well so a newly added application cannot hide beyond
+    // the host review sheet. Paged upwards, which is the axis the launcher
+    // turns on and the one the panel can slide along.
+    for page in 2..=4 {
+        let _ = screens.handle(ScreenId::Launcher, AppEvent::Swipe(SwipeDirection::Up));
         let mut framebuffer = Framebuffer::new();
         screens
             .draw_full(

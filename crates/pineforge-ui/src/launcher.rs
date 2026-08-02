@@ -103,6 +103,11 @@ const TILES: &[Tile] = &[
         label: "BLUETOOTH",
         target: ScreenId::Bluetooth,
     },
+    Tile {
+        icon: &icons::BATTERY,
+        label: "BATTERY",
+        target: ScreenId::Battery,
+    },
     #[cfg(feature = "diagnostics")]
     Tile {
         icon: &icons::CROSSHAIR,
