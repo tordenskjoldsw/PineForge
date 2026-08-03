@@ -22,8 +22,8 @@ use crate::{
 use pineforge_state::Navigation;
 use pineforge_state::{
     AppEffect, AppEvent, AppState, ClockSnapshot, DisplaySettings, HeartRateCommand, Modal,
-    ModalOutcome, ModalState, MusicControl, MusicState, Notification, PowerCommand, ScreenId,
-    SystemPowerState, TimerOutcome, VibrationPattern, panel_backlight,
+    ModalOutcome, ModalState, MusicControl, MusicState, Notification, PowerCommand, Repaint,
+    ScreenId, SystemPowerState, TimerOutcome, VibrationPattern, panel_backlight,
 };
 use pineforge_ui::{
     about::BuildInfo,
@@ -231,6 +231,115 @@ fn init_panel(
     Some(panel)
 }
 
+/// Carries out what an effect's [`EffectPlan`] asked the panel for.
+///
+/// One place naming `Canvas::new(&mut display)` and the watchdog closure,
+/// rather than one per effect. Both were written out ten times in the dispatch
+/// below, which is how a repaint came to be a thing you could forget: the arms
+/// that differed and the arms that only looked like they differed were the same
+/// three lines either way.
+///
+/// The panel is the argument rather than the return value on purpose. A
+/// transition composes through `surface` instead of `draw_full`, so it has to
+/// mark the screens painted itself - which it cannot do from anywhere but here.
+fn paint(
+    repaint: Repaint,
+    screens: &mut Screens,
+    active: ScreenId,
+    status: &StatusCorner,
+    display: &mut ScrollPanel<Panel>,
+    watchdog: BootloaderWatchdog,
+    #[cfg(feature = "ui-animations")] scratch: &mut UiScratch,
+) {
+    let keep_alive = &mut || watchdog.pet();
+    match repaint {
+        Repaint::None => {}
+        Repaint::Dirty => {
+            let _ = screens.draw_dirty(active, &mut Canvas::new(display), keep_alive);
+        }
+        Repaint::Full => {
+            let _ = screens.draw_full(active, status, &mut Canvas::new(display), keep_alive);
+        }
+        Repaint::Slide(navigation) => {
+            #[cfg(feature = "ui-animations")]
+            slide(
+                screens, active, status, display, watchdog, navigation, scratch,
+            );
+            // Without the animation the screen simply appears, which is what a
+            // navigation owes either way: everything on the panel changed.
+            #[cfg(not(feature = "ui-animations"))]
+            {
+                let _ = navigation;
+                let _ = screens.draw_full(active, status, &mut Canvas::new(display), keep_alive);
+            }
+        }
+        // A page turn slides the same way a navigation does - that is the whole
+        // point of paging along the axis the panel can scroll on - so it hands
+        // the transition a forward navigation along the gesture's own axis.
+        Repaint::Page(motion) => {
+            #[cfg(feature = "ui-animations")]
+            slide(
+                screens,
+                active,
+                status,
+                display,
+                watchdog,
+                Navigation::forward(motion),
+                scratch,
+            );
+            // The stack did not move and no screen was entered, so unanimated
+            // this is an ordinary partial repaint of what the page changed.
+            #[cfg(not(feature = "ui-animations"))]
+            {
+                let _ = motion;
+                let _ = screens.draw_dirty(active, &mut Canvas::new(display), keep_alive);
+            }
+        }
+    }
+}
+
+/// Slides the active screen onto the panel through the scroll window.
+///
+/// Composed through [`Screens::surface`] rather than `draw_full`, because the
+/// transition needs the screen and the status corner as one opaque surface it
+/// can render a stripe at a time. That is also why it marks the screens painted
+/// itself: nothing else on this path does, and without it sliding onto the face
+/// would leave every reading it just drew still looking owed.
+#[cfg(feature = "ui-animations")]
+fn slide(
+    screens: &mut Screens,
+    active: ScreenId,
+    status: &StatusCorner,
+    display: &mut ScrollPanel<Panel>,
+    watchdog: BootloaderWatchdog,
+    navigation: Navigation,
+    scratch: &mut UiScratch,
+) {
+    // The registry lends the surface the panel would show, corner and all, and
+    // the borrow ends with the statement so the metrics below can take the
+    // screens mutably.
+    let result = screens.surface(active, status, &mut |surface| {
+        draw_slide_reveal(surface, display, scratch, navigation, &mut || {
+            watchdog.pet();
+        })
+    });
+    screens.painted();
+    #[cfg(feature = "diagnostics")]
+    if let Ok(metrics) = result {
+        screens
+            .touch_test
+            .record_transition(navigation.direction, metrics);
+        // The screen that shows the numbers is the one that has to be told they
+        // changed.
+        if active == ScreenId::TouchTest {
+            let _ = screens.touch_test.draw_metrics(&mut Canvas::new(display));
+            watchdog.pet();
+        }
+    }
+    #[cfg(not(feature = "diagnostics"))]
+    let _ = result;
+}
+
 /// Owns the display and backlight and renders events received from the UI bus.
 // Keeping the event loop in one function makes peripheral ownership explicit
 // for this single-owner task; only the panel bring-up, which shares nothing
@@ -303,11 +412,15 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
     let mut wall_clock_reference = None;
     let mut power = power_receiver.get().await;
     let mut ignore_input_until = started_at;
-    let _ = screens.draw_full(
+    paint(
+        Repaint::Full,
+        &mut screens,
         app.active_screen(),
         &status,
-        &mut Canvas::new(&mut display),
-        &mut || watchdog.pet(),
+        &mut display,
+        watchdog,
+        #[cfg(feature = "ui-animations")]
+        ui_scratch,
     );
     backlight.set_level(panel_backlight(power, lamp_lit(&app, &screens), settings));
     if power == SystemPowerState::Sleeping {
@@ -467,20 +580,21 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                             // has no dirty region to report - so those keep the
                             // full repaint, which is also the rarer case: the
                             // watch sleeps on its face.
-                            let _ = if app.active_screen() == ScreenId::Watchface {
-                                screens.draw_dirty(
-                                    app.active_screen(),
-                                    &mut Canvas::new(&mut display),
-                                    &mut || watchdog.pet(),
-                                )
+                            let owed = if app.active_screen() == ScreenId::Watchface {
+                                Repaint::Dirty
                             } else {
-                                screens.draw_full(
-                                    app.active_screen(),
-                                    &status,
-                                    &mut Canvas::new(&mut display),
-                                    &mut || watchdog.pet(),
-                                )
+                                Repaint::Full
                             };
+                            paint(
+                                owed,
+                                &mut screens,
+                                app.active_screen(),
+                                &status,
+                                &mut display,
+                                watchdog,
+                                #[cfg(feature = "ui-animations")]
+                                ui_scratch,
+                            );
                         }
                         backlight.set_level(panel_backlight(
                             power,
@@ -542,11 +656,15 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
             if screens.watchface.select(updated.watchface())
                 && app.active_screen() == ScreenId::Watchface
             {
-                let _ = screens.draw_full(
+                paint(
+                    Repaint::Full,
+                    &mut screens,
                     ScreenId::Watchface,
                     &status,
-                    &mut Canvas::new(&mut display),
-                    &mut || watchdog.pet(),
+                    &mut display,
+                    watchdog,
+                    #[cfg(feature = "ui-animations")]
+                    ui_scratch,
                 );
             }
         }
@@ -603,11 +721,15 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                 // and keeps the leaf's record current by construction rather
                 // than by an argument about which events a modal can hide.
                 screens.enter(app.active_screen(), settings);
-                let _ = screens.draw_full(
+                paint(
+                    Repaint::Full,
+                    &mut screens,
                     app.active_screen(),
                     &status,
-                    &mut Canvas::new(&mut display),
-                    &mut || watchdog.pet(),
+                    &mut display,
+                    watchdog,
+                    #[cfg(feature = "ui-animations")]
+                    ui_scratch,
                 );
                 continue;
             }
@@ -666,10 +788,15 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
         // only the screen itself can know that.
         if event.is_reading() && Screens::holds_readings(app.active_screen()) {
             if reading_moved {
-                let _ = screens.draw_dirty(
+                paint(
+                    Repaint::Dirty,
+                    &mut screens,
                     app.active_screen(),
-                    &mut Canvas::new(&mut display),
-                    &mut || watchdog.pet(),
+                    &status,
+                    &mut display,
+                    watchdog,
+                    #[cfg(feature = "ui-animations")]
+                    ui_scratch,
                 );
             }
             continue;
@@ -708,18 +835,17 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
             _ => app.transition(screens.handle(app.active_screen(), event)),
         };
 
+        // What the effect earns is decided in `pineforge-state` and checked on a
+        // host; what it *does* is below, because confirming an image, resetting
+        // the core and sending on a channel are not decisions. The haptic, the
+        // repaint and the cadence are settled once, after this match, rather
+        // than in each arm - which is what used to make ten copies of the same
+        // three lines.
+        let plan = effect.plan();
+        let mut haptic = plan.haptic;
+
         match effect {
-            AppEffect::ApplySettings(updated) => {
-                // Haptic confirmation for the activated button; a busy motor
-                // drops the tick rather than stalling rendering.
-                let _ = VIBRATION_COMMANDS.try_send(VibrationPattern::Tap);
-                SETTINGS_COMMANDS.send(updated).await;
-                let _ = screens.draw_dirty(
-                    app.active_screen(),
-                    &mut Canvas::new(&mut display),
-                    &mut || watchdog.pet(),
-                );
-            }
+            AppEffect::ApplySettings(updated) => SETTINGS_COMMANDS.send(updated).await,
             AppEffect::ConfirmFirmware => {
                 // Making the image permanent takes effect immediately; a reset
                 // no longer rolls back afterwards.
@@ -728,15 +854,9 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                 screens.firmware.set_confirmed(confirmed);
                 screens.about.set_image(confirmed);
                 // The corner carries the same fact, so it clears here rather
-                // than at the next boot. The full repaint below takes it.
+                // than at the next boot. The full repaint the plan asks for
+                // takes it.
                 status.set_unconfirmed(!confirmed);
-                let _ = VIBRATION_COMMANDS.try_send(VibrationPattern::Double);
-                let _ = screens.draw_full(
-                    app.active_screen(),
-                    &status,
-                    &mut Canvas::new(&mut display),
-                    &mut || watchdog.pet(),
-                );
             }
             AppEffect::MeasureHeartRate | AppEffect::StopHeartRate => {
                 // The service owns the sensor and decides what a request means
@@ -747,7 +867,6 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                     HeartRateCommand::Stop
                 };
                 HEART_RATE_COMMANDS.send(command).await;
-                let _ = VIBRATION_COMMANDS.try_send(VibrationPattern::Tap);
             }
             AppEffect::MusicControl(control) => {
                 // The phone owns the player; the watch only asks. A full queue
@@ -756,42 +875,23 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                 // pressing it again, where stalling the repaint here would not
                 // be.
                 let _ = MUSIC_CONTROL.try_send(control);
-                let _ = VIBRATION_COMMANDS.try_send(VibrationPattern::Tap);
-                let _ = screens.draw_dirty(
-                    app.active_screen(),
-                    &mut Canvas::new(&mut display),
-                    &mut || watchdog.pet(),
-                );
             }
-            AppEffect::StopwatchControl(control) => {
-                screens
-                    .stopwatch
-                    .control(control, now.duration_since(started_at).as_millis());
-                let _ = VIBRATION_COMMANDS.try_send(VibrationPattern::Tap);
-                let _ = screens.draw_dirty(
-                    app.active_screen(),
-                    &mut Canvas::new(&mut display),
-                    &mut || watchdog.pet(),
-                );
-            }
+            AppEffect::StopwatchControl(control) => screens
+                .stopwatch
+                .control(control, now.duration_since(started_at).as_millis()),
             AppEffect::TimerControl(control) => {
                 let outcome = screens
                     .timer
                     .control(control, now.duration_since(started_at).as_millis());
+                // The one haptic the plan cannot decide: reaching zero on the
+                // touch that started the countdown replaces the acknowledging
+                // tick with the alarm, and that is the timer model's answer
+                // rather than anything the effect said.
                 if matches!(outcome, TimerOutcome::Expired) {
                     VIBRATION_ALARM.signal(VibrationAlarmSignal::Start);
                     let _ = UI_EVENTS.try_send(AppEvent::TimerExpired);
-                } else {
-                    let _ = VIBRATION_COMMANDS.try_send(VibrationPattern::Tap);
+                    haptic = None;
                 }
-                // Starting aligns the first decrement with the touch that set
-                // the deadline; pausing or cancelling drops the old cadence.
-                next_tick = now + refresh_interval(app.active_screen());
-                let _ = screens.draw_dirty(
-                    app.active_screen(),
-                    &mut Canvas::new(&mut display),
-                    &mut || watchdog.pet(),
-                );
             }
             AppEffect::SetTime(time) => {
                 let snapshot = wall_clock_reference.map_or(ClockSnapshot::DEFAULT, |reference| {
@@ -800,12 +900,6 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                 let reference = ClockSnapshot::new(snapshot.date, time).reference_at(now.as_secs());
                 wall_clock_reference = Some(reference);
                 WALL_CLOCK.sender().send(reference);
-                let _ = VIBRATION_COMMANDS.try_send(VibrationPattern::Tap);
-                let _ = screens.draw_dirty(
-                    app.active_screen(),
-                    &mut Canvas::new(&mut display),
-                    &mut || watchdog.pet(),
-                );
             }
             AppEffect::SetDate(date) => {
                 let snapshot = wall_clock_reference.map_or(ClockSnapshot::DEFAULT, |reference| {
@@ -814,23 +908,18 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                 let reference = ClockSnapshot::new(date, snapshot.time).reference_at(now.as_secs());
                 wall_clock_reference = Some(reference);
                 WALL_CLOCK.sender().send(reference);
-                let _ = VIBRATION_COMMANDS.try_send(VibrationPattern::Tap);
-                let _ = screens.draw_dirty(
-                    app.active_screen(),
-                    &mut Canvas::new(&mut display),
-                    &mut || watchdog.pet(),
-                );
             }
             AppEffect::Reboot | AppEffect::RequestRollback => {
                 info!("Restart requested from software");
-                // The haptic tick is the acknowledgement the user gets; the
-                // delay lets the motor and the RTT buffer finish before the
-                // core is reset out from under them.
+                // Sent here rather than below because the delay has to follow
+                // it: the motor and the RTT buffer need to finish before the
+                // core is reset out from under them. `sys_reset` diverges, so
+                // the dispatch below is never reached and cannot send it twice.
                 let _ = VIBRATION_COMMANDS.try_send(VibrationPattern::Double);
                 Timer::after_millis(250).await;
                 cortex_m::peripheral::SCB::sys_reset();
             }
-            AppEffect::Navigate(navigation) => {
+            AppEffect::Navigate(_) => {
                 // Before anything paints: the screen now on top may be a
                 // settings leaf, and a leaf must edit the record that is
                 // current rather than one it kept from an earlier visit.
@@ -855,7 +944,6 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                 {
                     let _ = UI_EVENTS.try_send(event);
                 }
-                next_tick = now + refresh_interval(app.active_screen());
                 // Asks what is playing, the way `InfiniTime` asks it. Nothing
                 // may be expected of the answer: Gadgetbridge drops this event
                 // rather than replying to it, so the screen fills in when the
@@ -869,93 +957,34 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                 if app.active_screen() == ScreenId::Music {
                     let _ = MUSIC_CONTROL.try_send(MusicControl::Open);
                 }
-                #[cfg(not(feature = "ui-animations"))]
-                let _ = navigation;
-                #[cfg(feature = "ui-animations")]
-                {
-                    let active = app.active_screen();
-                    // The registry lends the surface the panel would show,
-                    // corner and all, and the borrow ends with the statement so
-                    // the metrics below can take the screens mutably.
-                    let result = screens.surface(active, &status, &mut |surface| {
-                        draw_slide_reveal(
-                            surface,
-                            &mut display,
-                            ui_scratch,
-                            navigation,
-                            &mut || watchdog.pet(),
-                        )
-                    });
-                    // A transition composes through `surface` rather than
-                    // `draw_full`, so it is the one paint that has to say so
-                    // itself. Without this, sliding onto the face would leave
-                    // every reading it just drew still looking owed.
-                    screens.painted();
-                    #[cfg(feature = "diagnostics")]
-                    if let Ok(metrics) = result {
-                        screens
-                            .touch_test
-                            .record_transition(navigation.direction, metrics);
-                        // The screen that shows the numbers is the one that has
-                        // to be told they changed.
-                        if active == ScreenId::TouchTest {
-                            let _ = screens
-                                .touch_test
-                                .draw_metrics(&mut Canvas::new(&mut display));
-                            watchdog.pet();
-                        }
-                    }
-                    #[cfg(not(feature = "diagnostics"))]
-                    let _ = result;
-                }
-                #[cfg(not(feature = "ui-animations"))]
-                let _ = screens.draw_full(
-                    app.active_screen(),
-                    &status,
-                    &mut Canvas::new(&mut display),
-                    &mut || watchdog.pet(),
-                );
             }
-            AppEffect::PageTurn(motion) => {
-                // The stack has not moved, so nothing is entered and no screen
-                // is left; only what one screen shows has changed. It is drawn
-                // like a navigation because that is what it looks like, and
-                // because a page that slides in is the whole point of paging
-                // along the axis the panel can slide on.
-                #[cfg(not(feature = "ui-animations"))]
-                let _ = motion;
-                #[cfg(feature = "ui-animations")]
-                {
-                    let active = app.active_screen();
-                    let result = screens.surface(active, &status, &mut |surface| {
-                        draw_slide_reveal(
-                            surface,
-                            &mut display,
-                            ui_scratch,
-                            Navigation::forward(motion),
-                            &mut || watchdog.pet(),
-                        )
-                    });
-                    // Composed through `surface` rather than `draw_dirty`, so
-                    // the readings it drew have to be marked as shown here.
-                    screens.painted();
-                    let _ = result;
-                }
-                #[cfg(not(feature = "ui-animations"))]
-                let _ = screens.draw_dirty(
-                    app.active_screen(),
-                    &mut Canvas::new(&mut display),
-                    &mut || watchdog.pet(),
-                );
-            }
-            AppEffect::None => {
-                let _ = screens.draw_dirty(
-                    app.active_screen(),
-                    &mut Canvas::new(&mut display),
-                    &mut || watchdog.pet(),
-                );
-            }
+            // Nothing to do beyond what the plan already says. A page turn
+            // leaves the stack where it is, so no screen is entered and none is
+            // left; the empty effect only ever earned a repaint.
+            AppEffect::PageTurn(_) | AppEffect::None => {}
         }
+
+        if let Some(pattern) = haptic {
+            // A busy motor drops the tick rather than stalling the repaint
+            // below.
+            let _ = VIBRATION_COMMANDS.try_send(pattern);
+        }
+        if plan.realigns_tick {
+            // Starting a countdown aligns the first decrement with the touch
+            // that set the deadline; navigating may have arrived on a screen
+            // that refreshes at a different rate than the one just left.
+            next_tick = now + refresh_interval(app.active_screen());
+        }
+        paint(
+            plan.repaint,
+            &mut screens,
+            app.active_screen(),
+            &status,
+            &mut display,
+            watchdog,
+            #[cfg(feature = "ui-animations")]
+            ui_scratch,
+        );
 
         // Settled after the effect rather than inside it, because two different
         // things reach here: navigating onto or off the lamp, and the tap that

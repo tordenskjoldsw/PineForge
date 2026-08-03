@@ -1207,6 +1207,97 @@ pub enum AppEffect {
     SetDate(CalendarDate),
 }
 
+/// How much of the panel an effect owes once its work is done.
+///
+/// Distinct from the `Dirty` a screen reports, which says what moved inside one
+/// screen. This is the display task's question: which of the five ways it can
+/// reach the panel applies.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Repaint {
+    /// Nothing. The panel already shows the truth, or the core is about to be
+    /// reset out from under it.
+    None,
+    /// Whatever the active screen reports as moved - the ordinary case, and the
+    /// cheap one: a partial transfer of exactly the area that changed.
+    #[default]
+    Dirty,
+    /// The whole screen with the status corner over it.
+    Full,
+    /// The screen sliding on, in the direction the navigation went.
+    Slide(Navigation),
+    /// One screen's page sliding across, which looks like a navigation and is
+    /// drawn like one.
+    Page(SwipeDirection),
+}
+
+/// What an effect earns, separately from what it does.
+///
+/// Every arm of the display task's effect dispatch used to end in some
+/// arrangement of the same three things: a haptic tick, a repaint, and
+/// sometimes a realigned tick cadence. Written out per arm, that was ten copies
+/// of `draw_dirty(active, &mut Canvas::new(&mut display), &mut || watchdog.pet())`
+/// and no way to ask what an effect is supposed to do without reading the task
+/// that owns the panel.
+///
+/// The decision is here, where it can be checked on a host; the doing stays in
+/// the task, because confirming an image, resetting the core and sending on a
+/// channel are not decisions.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EffectPlan {
+    /// The acknowledgement the finger gets. Always a `try_send` at the other
+    /// end: a busy motor drops the tick rather than stalling a repaint.
+    pub haptic: Option<VibrationPattern>,
+    pub repaint: Repaint,
+    /// Whether the repaint cadence restarts from this moment rather than
+    /// carrying on from whenever the last tick was due.
+    ///
+    /// True where the thing being shown starts counting now: a countdown that
+    /// was just started, and a navigation onto a screen whose refresh interval
+    /// may differ from the one being left.
+    pub realigns_tick: bool,
+}
+
+impl AppEffect {
+    /// What this effect earns. See [`EffectPlan`].
+    ///
+    /// One override survives in the task, and only one: a countdown that
+    /// reaches zero on the touch that started it swaps the acknowledging tick
+    /// for the alarm. That is not knowable from the effect - it is what the
+    /// timer model answered - so it cannot be decided here.
+    #[must_use]
+    pub const fn plan(self) -> EffectPlan {
+        let (haptic, repaint, realigns_tick) = match self {
+            Self::None => (None, Repaint::Dirty, false),
+            Self::Navigate(navigation) => (None, Repaint::Slide(navigation), true),
+            Self::PageTurn(direction) => (None, Repaint::Page(direction), false),
+            // The core is reset a quarter of a second later, so nothing is owed
+            // the panel; the double tick is the whole acknowledgement.
+            Self::Reboot | Self::RequestRollback => {
+                (Some(VibrationPattern::Double), Repaint::None, false)
+            }
+            // Making the image permanent clears the corner's unconfirmed mark,
+            // and the corner is only drawn by a full repaint.
+            Self::ConfirmFirmware => (Some(VibrationPattern::Double), Repaint::Full, false),
+            // The sensor answers on its own schedule; the screen has nothing new
+            // to show at the moment the request is made.
+            Self::MeasureHeartRate | Self::StopHeartRate => {
+                (Some(VibrationPattern::Tap), Repaint::None, false)
+            }
+            Self::TimerControl(_) => (Some(VibrationPattern::Tap), Repaint::Dirty, true),
+            Self::ApplySettings(_)
+            | Self::MusicControl(_)
+            | Self::StopwatchControl(_)
+            | Self::SetTime(_)
+            | Self::SetDate(_) => (Some(VibrationPattern::Tap), Repaint::Dirty, false),
+        };
+        EffectPlan {
+            haptic,
+            repaint,
+            realigns_tick,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NavigationDirection {
     Forward,
@@ -1550,6 +1641,158 @@ impl AppState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// One of every effect the firmware can produce.
+    ///
+    /// Written out, because `AppEffect` cannot be enumerated. Leaving one off
+    /// weakens the properties below but cannot let a new variant through
+    /// unconsidered: [`AppEffect::plan`] matches exhaustively, so adding a
+    /// variant fails the build there first.
+    fn every_effect() -> [AppEffect; 14] {
+        [
+            AppEffect::None,
+            AppEffect::Navigate(Navigation::forward(SwipeDirection::Left)),
+            AppEffect::Navigate(Navigation::backward(SwipeDirection::Right)),
+            AppEffect::PageTurn(SwipeDirection::Down),
+            AppEffect::RequestRollback,
+            AppEffect::ApplySettings(DisplaySettings::DEFAULT),
+            AppEffect::ConfirmFirmware,
+            AppEffect::Reboot,
+            AppEffect::MeasureHeartRate,
+            AppEffect::StopHeartRate,
+            AppEffect::MusicControl(MusicControl::Next),
+            AppEffect::StopwatchControl(StopwatchControl::Start),
+            AppEffect::TimerControl(TimerControl::Start),
+            AppEffect::SetTime(WallTime::MIDNIGHT),
+        ]
+    }
+
+    /// The cadence is what a screen showing a moving number is repainted on. An
+    /// effect that paints nothing is not showing anything to re-time, so
+    /// restarting the cadence would only move the next ordinary tick for no
+    /// reason.
+    #[test]
+    fn an_effect_that_paints_nothing_has_no_cadence_to_realign() {
+        for effect in every_effect() {
+            let plan = effect.plan();
+            assert!(
+                plan.repaint != Repaint::None || !plan.realigns_tick,
+                "{effect:?} realigns the tick without painting anything"
+            );
+        }
+    }
+
+    /// A slide is the panel's scroll window travelling, which only happens when
+    /// the screen stack moved. Anything else that painted this way would slide
+    /// a screen onto itself.
+    #[test]
+    fn only_a_navigation_slides_and_it_carries_the_navigation_it_was_given() {
+        for effect in every_effect() {
+            match (effect, effect.plan().repaint) {
+                (AppEffect::Navigate(navigation), Repaint::Slide(painted)) => {
+                    assert_eq!(painted, navigation, "the slide lost its direction");
+                }
+                (AppEffect::Navigate(_), other) => {
+                    panic!("a navigation drew itself as {other:?} rather than sliding")
+                }
+                (effect, Repaint::Slide(_)) => panic!("{effect:?} slid without navigating"),
+                _ => {}
+            }
+        }
+    }
+
+    /// A page turn leaves the stack where it is, so it slides one screen's
+    /// content across along the axis the gesture went - not the navigation
+    /// axis, which is why it carries the direction rather than a `Navigation`.
+    #[test]
+    fn a_page_turn_carries_the_direction_it_was_asked_for() {
+        for direction in [
+            SwipeDirection::Up,
+            SwipeDirection::Down,
+            SwipeDirection::Left,
+            SwipeDirection::Right,
+        ] {
+            assert_eq!(
+                AppEffect::PageTurn(direction).plan().repaint,
+                Repaint::Page(direction)
+            );
+        }
+    }
+
+    /// Navigating onto a screen is the one case where the interval itself may
+    /// change - the stopwatch refreshes ten times a second and everything else
+    /// once - so the cadence has to start again rather than carry a deadline
+    /// set for the screen being left.
+    #[test]
+    fn a_navigation_always_realigns_the_cadence() {
+        for effect in every_effect() {
+            if matches!(effect, AppEffect::Navigate(_)) {
+                assert!(
+                    effect.plan().realigns_tick,
+                    "{effect:?} kept the old cadence"
+                );
+            }
+        }
+    }
+
+    /// Two ticks mean something ended: the image's trial period, or this boot.
+    /// Everything a finger merely presses gets the single tap, and telling them
+    /// apart by feel is the point.
+    #[test]
+    fn the_double_tick_is_reserved_for_the_image_and_the_core() {
+        for effect in every_effect() {
+            let doubled = effect.plan().haptic == Some(VibrationPattern::Double);
+            let ends_something = matches!(
+                effect,
+                AppEffect::ConfirmFirmware | AppEffect::Reboot | AppEffect::RequestRollback
+            );
+            assert_eq!(doubled, ends_something, "{effect:?} has the wrong haptic");
+        }
+    }
+
+    /// A control that did something says so. The three that do not are the ones
+    /// no finger pressed directly: a repaint with nothing behind it, and the two
+    /// that are already answered by the picture moving.
+    #[test]
+    fn a_control_that_acted_is_acknowledged() {
+        for effect in every_effect() {
+            let silent = matches!(
+                effect,
+                AppEffect::None | AppEffect::Navigate(_) | AppEffect::PageTurn(_)
+            );
+            assert_eq!(
+                effect.plan().haptic.is_none(),
+                silent,
+                "{effect:?} has the wrong acknowledgement"
+            );
+        }
+    }
+
+    /// The status corner is only ever drawn by a full repaint - a partial one
+    /// paints what the screen reports moved, and the corner is not the screen's.
+    /// Confirming the image is what clears the corner's unconfirmed mark, so
+    /// planning anything less would leave the watch showing a warning about a
+    /// trial image it is no longer running until something else repainted.
+    #[test]
+    fn confirming_the_image_repaints_the_corner_that_carries_it() {
+        assert_eq!(AppEffect::ConfirmFirmware.plan().repaint, Repaint::Full);
+    }
+
+    /// Asking the sensor for a reading is not receiving one. The runner answers
+    /// on its own schedule and its answer arrives as a reading the display task
+    /// routes separately, so there is nothing new on the screen at the moment
+    /// the request is made - and a repaint here would be a transfer that drew
+    /// the same picture again.
+    #[test]
+    fn asking_for_a_reading_paints_nothing_because_none_has_arrived() {
+        for effect in [AppEffect::MeasureHeartRate, AppEffect::StopHeartRate] {
+            assert_eq!(
+                effect.plan().repaint,
+                Repaint::None,
+                "{effect:?} repainted before the sensor answered"
+            );
+        }
+    }
 
     #[test]
     fn system_status_keeps_the_latest_fault_and_probe_results() {

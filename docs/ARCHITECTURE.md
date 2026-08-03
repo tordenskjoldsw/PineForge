@@ -289,6 +289,30 @@ charger on the pad never turned `BAT` into `CHG`, because that reading arrives
 exactly when the panel is off. `WatchState`'s host tests now assert that
 anything the state absorbs is something `is_reading()` routes to it.
 
+## What an effect earns, and what it does
+
+The display task resolves a gesture into an `AppEffect` and then has to answer
+three questions about it: which haptic acknowledges it, how much of the panel it
+owes, and whether the repaint cadence restarts. Those answers are
+`AppEffect::plan()` in `pineforge-state`, and they are host-tested.
+
+They used to be written out per arm, and that is what made the dispatch long
+enough to need `allow(clippy::too_many_lines)`: ten arms each ending in some
+arrangement of the same three things, so a repaint became something you could
+forget rather than something the effect declared. Collapsing them removed 1,284
+bytes of flash - the duplication was real code, not just noise.
+
+What stays in the task is what is not a decision: confirming an image, resetting
+the core, sending on a channel, entering the screen that navigation landed on.
+One override survives and is documented at both ends - a countdown that reaches
+zero on the touch that started it swaps the acknowledging tick for the alarm,
+which is the timer model's answer rather than the effect's.
+
+Every repaint reaches the panel through one `paint` function, including the ones
+outside the effect dispatch: the first draw at boot, the redraw on wake, the
+screen coming back from behind a modal. That is the one place naming
+`Canvas::new(&mut display)` and the watchdog closure.
+
 ## The one bus that runs outwards
 
 Every channel in `ipc` carries a subsystem reporting to the display: a battery
