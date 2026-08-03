@@ -29,6 +29,8 @@ pub struct AccelerometerRunner<'a, I2C, RECOVERY> {
     accelerometer: Bma42x<I2C>,
     bus_recovery: RECOVERY,
     ports: MotionPorts<'a>,
+    /// Last count put on the `Watch`, so an unchanged one is not republished.
+    published_steps: Option<u32>,
 }
 
 impl<'a, I2C, RECOVERY> AccelerometerRunner<'a, I2C, RECOVERY>
@@ -42,6 +44,7 @@ where
             accelerometer: Bma42x::new(i2c),
             bus_recovery,
             ports,
+            published_steps: None,
         }
     }
 
@@ -297,17 +300,29 @@ where
     }
 
     async fn publish_step_count(&mut self) {
-        if let Ok(steps) = self.accelerometer.read_step_count().await {
-            // Both, and in this order. The screens take it as an event because
-            // a repaint is owed; anything that only wants the number - the
-            // phone reading the motion service - takes the latest value
-            // instead, and must not be able to block the sensor loop waiting
-            // for a reader that is asleep.
-            self.ports.steps.send(steps);
-            self.ports.events.send(AppEvent::StepsUpdated(steps)).await;
-        } else {
+        let Ok(steps) = self.accelerometer.read_step_count().await else {
             log_warn!("Accelerometer step-counter read failed");
+            return;
+        };
+
+        // Only when it moved. `Watch::send` wakes its receivers whether or not
+        // the value differs, and the receiver on the other end of this one
+        // turns every wake into a BLE notification - so publishing an unchanged
+        // count once a second would put a notification a second on the air for
+        // a number that had not changed. `InfiniTime` guards the same call the
+        // same way: `if (oldSteps != nbSteps)` in `MotionController::Update`.
+        //
+        // A standing count is still served: the notify loop sends what it finds
+        // when a phone connects, so a watch that has not moved since the last
+        // change still answers correctly.
+        if self.published_steps != Some(steps) {
+            self.published_steps = Some(steps);
+            self.ports.steps.send(steps);
         }
+
+        // The screens take it either way. The event is what earns a repaint,
+        // and the screen holding it decides whether anything actually moved.
+        self.ports.events.send(AppEvent::StepsUpdated(steps)).await;
     }
 
     /// Puts the counter back to zero when the day it was counting has ended.
