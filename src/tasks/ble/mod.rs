@@ -41,7 +41,20 @@ bind_interrupts!(struct BleIrqs {
     RTC0 => mpsl::HighPrioInterruptHandler;
 });
 
-/// Gadgetbridge matches its `InfiniTime` device coordinator on this name.
+/// Gadgetbridge matches its `InfiniTime` device coordinator on this name, and
+/// on nothing else.
+///
+/// `PineTimeJFCoordinator.getSupportedDeviceName` is
+/// `Pattern.compile("Pinetime-JF.*|InfiniTime.*")`, tried against the name a
+/// device advertises. Announcing as `PineForge` would not merely be honest, it
+/// would make the watch invisible: no coordinator matches, so there is no
+/// pairing, no notifications, no music, no time sync and no DFU.
+///
+/// The pattern does end in `.*`, so any name beginning with `InfiniTime` is
+/// free. `InfiniTime PineForge` is 20 of the 22 bytes the GAP device name
+/// allows and would match. That is a product decision rather than a technical
+/// one, and it is deliberately not bundled with anything else: changing the
+/// advertised name changes what the phone has bonded to.
 const DEVICE_NAME: &str = "InfiniTime";
 
 const CONNECTIONS_MAX: usize = 1;

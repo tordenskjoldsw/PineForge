@@ -133,7 +133,11 @@ pub struct DeviceInformationService {
     #[characteristic(
         uuid = characteristic::FIRMWARE_REVISION_STRING,
         read,
-        value = heapless::String::try_from(env!("PINEFORGE_VERSION")).unwrap()
+        // The release alone, without the build metadata the package name
+        // carries. A companion parses this as three integers and Gadgetbridge's
+        // parser has no try around it - see `publish_release_triple` in
+        // build.rs for what the `+8` form did to it.
+        value = heapless::String::try_from(env!("PINEFORGE_RELEASE")).unwrap()
     )]
     firmware_revision: heapless::String<16>,
     #[characteristic(

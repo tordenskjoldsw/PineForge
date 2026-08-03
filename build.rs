@@ -139,6 +139,7 @@ fn publish_build_identity() {
         "version {version:?} is too long to show on the watch"
     );
     println!("cargo:rustc-env=PINEFORGE_VERSION={version}");
+    publish_release_triple(&version);
 
     let commit = env::var("PINEFORGE_COMMIT")
         .ok()
@@ -167,6 +168,39 @@ fn publish_build_identity() {
         .or_else(|| git(&["log", "-1", "--format=%cs"]))
         .unwrap_or_else(|| "unknown".into());
     println!("cargo:rustc-env=PINEFORGE_DATE={date}");
+}
+
+/// Publishes the release as exactly `major.minor.patch`, for the one consumer
+/// that cannot read anything else.
+///
+/// The Device Information Service reports a firmware revision, and a companion
+/// parses it. Gadgetbridge's does it by splitting on `.`, and if it gets three
+/// parts it calls `Integer.parseInt` on each - with no try around it. So the
+/// `0.2.1+7` form that distinguishes two packages of one release becomes
+/// `["0", "2", "1+7"]`, the third parse throws, and the version event that
+/// registers the watch in its database is never handled. What that looks like
+/// from the outside is a device whose `deviceId` comes back null, and every
+/// activity sample failing to save.
+///
+/// So the build metadata stays out of this one string. It is still what the
+/// About screen shows and what names the package, because there it identifies
+/// the build; here it only has to parse.
+fn publish_release_triple(version: &str) {
+    let release = version.split('+').next().unwrap_or_default();
+    let mut parts: Vec<&str> = release.split('.').collect();
+    // A release given as `0.6` is still a release; the missing component is
+    // zero, which is what a parser expecting three of them needs to see.
+    while parts.len() < 3 {
+        parts.push("0");
+    }
+    let triple = parts[..3].join(".");
+    assert!(
+        triple
+            .split('.')
+            .all(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit())),
+        "firmware revision {triple:?} is not major.minor.patch; a companion will fail to parse it"
+    );
+    println!("cargo:rustc-env=PINEFORGE_RELEASE={triple}");
 }
 
 /// Runs git and returns its trimmed output, or `None` if it did not work.
