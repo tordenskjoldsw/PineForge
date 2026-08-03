@@ -169,6 +169,30 @@ pub struct BatteryService {
 /// the counter has to return to zero at midnight - see `StepDay`. A companion
 /// stores the difference against what it already holds for the day, and the
 /// branch that ends a day only runs when the watch reports a zero.
+///
+/// # Gadgetbridge does not record what this sends, and it is not this end
+///
+/// Verified on hardware with a generic BLE client: the service is discovered,
+/// the characteristic reads `26-00-00-00` - 38 steps, little-endian, the
+/// encoding `BLETypeConversions.toUint32` expects - and the value tracks the
+/// walk. Everything this firmware owes the protocol arrives.
+///
+/// Gadgetbridge then fails to store it, with "the bind value at index 2 is
+/// null". Index 2 of its `PineTimeActivitySample` is `deviceId`, which it fills
+/// from its own database in `DBHelper.getDevice`; the step count goes to index
+/// 5. So the insert had no device to attach the sample to, and nothing the
+/// watch sends reaches that column. Deleting the device and re-pairing from
+/// scratch does not clear it.
+///
+/// The error appears from the *second* update onwards, not the first, which
+/// matches its own accounting: `onReceiveStepsSample` quarantines the first
+/// sample of each day and returns before writing anything.
+///
+/// Two firmware-side theories were tried against it and neither held - a stale
+/// GATT cache on the phone, and a notification landing in the window
+/// `initializeDevice` leaves open by enabling this subscription before
+/// `setInitialized`. Both are recorded here so the next person does not spend
+/// the evening on them again.
 #[gatt_service(uuid = "00030000-78fc-48fe-8e23-433b3a1942d0")]
 pub struct MotionService {
     #[characteristic(uuid = "00030001-78fc-48fe-8e23-433b3a1942d0", read, notify, value = 0)]
