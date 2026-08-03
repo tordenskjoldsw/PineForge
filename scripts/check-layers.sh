@@ -51,6 +51,23 @@ if matches="$(scan 'embassy_executor::task' src/ipc.rs)" && [[ -n "$matches" ]];
   echo "$matches" >&2
 fi
 
+# Every source file under src/ has to be reachable from the module tree.
+#
+# `src/drivers/st7789.rs` was 275 lines that no `mod` declaration named, from
+# the initial commit onwards. Cargo never saw it, so it drew no dead-code
+# warning, no clippy lint and no CI failure - and a later commit spent an
+# afternoon optimising it, measuring nothing, because the code does not run.
+while read -r file; do
+  module="$(basename "$file" .rs)"
+  [[ "$module" == "main" || "$module" == "mod" ]] && continue
+  directory="$(dirname "$file")"
+  parent="$directory/mod.rs"
+  [[ "$directory" == "src" ]] && parent="src/main.rs"
+  if ! grep -qE "^\s*(pub )?mod ${module};" "$parent" 2>/dev/null; then
+    fail "$file is in no module tree; ${parent} never declares it"
+  fi
+done < <(find src -name '*.rs')
+
 # Every task is spawned from the composition root, so a module that is never
 # reached is dead weight that still compiles.
 for module in src/tasks/*.rs src/tasks/*/; do
