@@ -50,6 +50,21 @@ pub enum FeatureEngineError<E> {
 pub enum AccelerationPowerMode {
     Active,
     LowPower,
+    /// Clears the sensor's enable bit, so it stops converting entirely.
+    ///
+    /// Nothing asks for this. `services::motion::acceleration_mode` maps every
+    /// system power state onto `Active` or `LowPower`, so the accelerometer
+    /// runs from boot until reset and the power-down path in
+    /// [`Bma42x::set_power_mode`] is never taken.
+    ///
+    /// That was invisible until this enum stopped being compared against
+    /// `Off` to pick a branch: the comparison constructed the variant, which
+    /// was enough to keep dead-code analysis quiet about a state the firmware
+    /// cannot reach. Kept rather than deleted because the driver's half of the
+    /// work is done and correct; what is missing is the decision about whether
+    /// a sleeping watch with raise-wrist off should stop the sensor, which is
+    /// a power measurement rather than a code change.
+    #[expect(dead_code)]
     Off,
 }
 
@@ -215,17 +230,20 @@ where
     /// Applies the requested power mode without enabling the optional feature engine.
     pub async fn set_power_mode(&mut self, mode: AccelerationPowerMode) -> Result<(), I2C::Error> {
         let power = self.read_register(POWER_CONTROL_REGISTER).await?;
-        if mode == AccelerationPowerMode::Off {
-            self.write_register(POWER_CONTROL_REGISTER, power & !ACCEL_ENABLE)
-                .await?;
-            return Ok(());
-        }
-
         let config = match mode {
+            // Powering down is the whole operation. The configuration
+            // registers keep their values while the sensor is off and are
+            // written again by the arm below when it comes back up.
+            AccelerationPowerMode::Off => {
+                return self
+                    .write_register(POWER_CONTROL_REGISTER, power & !ACCEL_ENABLE)
+                    .await;
+            }
+            // Both live modes leave the sensor converting at the same rate;
+            // what separates them is how often the runner reads it.
             AccelerationPowerMode::Active | AccelerationPowerMode::LowPower => {
                 ACCEL_100_HZ_NORMAL_AVG4
             }
-            AccelerationPowerMode::Off => unreachable!(),
         };
         self.write_register(ACCEL_CONFIG_REGISTER, config).await?;
         self.write_register(ACCEL_RANGE_REGISTER, ACCEL_RANGE_2G)

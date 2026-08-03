@@ -21,6 +21,56 @@ fn decode_config(out: &std::path::Path, variant: &str) {
     println!("cargo:rerun-if-changed={source}");
 }
 
+/// Publishes where the primary image slot ends, taken from `memory.x` rather
+/// than written out a second time.
+///
+/// `src/boot/confirm.rs` writes one word of internal flash - the only such
+/// write in the firmware - and it locates that word from the end of the slot.
+/// The address had been a literal in that file and a row in
+/// `docs/FLASH-MAP.md`, agreeing with `memory.x` only because nobody had moved
+/// the layout yet. On a sealed watch the failure that would follow is not a
+/// wrong pixel: it is NVMC clearing bits somewhere else in internal flash.
+///
+/// So the slot end comes from the linker script, and `confirm.rs` asserts the
+/// address it derives is still the documented one. Moving `memory.x` now fails
+/// the build instead of the watch.
+fn publish_flash_map(out: &std::path::Path) {
+    let script = fs::read_to_string("memory.x").expect("read memory.x");
+    let flash = script
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("FLASH"))
+        .map(|rest| rest.trim().trim_start_matches(':').trim())
+        .expect("memory.x declares a FLASH region");
+
+    let field = |name: &str| -> u32 {
+        let value = flash
+            .split(',')
+            .find_map(|part| part.trim().strip_prefix(name))
+            .unwrap_or_else(|| panic!("FLASH region declares {name}"))
+            .trim()
+            .trim_start_matches('=')
+            .trim();
+        let digits = value
+            .strip_prefix("0x")
+            .unwrap_or_else(|| panic!("FLASH {name} {value:?} is hexadecimal"));
+        u32::from_str_radix(digits, 16)
+            .unwrap_or_else(|_| panic!("FLASH {name} {value:?} is a number"))
+    };
+
+    // The image region starts after imgtool's 32-byte header and runs to the
+    // end of the slot, so its far end is the slot's.
+    let slot_end = field("ORIGIN") + field("LENGTH");
+    // Grouped the way the firmware writes its addresses, because clippy's
+    // pedantic set reads generated code too.
+    let digits = format!("{slot_end:08X}");
+    let (high, low) = digits.split_at(4);
+    fs::write(
+        out.join("flash_map.rs"),
+        format!("const PRIMARY_SLOT_END: usize = 0x{high}_{low};\n"),
+    )
+    .expect("write flash_map.rs into OUT_DIR");
+}
+
 /// Publishes the locked version of the crate that owns the serialized BLE bond
 /// layout, so the persisted record can name the layout it was written with.
 ///
@@ -140,6 +190,7 @@ fn main() {
         .expect("write memory.x into OUT_DIR");
     decode_config(&out, "bma421");
     decode_config(&out, "bma425");
+    publish_flash_map(&out);
     publish_bond_schema();
     publish_build_identity();
     println!("cargo:rustc-link-search={}", out.display());

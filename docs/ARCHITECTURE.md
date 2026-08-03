@@ -374,17 +374,28 @@ same margin, because they fail in opposite ways:
 
 - **RAM** is the tight one. A static that outgrows its budget eats into the
   stack, and the failure is silent, on hardware, and late. The production
-  reserve is 16 KiB against a measured 10,432-byte peak. The current production
-  image uses 48,316 bytes of static RAM, 836 bytes below that design target.
+  reserve is 16 KiB against a measured 10,432-byte peak - that peak is a
+  hardware observation, read off the diagnostics screen, not a build output.
 - **Flash** is the loose one. An image that outgrows the 475,104-byte slot is
   refused by imgtool at packaging time, so the worst case is a build that
   produces nothing. The target exists to catch unnoticed growth, not to
   prevent a failure. The earlier 360 KiB target left 104 KiB of the slot unused
   and had begun shaping features rather than catching bloat.
 
-BLE remains the dominant flash contributor. For scale, the current production
-image uses 421,448 bytes of flash, while a build without default features uses
-154,280 bytes.
+BLE remains the dominant flash contributor: a build without default features is
+roughly a third of a production image.
+
+**What this document does not carry is the current size.** It used to, and both
+numbers had drifted by the time anyone read them - flash by over 20 KiB, which
+was the difference between the comfortable margin the text described and the few
+hundred bytes actually left. A measurement in prose is a measurement nobody
+re-runs. `scripts/check-size.sh` prints both figures against both budgets on
+every CI run and locally in one command:
+
+```bash
+./scripts/check-size.sh "" 442368 49152          # production
+./scripts/check-size.sh diagnostics 458752 57344 # diagnostics
+```
 
 The display-transition scratch is capped at 8 KiB and currently uses 5.6 KiB;
 it is the one large allocation whose size trades purely against render time,

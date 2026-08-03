@@ -350,3 +350,148 @@ impl Screens {
         }
     }
 }
+
+/// The three lists above have to agree, and none of them can see the others.
+///
+/// [`Screens::absorb`] names the screens that are fed a reading,
+/// [`Screens::holds_readings`] names the ones the display task must therefore
+/// not hand the same event to a second time, and [`Screens::painted`] names the
+/// ones whose dirty mark a pass over the panel clears. A screen added to one and
+/// forgotten in another is not a compile error and not a visibly wrong screen -
+/// it is a repaint that silently stops happening, which is the same shape as the
+/// bug that left the battery percentage sitting where it was at boot.
+///
+/// So the agreement is checked here rather than left to whoever adds the next
+/// screen. Driven by `ScreenId::ALL`, the way the opaque-paint tests are, so a
+/// screen that exists is a screen these cover.
+#[cfg(test)]
+mod tests {
+    use pineforge_state::{
+        AccelerometerKind, AppEvent, BatteryStatus, BleState, DisplaySettings, FirmwareImageState,
+        FlashStatus, HeartRateSensorKind, HeartRateState, NotificationSummary, PeripheralStatus,
+        PpgAnalysis, ScreenId, StackUsage, StorageState,
+    };
+
+    use super::Screens;
+    use crate::{canvas::Canvas, probe::Probe};
+
+    /// One reading of every kind the display task routes through `absorb`,
+    /// each carrying a value a freshly built screen does not already hold.
+    ///
+    /// Written out rather than derived, because `AppEvent` cannot be
+    /// enumerated. The test below keeps the list honest in the one direction
+    /// that can be checked - every entry really is a reading - and
+    /// `every_screen_that_holds_readings_is_fed_by_absorb` catches the other
+    /// direction wherever it matters: a reading missing here that some screen
+    /// depends on leaves that screen with nothing to move it.
+    fn every_reading() -> [AppEvent; 14] {
+        [
+            AppEvent::BatteryUpdated(BatteryStatus {
+                millivolts: 3900,
+                percent: 71,
+                charging: false,
+                power_present: false,
+            }),
+            AppEvent::StepsUpdated(4321),
+            AppEvent::BleUpdated(BleState::Connected),
+            AppEvent::NotificationsChanged(NotificationSummary {
+                count: 2,
+                latest: None,
+            }),
+            AppEvent::HeartRateStateUpdated(HeartRateState::Measuring),
+            AppEvent::HeartRateAnalysisUpdated(PpgAnalysis::HeartRate { bpm: 64 }),
+            AppEvent::HeartRateSensorDetected(HeartRateSensorKind::Hrs3300),
+            AppEvent::MusicUpdated,
+            AppEvent::AccelerometerDetected(AccelerometerKind::Bma421),
+            AppEvent::TouchControllerUpdated(PeripheralStatus::Ready),
+            AppEvent::FlashUpdated(FlashStatus::Ready([0xC8, 0x40, 0x16])),
+            AppEvent::FirmwareImageUpdated(FirmwareImageState::Confirmed),
+            AppEvent::StackUpdated(StackUsage {
+                used: 10_432,
+                capacity: 16_384,
+            }),
+            AppEvent::StorageUpdated(StorageState::Ready),
+        ]
+    }
+
+    /// A screen entered the way the display task enters it, so a settings leaf
+    /// is pointed at a setting rather than left unconfigured.
+    fn entered(active: ScreenId) -> Screens {
+        let mut screens = Screens::new();
+        screens.enter(active, DisplaySettings::DEFAULT);
+        screens
+    }
+
+    #[test]
+    fn the_events_driven_here_are_the_ones_the_display_task_absorbs() {
+        for event in every_reading() {
+            assert!(
+                event.is_reading(),
+                "{event:?} is not a reading, so the display task never absorbs it"
+            );
+        }
+    }
+
+    /// `absorb` reporting a move is what earns a partial repaint, and the
+    /// display task only performs it for a screen `holds_readings` names. A
+    /// screen that moves without being named draws nothing at all: the event is
+    /// consumed, the model is current, and the panel keeps showing the old
+    /// value until something unrelated repaints it.
+    #[test]
+    fn a_screen_that_moves_on_a_reading_is_one_the_display_task_will_repaint() {
+        for event in every_reading() {
+            for active in ScreenId::ALL {
+                let mut screens = entered(active);
+                assert!(
+                    !screens.absorb(active, event) || Screens::holds_readings(active),
+                    "{active:?} moved on {event:?} but holds_readings does not name it, \
+                     so the repaint it earned is never drawn"
+                );
+            }
+        }
+    }
+
+    /// The other direction. `holds_readings` makes the display task skip the
+    /// ordinary dispatch and rely on `absorb` alone, so a screen named here that
+    /// `absorb` does not feed never sees a reading by either route.
+    #[test]
+    fn every_screen_that_holds_readings_is_fed_by_absorb() {
+        for active in ScreenId::ALL {
+            if !Screens::holds_readings(active) {
+                continue;
+            }
+            let moved = every_reading()
+                .into_iter()
+                .any(|event| entered(active).absorb(active, event));
+            assert!(
+                moved,
+                "{active:?} is named by holds_readings, so the display task hands it \
+                 no reading of its own - but absorb moves it with none either"
+            );
+        }
+    }
+
+    /// `painted` draws the line under a pass that reached the panel. A screen
+    /// `absorb` marks and `painted` does not clear stays dirty for the life of
+    /// the firmware, so every later repaint redraws what has not moved.
+    #[test]
+    fn painting_clears_every_mark_a_reading_set() {
+        for active in ScreenId::ALL {
+            let mut screens = entered(active);
+            for event in every_reading() {
+                let _ = screens.absorb(active, event);
+            }
+            screens.painted();
+
+            let mut probe = Probe::new();
+            screens
+                .draw_dirty(active, &mut Canvas::new(&mut probe), &mut || {})
+                .expect("the probe accepts every operation");
+            assert_eq!(
+                probe.unpainted(),
+                240 * 240,
+                "{active:?} still had a mark to paint after painted() cleared them"
+            );
+        }
+    }
+}

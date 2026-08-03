@@ -28,3 +28,9 @@ pedantic = { level = "warn", priority = -1 }
 nursery = { level = "warn", priority = -1 }
 missing_errors_doc = "allow"
 missing_panics_doc = "allow"
+
+# The crate that exists because its rules can be got wrong silently is the last
+# one that should be able to reach for a raw pointer. Nothing here has ever
+# needed one - this is what keeps that true, and CI denies warnings.
+[lints.rust]
+unsafe_code = "warn"

@@ -84,11 +84,16 @@ jobs:
             # stack silently, on hardware, later. An image that outgrows this is
             # refused by imgtool at packaging time, so the worst case is a build
             # that does not produce a ZIP. Two thirds of what is used is the BLE
-            # stack; a build without the `ble` feature is 125,708 bytes.
-            # TIME, DATE and their power-loss-tolerant clock journal deliberately
-            # raised the previous 420 KiB target. The new target retains about
-            # 32 KiB before the physical image ceiling and 11 KiB over the
-            # measured production image, so growth remains visible in CI.
+            # stack. TIME, DATE and their power-loss-tolerant clock journal
+            # deliberately raised the previous 420 KiB target, which leaves about
+            # 32 KiB before the physical image ceiling.
+            #
+            # How much room is left over the image itself is deliberately not
+            # written here: it was, and it was stale within a few releases, which
+            # is the opposite of what a budget comment is for. The step below
+            # prints it on every run. Read that number before raising this one -
+            # as of v0.6.2 it was a few hundred bytes, not the headroom the
+            # earlier wording implied.
             flash: 442368
             # 48 KiB, reserving 16 KiB of the 65,528-byte RAM region for stack
             # growth. Enforcing the target and not just the ceiling is what
