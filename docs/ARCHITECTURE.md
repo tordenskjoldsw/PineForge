@@ -175,8 +175,11 @@ motion service maintains InfiniTime's eight-sample, 10 Hz BMA42x history before
 and during sleep. The hardware-independent detector compares the stable newest
 pair with the stable pair from roughly 0.6 seconds earlier and requires a
 rotation of more than roughly 45 degrees into the PineTime viewing orientation.
-Without raise wrist, motion sampling is suspended while sleeping, so touch-only
-combinations do not pay the tilt-wake power cost.
+Without raise wrist, the tilt sampling is suspended while sleeping, so touch-only
+combinations do not pay its power cost. The step counter is still read on a slow
+cadence throughout - see the section on the step count below, and note that
+"suspended while sleeping" once meant the counter too, which quietly cost a
+companion every step taken while the watch was dark.
 
 The battery task owns SAADC plus PineTime's two active-low charger inputs, and
 **watches both of them for changes**. Which one moves when a watch is set down

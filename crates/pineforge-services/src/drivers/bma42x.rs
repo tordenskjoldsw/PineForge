@@ -83,11 +83,18 @@ pub enum AccelerationPowerMode {
     /// current for a phone that reads them. Only what the *result* is used for
     /// is gated on the wake settings.
     ///
-    /// This firmware already goes further than that: idle without raise-wrist
-    /// drops to a one-second read, and sleeping without it stops reading
-    /// altogether until the power state moves. The counter keeps running in the
-    /// sensor while nothing reads it, which is exactly what powering down would
-    /// give up.
+    /// This firmware reads it far less often - a second while idle, thirty
+    /// while asleep - which is affordable precisely because the counting
+    /// happens in the sensor rather than in whatever is reading it. That is
+    /// what powering down would give up, and it is why nothing here does.
+    ///
+    /// It once read nothing at all while asleep, and that was recorded in this
+    /// paragraph as going further than the reference. It was not going further:
+    /// the watch sleeps twenty seconds after a touch, so it was asleep for
+    /// essentially all of the walking, and a companion reading the motion
+    /// service got one sample per wake. Sampling slowly is an optimisation;
+    /// not sampling is a missing feature, and the two are easy to confuse from
+    /// inside.
     ///
     /// Kept rather than deleted because the driver's half is done and correct,
     /// and a future reason to stop the sensor - a storage mode, a flat battery -
