@@ -13,7 +13,7 @@ use embassy_sync::{
     blocking_mutex::raw::CriticalSectionRawMutex,
     channel::{DynamicReceiver, DynamicSender},
     signal::Signal,
-    watch::{DynAnonReceiver, DynReceiver},
+    watch::{DynAnonReceiver, DynReceiver, DynSender},
 };
 use pineforge_state::{
     AppEvent, DisplaySettings, HeartRateCommand, PowerCommand, SystemPowerState,
@@ -34,6 +34,12 @@ pub struct MotionPorts<'a> {
     /// gestures currently are, and an anonymous receiver takes none of the
     /// `Watch`'s fixed subscriber slots to do it.
     pub settings: DynAnonReceiver<'a, DisplaySettings>,
+    /// The step count as the sensor last reported it, for anything that needs
+    /// the number without being the screen showing it - the phone, today.
+    pub steps: DynSender<'a, u32>,
+    /// Raised when the calendar day changed under the counter, which is the
+    /// only thing that puts it back to zero.
+    pub reset_steps: &'a ReadySignal,
     /// Waited on before touching the bus, and raised once this runner is done
     /// with it - the `PineTime`'s proven touch, motion, heart-rate bring-up.
     pub touch_ready: &'a ReadySignal,

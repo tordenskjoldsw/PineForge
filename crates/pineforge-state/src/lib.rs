@@ -91,6 +91,44 @@ pub const SCREEN_STACK_CAPACITY: usize = 4;
 /// bar means.
 pub const DAILY_STEP_GOAL: u32 = 10_000;
 
+/// Watches the calendar for the moment the step counter is owed a reset.
+///
+/// The count is the sensor's own, and the sensor has no idea what day it is -
+/// so without this the "day's steps" every gauge divides against the goal is
+/// really the count since the last boot, and it only ever climbs.
+///
+/// It matters beyond the watch's own screens. A companion reads the count as
+/// steps *so far today* and stores the difference against what it already has
+/// for the day; `InfiniTime` resets at midnight and Gadgetbridge's accounting
+/// is written against that, down to a branch that only fires when the watch
+/// reports a zero. Sending a number that never returns to zero would have it
+/// record a whole lifetime's walking as one day's.
+///
+/// **The first date is never a rollover**, and that is the rule worth stating.
+/// A watch boots with the counter at zero and often without knowing the date at
+/// all - the clock arrives later, from a phone or from the restored checkpoint.
+/// Treating that first arrival as a new day would throw away every step taken
+/// since boot, every time the time was synchronised.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct StepDay {
+    seen: Option<CalendarDate>,
+}
+
+impl StepDay {
+    #[must_use]
+    pub const fn new() -> Self {
+        Self { seen: None }
+    }
+
+    /// Records the date now showing and reports whether the day changed under
+    /// it, which is when the counter has to go back to zero.
+    pub fn observe(&mut self, date: CalendarDate) -> bool {
+        let rolled = matches!(self.seen, Some(seen) if seen != date);
+        self.seen = Some(date);
+        rolled
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PowerConfig {
     dim_after_millis: u64,
@@ -1792,6 +1830,76 @@ mod tests {
                 "{effect:?} repainted before the sensor answered"
             );
         }
+    }
+
+    fn date(year: u16, month: u8, day: u8) -> CalendarDate {
+        CalendarDate { year, month, day }
+    }
+
+    /// The counter is already zero at boot - the sensor is soft-reset on the
+    /// way up - so the first date the watch learns describes the day those
+    /// steps were taken on. Resetting on it would throw away everything walked
+    /// between switching on and the phone connecting.
+    #[test]
+    fn learning_the_date_for_the_first_time_keeps_the_steps_already_taken() {
+        let mut day = StepDay::new();
+        assert!(!day.observe(date(2026, 8, 3)));
+    }
+
+    #[test]
+    fn the_counter_is_reset_once_when_the_day_changes_under_it() {
+        let mut day = StepDay::new();
+        assert!(!day.observe(date(2026, 8, 3)));
+        assert!(
+            day.observe(date(2026, 8, 4)),
+            "midnight passed and nothing asked for a reset"
+        );
+        assert!(
+            !day.observe(date(2026, 8, 4)),
+            "the same day asked for a second reset"
+        );
+    }
+
+    /// A tick arrives every second while the watch is awake, so the same date
+    /// is seen thousands of times a day. Only the change may reset anything.
+    #[test]
+    fn the_same_date_seen_again_resets_nothing() {
+        let mut day = StepDay::new();
+        let today = date(2026, 8, 3);
+        day.observe(today);
+        for _ in 0..1000 {
+            assert!(!day.observe(today));
+        }
+    }
+
+    /// A phone that corrects the clock backwards - a timezone, a bad sync -
+    /// still changed the day the watch believes it is on, and the count it is
+    /// keeping belongs to the day it thought it was. The rule is "changed",
+    /// not "advanced", so the two stay in step either way.
+    #[test]
+    fn a_clock_corrected_backwards_still_changes_the_day() {
+        let mut day = StepDay::new();
+        day.observe(date(2026, 8, 4));
+        assert!(day.observe(date(2026, 8, 3)));
+    }
+
+    /// Month and year boundaries are the same question asked of different
+    /// fields, and a comparison that only looked at the day would sleep through
+    /// both.
+    #[test]
+    fn a_new_month_or_year_is_a_new_day_too() {
+        let mut day = StepDay::new();
+        day.observe(date(2026, 8, 31));
+        assert!(day.observe(date(2026, 9, 1)));
+
+        let mut year = StepDay::new();
+        year.observe(date(2026, 12, 31));
+        assert!(year.observe(date(2027, 1, 1)));
+
+        // The trap: same day-of-month, different month.
+        let mut month = StepDay::new();
+        month.observe(date(2026, 8, 15));
+        assert!(month.observe(date(2026, 9, 15)));
     }
 
     #[test]

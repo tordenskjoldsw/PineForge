@@ -62,99 +62,135 @@ where
     }
 
     async fn run_motion(&mut self, mut power: SystemPowerState) -> ! {
+        // Lifted out of `self` so the wait below borrows nothing the body it
+        // races needs. The signal is a shared reference, so this is a copy.
+        let reset = self.ports.reset_steps;
         let mut ticks_until_step_update = 1;
         let mut raise_to_wake = RaiseToWakeDetector::new();
         loop {
-            match power {
-                SystemPowerState::Interactive => {
+            // The day boundary outranks whatever this state was waiting for.
+            // Serving it late means a day's steps folded into the next day's
+            // total, and on a sleeping watch "late" is however long it is until
+            // something else happens - which can be hours.
+            //
+            // Losing the body's future to the race costs nothing: every step it
+            // could have been part-way through is a sensor read whose value the
+            // next one carries anyway, and the reset publishes a count of its
+            // own the moment it lands.
+            if matches!(
+                select(
+                    reset.wait(),
+                    self.step(&mut power, &mut ticks_until_step_update, &mut raise_to_wake),
+                )
+                .await,
+                Either::First(())
+            ) {
+                self.reset_step_count().await;
+            }
+        }
+    }
+
+    /// One pass of whatever the current power state waits on.
+    ///
+    /// Split from the loop above so the reset can be raced against it as a
+    /// whole, rather than added as a third arm to each of the three selects
+    /// below - which would have been the same signal written out three times
+    /// and forgotten from one of them.
+    async fn step(
+        &mut self,
+        power: &mut SystemPowerState,
+        ticks_until_step_update: &mut u8,
+        raise_to_wake: &mut RaiseToWakeDetector,
+    ) {
+        match *power {
+            SystemPowerState::Interactive => {
+                match select(
+                    self.ports.power.changed(),
+                    Timer::after(ACTIVE_UPDATE_INTERVAL),
+                )
+                .await
+                {
+                    Either::First(next) => {
+                        *power = next;
+                        let _ = self.apply_power_mode(*power).await;
+                        *ticks_until_step_update = 1;
+                    }
+                    Either::Second(()) => {
+                        if raise_to_wake_enabled(&mut self.ports.settings) {
+                            self.update_raise_to_wake(raise_to_wake, false).await;
+                        } else {
+                            raise_to_wake.reset();
+                        }
+                        #[cfg(feature = "diagnostics")]
+                        self.publish_acceleration().await;
+                        *ticks_until_step_update -= 1;
+                        if *ticks_until_step_update == 0 {
+                            self.publish_step_count().await;
+                            *ticks_until_step_update = ACTIVE_STEP_DIVISOR;
+                        }
+                    }
+                }
+            }
+            SystemPowerState::Idle => {
+                let track_raise = raise_to_wake_enabled(&mut self.ports.settings);
+                let update_interval = if track_raise {
+                    ACTIVE_UPDATE_INTERVAL
+                } else {
+                    IDLE_UPDATE_INTERVAL
+                };
+                match select(self.ports.power.changed(), Timer::after(update_interval)).await {
+                    Either::First(next) => {
+                        *power = next;
+                        let _ = self.apply_power_mode(*power).await;
+                        *ticks_until_step_update = 1;
+                    }
+                    Either::Second(()) => {
+                        if track_raise {
+                            self.update_raise_to_wake(raise_to_wake, false).await;
+                        } else {
+                            raise_to_wake.reset();
+                        }
+                        #[cfg(feature = "diagnostics")]
+                        self.publish_acceleration().await;
+                        if track_raise {
+                            *ticks_until_step_update -= 1;
+                            if *ticks_until_step_update == 0 {
+                                self.publish_step_count().await;
+                                *ticks_until_step_update = ACTIVE_STEP_DIVISOR;
+                            }
+                        } else {
+                            self.publish_step_count().await;
+                        }
+                    }
+                }
+            }
+            SystemPowerState::Sleeping => {
+                let wake_gestures = self
+                    .ports
+                    .settings
+                    .try_get()
+                    .unwrap_or(DisplaySettings::DEFAULT)
+                    .wake_gestures();
+                if wake_gestures.contains(WakeGesture::RaiseWrist) {
                     match select(
                         self.ports.power.changed(),
                         Timer::after(ACTIVE_UPDATE_INTERVAL),
                     )
                     .await
                     {
-                        Either::First(next) => {
-                            power = next;
-                            let _ = self.apply_power_mode(power).await;
-                            ticks_until_step_update = 1;
-                        }
+                        Either::First(next) => *power = next,
                         Either::Second(()) => {
-                            if raise_to_wake_enabled(&mut self.ports.settings) {
-                                self.update_raise_to_wake(&mut raise_to_wake, false).await;
-                            } else {
-                                raise_to_wake.reset();
-                            }
-                            #[cfg(feature = "diagnostics")]
-                            self.publish_acceleration().await;
-                            ticks_until_step_update -= 1;
-                            if ticks_until_step_update == 0 {
-                                self.publish_step_count().await;
-                                ticks_until_step_update = ACTIVE_STEP_DIVISOR;
-                            }
+                            self.update_raise_to_wake(raise_to_wake, true).await;
+                            return;
                         }
                     }
+                } else {
+                    raise_to_wake.reset();
+                    *power = self.ports.power.changed().await;
                 }
-                SystemPowerState::Idle => {
-                    let track_raise = raise_to_wake_enabled(&mut self.ports.settings);
-                    let update_interval = if track_raise {
-                        ACTIVE_UPDATE_INTERVAL
-                    } else {
-                        IDLE_UPDATE_INTERVAL
-                    };
-                    match select(self.ports.power.changed(), Timer::after(update_interval)).await {
-                        Either::First(next) => {
-                            power = next;
-                            let _ = self.apply_power_mode(power).await;
-                            ticks_until_step_update = 1;
-                        }
-                        Either::Second(()) => {
-                            if track_raise {
-                                self.update_raise_to_wake(&mut raise_to_wake, false).await;
-                            } else {
-                                raise_to_wake.reset();
-                            }
-                            #[cfg(feature = "diagnostics")]
-                            self.publish_acceleration().await;
-                            if track_raise {
-                                ticks_until_step_update -= 1;
-                                if ticks_until_step_update == 0 {
-                                    self.publish_step_count().await;
-                                    ticks_until_step_update = ACTIVE_STEP_DIVISOR;
-                                }
-                            } else {
-                                self.publish_step_count().await;
-                            }
-                        }
-                    }
-                }
-                SystemPowerState::Sleeping => {
-                    let wake_gestures = self
-                        .ports
-                        .settings
-                        .try_get()
-                        .unwrap_or(DisplaySettings::DEFAULT)
-                        .wake_gestures();
-                    if wake_gestures.contains(WakeGesture::RaiseWrist) {
-                        match select(
-                            self.ports.power.changed(),
-                            Timer::after(ACTIVE_UPDATE_INTERVAL),
-                        )
-                        .await
-                        {
-                            Either::First(next) => power = next,
-                            Either::Second(()) => {
-                                self.update_raise_to_wake(&mut raise_to_wake, true).await;
-                                continue;
-                            }
-                        }
-                    } else {
-                        raise_to_wake.reset();
-                        power = self.ports.power.changed().await;
-                    }
-                    let _ = self.apply_power_mode(power).await;
-                    ticks_until_step_update = 1;
-                    self.publish_step_count().await;
-                }
+                let _ = self.apply_power_mode(*power).await;
+                *ticks_until_step_update = 1;
+                self.publish_step_count().await;
             }
         }
     }
@@ -262,10 +298,32 @@ where
 
     async fn publish_step_count(&mut self) {
         if let Ok(steps) = self.accelerometer.read_step_count().await {
+            // Both, and in this order. The screens take it as an event because
+            // a repaint is owed; anything that only wants the number - the
+            // phone reading the motion service - takes the latest value
+            // instead, and must not be able to block the sensor loop waiting
+            // for a reader that is asleep.
+            self.ports.steps.send(steps);
             self.ports.events.send(AppEvent::StepsUpdated(steps)).await;
         } else {
             log_warn!("Accelerometer step-counter read failed");
         }
+    }
+
+    /// Puts the counter back to zero when the day it was counting has ended.
+    ///
+    /// Published immediately afterwards rather than left until the next
+    /// ordinary read: the zero is the whole point of the reset. A companion
+    /// keeping a daily total watches for exactly that value to know the
+    /// previous day's count is finished, and on a sleeping watch the next read
+    /// may be hours away.
+    async fn reset_step_count(&mut self) {
+        if self.accelerometer.reset_step_counter().await.is_err() {
+            log_warn!("Accelerometer step-counter reset failed");
+            return;
+        }
+        log_info!("Step counter reset for the new day");
+        self.publish_step_count().await;
     }
 
     #[cfg(feature = "diagnostics")]

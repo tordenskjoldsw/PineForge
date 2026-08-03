@@ -5,7 +5,7 @@
 //! right after connecting.
 
 use defmt::{info, warn};
-use embassy_futures::select::select3;
+use embassy_futures::select::select4;
 use embassy_time::{Duration, Instant, with_deadline};
 use pineforge_state::{
     AppEvent, BOND_PAYLOAD_MAX, BleState, DfuEngine, DfuFailReason, MUSIC_TEXT_MAX, MusicState,
@@ -15,7 +15,7 @@ use trouble_host::prelude::*;
 
 use crate::{
     ipc::{
-        BOND_STORE, BatteryStatusReceiver, NOTIFICATIONS, StoredBond, UI_EVENTS,
+        BOND_STORE, BatteryStatusReceiver, NOTIFICATIONS, StepCountReceiver, StoredBond, UI_EVENTS,
         VIBRATION_COMMANDS, WALL_CLOCK,
     },
     tasks::ble::{dfu, music},
@@ -39,6 +39,7 @@ pub struct Server {
     pub dfu: DfuService,
     pub alert_notification: AlertNotificationService,
     pub music: MusicService,
+    pub motion: MotionService,
 }
 
 /// Largest New Alert write accepted, one ATT payload at the negotiated MTU, so
@@ -155,6 +156,25 @@ pub struct BatteryService {
     pub level: u8,
 }
 
+/// `InfiniTime`'s motion service, and only the half of it anything reads.
+///
+/// The step count is what a companion is after, and Gadgetbridge subscribes to
+/// exactly this characteristic on connect. `InfiniTime` declares a second one
+/// beside it carrying raw X/Y/Z - Gadgetbridge has the line that would
+/// subscribe to it commented out, against its own issue 2527, so declaring it
+/// here would cost about 123 bytes of attribute table for something nothing
+/// reads. Six of the music service's twelve are missing for the same reason.
+///
+/// The value is a little-endian `u32` of steps taken so far today, which is why
+/// the counter has to return to zero at midnight - see `StepDay`. A companion
+/// stores the difference against what it already holds for the day, and the
+/// branch that ends a day only runs when the watch reports a zero.
+#[gatt_service(uuid = "00030000-78fc-48fe-8e23-433b3a1942d0")]
+pub struct MotionService {
+    #[characteristic(uuid = "00030001-78fc-48fe-8e23-433b3a1942d0", read, notify, value = 0)]
+    pub step_count: u32,
+}
+
 #[gatt_service(uuid = service::CURRENT_TIME)]
 pub struct CurrentTimeService {
     /// Standard current-time layout: year, month, day, h, m, s, weekday,
@@ -173,13 +193,44 @@ pub async fn serve(
     server: &Server<'_>,
     connection: &GattConnection<'_, '_, DefaultPacketPool>,
     battery: &mut BatteryStatusReceiver,
+    steps: &mut StepCountReceiver,
 ) {
-    select3(
+    select4(
         gatt_events(server, connection),
         notify_battery(server, connection, battery),
         music::notify_events(server, connection),
+        notify_steps(server, connection, steps),
     )
     .await;
+}
+
+/// Pushes the step count to a subscribed companion.
+///
+/// The same shape as the battery: send what is already known so a phone that
+/// has just connected does not wait for the next sensor read, then send every
+/// change. The count only ever moves when the sensor is read, which on a
+/// sleeping watch may be minutes apart - and the one value that matters most,
+/// the zero a reset publishes, is sent the moment it lands.
+async fn notify_steps(
+    server: &Server<'_>,
+    connection: &GattConnection<'_, '_, DefaultPacketPool>,
+    steps: &mut StepCountReceiver,
+) {
+    if let Some(count) = steps.try_get() {
+        let _ = server
+            .motion
+            .step_count
+            .notify(connection, &count, true)
+            .await;
+    }
+    loop {
+        let count = steps.changed().await;
+        let _ = server
+            .motion
+            .step_count
+            .notify(connection, &count, true)
+            .await;
+    }
 }
 
 #[allow(clippy::too_many_lines)]

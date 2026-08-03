@@ -173,6 +173,36 @@ pub fn battery_status_receiver() -> BatteryStatusReceiver {
         .expect("battery status receiver capacity is fixed by architecture")
 }
 
+/// The step counter as the sensor last reported it.
+///
+/// A `Watch` because only the latest matters and a missed one costs nothing:
+/// the count is cumulative, so the next reading carries whatever the last one
+/// would have said. The battery reading travels the same way for the same
+/// reason.
+///
+/// Separate from [`UI_EVENTS`], which the display task alone consumes. The BLE
+/// task needs the same number to answer a phone reading `InfiniTime`'s motion
+/// service, and a channel with one receiver cannot serve two.
+pub static STEP_COUNT: Watch<CriticalSectionRawMutex, u32, 2> = Watch::new();
+
+pub type StepCountReceiver = Receiver<'static, CriticalSectionRawMutex, u32, 2>;
+
+/// Reserves one of the fixed BLE and future consumer subscriptions.
+pub fn step_count_receiver() -> StepCountReceiver {
+    STEP_COUNT
+        .receiver()
+        .expect("step count receiver capacity is fixed by architecture")
+}
+
+/// Asks the motion runner to put the step counter back to zero.
+///
+/// A `Signal` rather than a channel: two midnights cannot be owed at once, and
+/// a reset that arrives late is still the right reset. The display task raises
+/// it because it is the task that holds the wall clock - see the module note in
+/// `tasks::display` on why the clock is anchored there and nowhere else - and
+/// the motion runner serves it because it is the only owner of the sensor.
+pub static STEP_RESET: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+
 /// Transport commands from the music screen to the BLE task.
 ///
 /// The first thing on this bus that travels from the UI outwards. Everything

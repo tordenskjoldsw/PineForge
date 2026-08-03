@@ -33,6 +33,9 @@ const FEATURE_CONFIG_SIZE: usize = 70;
 const STEP_COUNTER_CONFIG_OFFSET: usize = 0x3a;
 const STEP_COUNTER_ENABLE: u8 = 0x10;
 const STEP_DETECTOR_ENABLE: u8 = 0x08;
+/// Bosch's `BMA423_STEP_CNTR_RST_MSK`, in the byte one past the counter's
+/// configuration base - the same byte the enable bit sits in.
+const STEP_COUNTER_RESET: u8 = 0x04;
 const STEP_COUNTER_OUTPUT_REGISTER: u8 = 0x1e;
 
 const BMA421_FEATURE_CONFIG: &[u8; 6_144] = include_bytes!(concat!(env!("OUT_DIR"), "/bma421.bin"));
@@ -209,11 +212,46 @@ where
     }
 
     pub async fn enable_step_counter(&mut self) -> Result<(), FeatureEngineError<I2C::Error>> {
+        self.update_step_config(|config| {
+            config[1] |= STEP_COUNTER_ENABLE;
+            config[1] &= !STEP_DETECTOR_ENABLE;
+        })
+        .await
+    }
+
+    /// Sets the counter back to zero.
+    ///
+    /// The count this sensor keeps is the count the watch shows and the count
+    /// the phone is told, so the day boundary has to reach the hardware: an
+    /// offset held in the firmware instead would be one more thing to persist
+    /// across a reboot, and would disagree with the sensor the moment it was
+    /// not. `InfiniTime` resets the same way, at the same moment, which is what
+    /// makes a companion written against it read this watch correctly.
+    ///
+    /// The reset bit lives in the same configuration byte as the enable, and
+    /// the sensor clears it once it has acted - so this is the same
+    /// read-modify-write, and it deliberately leaves the enable bit alone.
+    pub async fn reset_step_counter(&mut self) -> Result<(), FeatureEngineError<I2C::Error>> {
+        self.update_step_config(|config| config[1] |= STEP_COUNTER_RESET)
+            .await
+    }
+
+    /// Read-modify-writes the two configuration bytes the step counter lives in.
+    ///
+    /// The feature config is only writable with advanced power save off, and
+    /// the address register has to be re-pointed between the read and the write
+    /// because reading advances it. Both are easy to leave out of a second copy
+    /// of this sequence, which is why there is only one.
+    async fn update_step_config(
+        &mut self,
+        edit: impl FnOnce(&mut [u8; 2]),
+    ) -> Result<(), FeatureEngineError<I2C::Error>> {
         let start = self
             .feature_config_start
             .ok_or(FeatureEngineError::NotInitialized)?;
         let offset = STEP_COUNTER_CONFIG_OFFSET;
         debug_assert!(offset + 1 < FEATURE_CONFIG_SIZE);
+        let word = start + u16::try_from(offset / 2).unwrap_or(0);
 
         let power = self
             .read_register(POWER_CONFIG_REGISTER)
@@ -223,7 +261,7 @@ where
             .await
             .map_err(FeatureEngineError::Bus)?;
 
-        self.set_feature_address(start + u16::try_from(offset / 2).unwrap_or(0))
+        self.set_feature_address(word)
             .await
             .map_err(FeatureEngineError::Bus)?;
         let mut config = [0; 2];
@@ -231,9 +269,8 @@ where
             .write_read(ADDRESS, &[FEATURE_CONFIG_DATA_REGISTER], &mut config)
             .await
             .map_err(FeatureEngineError::Bus)?;
-        config[1] |= STEP_COUNTER_ENABLE;
-        config[1] &= !STEP_DETECTOR_ENABLE;
-        self.set_feature_address(start + u16::try_from(offset / 2).unwrap_or(0))
+        edit(&mut config);
+        self.set_feature_address(word)
             .await
             .map_err(FeatureEngineError::Bus)?;
         self.write_feature_chunk(&config)

@@ -12,7 +12,7 @@ use crate::{
     boot::watchdog::BootloaderWatchdog,
     drivers::backlight::Backlight,
     ipc::{
-        MUSIC_CONTROL, NOTIFICATIONS, POWER_COMMANDS, SETTINGS_COMMANDS, UI_EVENTS,
+        MUSIC_CONTROL, NOTIFICATIONS, POWER_COMMANDS, SETTINGS_COMMANDS, STEP_RESET, UI_EVENTS,
         VIBRATION_ALARM, VIBRATION_COMMANDS, VibrationAlarmSignal, WALL_CLOCK,
         display_settings_receiver, music_state_receiver, system_power_receiver,
         wall_clock_receiver,
@@ -23,7 +23,7 @@ use pineforge_state::Navigation;
 use pineforge_state::{
     AppEffect, AppEvent, AppState, ClockSnapshot, DisplaySettings, HeartRateCommand, Modal,
     ModalOutcome, ModalState, MusicControl, MusicState, Notification, PowerCommand, Repaint,
-    ScreenId, SystemPowerState, TimerOutcome, VibrationPattern, panel_backlight,
+    ScreenId, StepDay, SystemPowerState, TimerOutcome, VibrationPattern, panel_backlight,
 };
 use pineforge_ui::{
     about::BuildInfo,
@@ -402,6 +402,11 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
     // values while the watch sleeps, so the redraw on wake shows the state as
     // it was last reported instead of an empty corner.
     let mut status = StatusCorner::new();
+    // Which calendar day the step counter is counting. Starts empty on purpose:
+    // the watch boots with the counter at zero and often without a date at all,
+    // so the first one it learns describes the day those steps were taken on
+    // and must not wipe them. See `StepDay`.
+    let mut step_day = StepDay::new();
     // The one piece of corner state that is not a reading: it is settled at
     // boot and only ever moves when the user confirms, below.
     status.set_unconfirmed(!crate::boot::confirm::is_validated());
@@ -641,6 +646,19 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
         // into `CHG`, because that reading arrives exactly when the panel is
         // off.
         let reading_moved = event.is_reading() && screens.absorb(app.active_screen(), event);
+
+        // The step counter belongs to the sensor and the sensor has no calendar,
+        // so the day boundary has to be told to it - and this is the only task
+        // that holds a date to notice it with. Part of ingest rather than the
+        // render half below because it is a fact about the watch: a day ends
+        // whether or not anything is being painted.
+        if let AppEvent::Tick {
+            date: Some(date), ..
+        } = event
+            && step_day.observe(date)
+        {
+            STEP_RESET.signal(());
+        }
 
         if let AppEvent::DisplaySettingsUpdated(updated) = event {
             HEART_RATE_COMMANDS

@@ -106,9 +106,9 @@ Embassy is the runtime. Each stateful peripheral is assigned to one long-running
 owner task. The production firmware has:
 
 - input task: owns the touch controller and publishes `UiEvent` values
-- accelerometer runner: exclusively owns the BMA42x and its interrupt; the
-  concrete Embassy task only binds PineTime peripherals and its ports and
-  starts the runner
+- accelerometer runner: exclusively owns the BMA42x, its interrupt and its step
+  counter, including the reset the day boundary asks for; the concrete Embassy
+  task only binds PineTime peripherals and its ports and starts the runner
 - heart-rate runner: exclusively owns the HRS3300, its 100 ms
   acquisition cadence, and its power transitions
 - power task: owns the inactivity deadlines and publishes the system power state
@@ -373,6 +373,47 @@ anchoring happens in the *display* task, not the BLE task, and that is not a
 detail: the two tasks read their clocks from different zeros, and the elapsed
 time is a difference between two readings. Only the task that raises the tick
 can supply the base the tick uses.
+
+## The step count, and the day it belongs to
+
+The count is the sensor's own: the BMA42x feature engine keeps it, and it
+survives the watch sleeping because nothing stops the sensor - see the note on
+`AccelerationPowerMode::Off` for why it is never powered down.
+
+What the sensor does not have is a calendar. Without a day boundary the "day's
+steps" every gauge divides against the goal is really the count since the last
+boot, and it only ever climbs. So the boundary is told to it: the display task
+holds the wall clock, notices the date change on a tick, and raises `STEP_RESET`;
+the motion runner serves it, because it is the only owner of the sensor, and
+publishes the resulting zero at once rather than waiting for the next ordinary
+read.
+
+`StepDay` in `pineforge-state` is the whole policy, and its one rule worth
+stating is that **the first date is never a rollover**. A watch boots with the
+counter at zero and often without knowing the date at all; treating the first
+one it learns as a new day would throw away every step taken since boot, every
+time the clock was synchronised.
+
+The reset is raised from a tick, and ticks stop while the watch sleeps - so a
+midnight crossed in the dark lands at the first wake after it. That is the cost
+of not running a timer purely to notice midnight.
+
+**The count leaves the watch as well.** `InfiniTime`'s motion service is
+declared with the one characteristic anything reads: the step count, a
+little-endian `u32` of steps so far today. Gadgetbridge subscribes to exactly
+that on connect and stores the difference against what it already holds for the
+day; the branch that ends a day only runs when the watch reports a zero, which
+is what makes the midnight reset a protocol requirement rather than a nicety.
+The raw X/Y/Z characteristic `InfiniTime` declares beside it is not, because
+Gadgetbridge has the line that would subscribe to it commented out against its
+own issue 2527 - so declaring it would cost attribute-table RAM for something
+nothing reads. Six of the music service's twelve are missing for the same
+reason.
+
+The count travels to the BLE task on its own `Watch` rather than through
+`UI_EVENTS`, which the display task alone consumes. A `Watch` because only the
+latest matters and a missed one costs nothing: the count is cumulative, so the
+next reading carries whatever the last would have said.
 
 ## Countdown deadline and alarm ownership
 
