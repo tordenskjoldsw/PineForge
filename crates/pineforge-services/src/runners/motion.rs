@@ -1,5 +1,5 @@
-use defmt::{info, warn};
 use embassy_futures::select::{Either, select};
+use embassy_sync::watch::DynAnonReceiver;
 use embassy_time::{Duration, Timer};
 use embedded_hal_async::i2c::I2c;
 #[cfg(feature = "diagnostics")]
@@ -11,10 +11,8 @@ use pineforge_state::{
 
 use crate::{
     drivers::bma42x::{AccelerationPowerMode, Bma42x, FeatureEngineError},
-    ipc::{
-        DISPLAY_SETTINGS, MOTION_READY, POWER_COMMANDS, SystemPowerReceiver, TOUCH_READY,
-        UI_EVENTS, system_power_receiver,
-    },
+    log::{log_info, log_warn},
+    ports::MotionPorts,
 };
 
 const ACTIVE_UPDATE_INTERVAL: Duration = Duration::from_millis(100);
@@ -27,53 +25,50 @@ pub trait BusRecovery {
 }
 
 /// Owns the motion sensor lifecycle independently from the executor task.
-pub struct AccelerometerRunner<I2C, RECOVERY> {
+pub struct AccelerometerRunner<'a, I2C, RECOVERY> {
     accelerometer: Bma42x<I2C>,
     bus_recovery: RECOVERY,
+    ports: MotionPorts<'a>,
 }
 
-impl<I2C, RECOVERY> AccelerometerRunner<I2C, RECOVERY>
+impl<'a, I2C, RECOVERY> AccelerometerRunner<'a, I2C, RECOVERY>
 where
     I2C: I2c,
     RECOVERY: BusRecovery,
 {
     #[must_use]
-    pub const fn new(i2c: I2C, bus_recovery: RECOVERY) -> Self {
+    pub const fn new(i2c: I2C, bus_recovery: RECOVERY, ports: MotionPorts<'a>) -> Self {
         Self {
             accelerometer: Bma42x::new(i2c),
             bus_recovery,
+            ports,
         }
     }
 
     pub async fn run(mut self) {
-        let mut power_receiver = system_power_receiver();
-        TOUCH_READY.wait().await;
+        self.ports.touch_ready.wait().await;
         let initialized = self.initialize().await;
-        MOTION_READY.signal(());
+        self.ports.motion_ready.signal(());
         let Some(()) = initialized else {
             return;
         };
 
-        let power = power_receiver.get().await;
+        let power = self.ports.power.get().await;
         if self.apply_power_mode(power).await.is_err() {
             return;
         }
 
-        self.run_motion(power, &mut power_receiver).await;
+        self.run_motion(power).await;
     }
 
-    async fn run_motion(
-        &mut self,
-        mut power: SystemPowerState,
-        power_receiver: &mut SystemPowerReceiver,
-    ) -> ! {
+    async fn run_motion(&mut self, mut power: SystemPowerState) -> ! {
         let mut ticks_until_step_update = 1;
         let mut raise_to_wake = RaiseToWakeDetector::new();
         loop {
             match power {
                 SystemPowerState::Interactive => {
                     match select(
-                        power_receiver.changed(),
+                        self.ports.power.changed(),
                         Timer::after(ACTIVE_UPDATE_INTERVAL),
                     )
                     .await
@@ -84,7 +79,7 @@ where
                             ticks_until_step_update = 1;
                         }
                         Either::Second(()) => {
-                            if raise_to_wake_enabled() {
+                            if raise_to_wake_enabled(&mut self.ports.settings) {
                                 self.update_raise_to_wake(&mut raise_to_wake, false).await;
                             } else {
                                 raise_to_wake.reset();
@@ -100,13 +95,13 @@ where
                     }
                 }
                 SystemPowerState::Idle => {
-                    let track_raise = raise_to_wake_enabled();
+                    let track_raise = raise_to_wake_enabled(&mut self.ports.settings);
                     let update_interval = if track_raise {
                         ACTIVE_UPDATE_INTERVAL
                     } else {
                         IDLE_UPDATE_INTERVAL
                     };
-                    match select(power_receiver.changed(), Timer::after(update_interval)).await {
+                    match select(self.ports.power.changed(), Timer::after(update_interval)).await {
                         Either::First(next) => {
                             power = next;
                             let _ = self.apply_power_mode(power).await;
@@ -133,13 +128,15 @@ where
                     }
                 }
                 SystemPowerState::Sleeping => {
-                    let wake_gestures = DISPLAY_SETTINGS
+                    let wake_gestures = self
+                        .ports
+                        .settings
                         .try_get()
                         .unwrap_or(DisplaySettings::DEFAULT)
                         .wake_gestures();
                     if wake_gestures.contains(WakeGesture::RaiseWrist) {
                         match select(
-                            power_receiver.changed(),
+                            self.ports.power.changed(),
                             Timer::after(ACTIVE_UPDATE_INTERVAL),
                         )
                         .await
@@ -152,7 +149,7 @@ where
                         }
                     } else {
                         raise_to_wake.reset();
-                        power = power_receiver.changed().await;
+                        power = self.ports.power.changed().await;
                     }
                     let _ = self.apply_power_mode(power).await;
                     ticks_until_step_update = 1;
@@ -164,27 +161,28 @@ where
 
     async fn initialize(&mut self) -> Option<()> {
         if self.accelerometer.reset().await.is_err() {
-            warn!("Accelerometer reset failed");
+            log_warn!("Accelerometer reset failed");
         }
         self.bus_recovery.recover();
         let result = self.accelerometer.probe().await.map_or_else(
             |_| {
-                warn!("Accelerometer probe failed");
+                log_warn!("Accelerometer probe failed");
                 AccelerometerKind::Unavailable
             },
             |kind| {
                 match kind {
-                    AccelerometerKind::Bma421 => info!("BMA421 detected"),
-                    AccelerometerKind::Bma425 => info!("BMA425 detected"),
+                    AccelerometerKind::Bma421 => log_info!("BMA421 detected"),
+                    AccelerometerKind::Bma425 => log_info!("BMA425 detected"),
                     AccelerometerKind::Unknown(chip_id) => {
-                        warn!("Unknown accelerometer chip ID: {=u8:#x}", chip_id);
+                        log_warn!("Unknown accelerometer chip ID: {=u8:#x}", chip_id);
                     }
                     AccelerometerKind::Unavailable => {}
                 }
                 kind
             },
         );
-        UI_EVENTS
+        self.ports
+            .events
             .send(AppEvent::AccelerometerDetected(result))
             .await;
 
@@ -198,26 +196,28 @@ where
         if let Err(error) = self.accelerometer.initialize_feature_engine(result).await {
             match error {
                 FeatureEngineError::InitializationFailed(status) => {
-                    warn!("Accelerometer feature-engine status: {=u8:#x}", status);
+                    log_warn!("Accelerometer feature-engine status: {=u8:#x}", status);
                 }
                 FeatureEngineError::Bus(_)
                 | FeatureEngineError::UnsupportedSensor
                 | FeatureEngineError::NotInitialized => {
-                    warn!("Accelerometer feature-engine initialization failed");
+                    log_warn!("Accelerometer feature-engine initialization failed");
                 }
             }
             #[cfg(feature = "diagnostics")]
-            UI_EVENTS
+            self.ports
+                .events
                 .send(AppEvent::FeatureEngineUpdated(FeatureEngineStatus::Failed))
                 .await;
             return None;
         }
         #[cfg(feature = "diagnostics")]
-        UI_EVENTS
+        self.ports
+            .events
             .send(AppEvent::FeatureEngineUpdated(FeatureEngineStatus::Ready))
             .await;
         if self.accelerometer.enable_step_counter().await.is_err() {
-            warn!("Accelerometer step-counter enable failed");
+            log_warn!("Accelerometer step-counter enable failed");
             return None;
         }
         self.publish_step_count().await;
@@ -228,7 +228,10 @@ where
         if let Ok(sample) = self.accelerometer.read_acceleration().await {
             let raised = detector.push(pinetime_axes(sample));
             if wake && raised {
-                let _ = POWER_COMMANDS.try_send(PowerCommand::UserActivity);
+                let _ = self
+                    .ports
+                    .power_commands
+                    .try_send(PowerCommand::UserActivity);
             }
         }
     }
@@ -240,7 +243,7 @@ where
             .await
             .is_err()
         {
-            warn!("Accelerometer power transition failed");
+            log_warn!("Accelerometer power transition failed");
             return Err(());
         }
 
@@ -250,7 +253,7 @@ where
             .await
             .is_err()
         {
-            warn!("Accelerometer interrupt routing failed");
+            log_warn!("Accelerometer interrupt routing failed");
             return Err(());
         }
 
@@ -259,24 +262,33 @@ where
 
     async fn publish_step_count(&mut self) {
         if let Ok(steps) = self.accelerometer.read_step_count().await {
-            UI_EVENTS.send(AppEvent::StepsUpdated(steps)).await;
+            self.ports.events.send(AppEvent::StepsUpdated(steps)).await;
         } else {
-            warn!("Accelerometer step-counter read failed");
+            log_warn!("Accelerometer step-counter read failed");
         }
     }
 
     #[cfg(feature = "diagnostics")]
     async fn publish_acceleration(&mut self) {
         if let Ok(sample) = self.accelerometer.read_acceleration().await {
-            UI_EVENTS.send(AppEvent::AccelerationUpdated(sample)).await;
+            self.ports
+                .events
+                .send(AppEvent::AccelerationUpdated(sample))
+                .await;
         } else {
-            warn!("Accelerometer sample failed");
+            log_warn!("Accelerometer sample failed");
         }
     }
 }
 
-fn raise_to_wake_enabled() -> bool {
-    DISPLAY_SETTINGS
+/// Whether the persisted wake gestures include the tilt.
+///
+/// Read through an anonymous receiver rather than a subscription: the answer is
+/// only ever wanted at the moment it is asked, and taking one of the settings
+/// `Watch`'s fixed subscriber slots to get it would cost a slot the display,
+/// power and BLE tasks are counted into.
+fn raise_to_wake_enabled(settings: &mut DynAnonReceiver<'_, DisplaySettings>) -> bool {
+    settings
         .try_get()
         .unwrap_or(DisplaySettings::DEFAULT)
         .wake_gestures()

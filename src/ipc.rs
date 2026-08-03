@@ -71,6 +71,19 @@ pub fn system_power_receiver() -> SystemPowerReceiver {
         .expect("system power receiver capacity is fixed by architecture")
 }
 
+/// The same subscription, with the capacity erased for the motion runner.
+///
+/// [`pineforge_services`] is deliberately ignorant of how deep this `Watch` is:
+/// the depth is an argument about this bus and belongs in this file, and a
+/// runner that named it in its own type would force the argument to be repeated
+/// there and kept in step by hand. It still takes one of the fixed slots -
+/// erasing the capacity does not conjure a subscription.
+pub fn motion_power() -> embassy_sync::watch::DynReceiver<'static, SystemPowerState> {
+    SYSTEM_POWER
+        .dyn_receiver()
+        .expect("system power receiver capacity is fixed by architecture")
+}
+
 /// Latest validated display settings, published by the settings service.
 pub static DISPLAY_SETTINGS: Watch<CriticalSectionRawMutex, DisplaySettings, 3> = Watch::new();
 

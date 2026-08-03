@@ -1,5 +1,5 @@
-use defmt::{info, warn};
 use embassy_futures::select::{Either, select};
+use embassy_sync::channel::DynamicSender;
 use embassy_time::{Duration, Ticker, Timer};
 use embedded_hal_async::i2c::I2c;
 #[cfg(feature = "diagnostics")]
@@ -10,7 +10,8 @@ use pineforge_state::{
 
 use crate::{
     drivers::hrs3300::{Hrs3300, Hrs3300Kind},
-    ipc::{HEART_RATE_COMMANDS, MOTION_READY, UI_EVENTS},
+    log::{log_info, log_warn},
+    ports::HeartRatePorts,
 };
 
 const SAMPLE_INTERVAL: Duration = Duration::from_millis(100);
@@ -38,18 +39,20 @@ const UI_SAMPLE_DIVISOR: u8 = 10;
 
 /// Owns the HRS3300 lifecycle and acquisition cadence independently from the
 /// concrete Embassy task and from UI rendering.
-pub struct HeartRateRunner<I2C> {
+pub struct HeartRateRunner<'a, I2C> {
     sensor: Hrs3300<I2C>,
+    ports: HeartRatePorts<'a>,
 }
 
-impl<I2C> HeartRateRunner<I2C>
+impl<'a, I2C> HeartRateRunner<'a, I2C>
 where
     I2C: I2c,
 {
     #[must_use]
-    pub const fn new(i2c: I2C) -> Self {
+    pub const fn new(i2c: I2C, ports: HeartRatePorts<'a>) -> Self {
         Self {
             sensor: Hrs3300::new(i2c),
+            ports,
         }
     }
 
@@ -61,6 +64,7 @@ where
     /// different, and because saying it four times was already what pushed this
     /// loop past being readable.
     async fn apply(
+        events: &DynamicSender<'_, AppEvent>,
         command: HeartRateCommand,
         enabled: &mut bool,
         oneshot: &mut bool,
@@ -75,7 +79,7 @@ where
                 *enabled = next;
                 *interval_seconds = interval;
                 if !*enabled {
-                    UI_EVENTS
+                    events
                         .send(AppEvent::HeartRateStateUpdated(session.stop()))
                         .await;
                 }
@@ -86,7 +90,7 @@ where
             // and to say so. The periodic setting is deliberately untouched.
             HeartRateCommand::Stop => {
                 *oneshot = false;
-                UI_EVENTS
+                events
                     .send(AppEvent::HeartRateStateUpdated(session.stop()))
                     .await;
             }
@@ -94,11 +98,12 @@ where
     }
 
     pub async fn run(mut self) {
-        MOTION_READY.wait().await;
+        self.ports.motion_ready.wait().await;
         let available = self.initialize().await;
 
         let mut session = HeartRateSession::new();
-        UI_EVENTS
+        self.ports
+            .events
             .send(AppEvent::HeartRateStateUpdated(session.state()))
             .await;
         let mut enabled = false;
@@ -109,8 +114,9 @@ where
         let mut interval_seconds = 300;
         loop {
             if !enabled && !oneshot {
-                let command = HEART_RATE_COMMANDS.receive().await;
+                let command = self.ports.commands.receive().await;
                 Self::apply(
+                    &self.ports.events,
                     command,
                     &mut enabled,
                     &mut oneshot,
@@ -121,7 +127,8 @@ where
                 // Whichever way it was asked for, a sensor that never answered
                 // at boot cannot produce a reading.
                 if (enabled || oneshot) && !available {
-                    UI_EVENTS
+                    self.ports
+                        .events
                         .send(AppEvent::HeartRateStateUpdated(session.fail()))
                         .await;
                     enabled = false;
@@ -129,7 +136,8 @@ where
                 }
                 continue;
             }
-            UI_EVENTS
+            self.ports
+                .events
                 .send(AppEvent::HeartRateStateUpdated(session.start()))
                 .await;
             // A one-shot remains finite even when the stored interval happens
@@ -146,6 +154,7 @@ where
                 // loop starts over rather than handing back a number gathered
                 // before the request.
                 Self::apply(
+                    &self.ports.events,
                     command,
                     &mut enabled,
                     &mut oneshot,
@@ -159,12 +168,13 @@ where
                 continue;
             }
             if let Either::First(command) = select(
-                HEART_RATE_COMMANDS.receive(),
+                self.ports.commands.receive(),
                 Timer::after(gap(interval_seconds)),
             )
             .await
             {
                 Self::apply(
+                    &self.ports.events,
                     command,
                     &mut enabled,
                     &mut oneshot,
@@ -179,19 +189,20 @@ where
     async fn initialize(&mut self) -> bool {
         let kind = match self.sensor.probe_and_disable().await {
             Ok(Hrs3300Kind::Hrs3300) => {
-                info!("HRS3300 detected");
+                log_info!("HRS3300 detected");
                 HeartRateSensorKind::Hrs3300
             }
             Ok(Hrs3300Kind::Unknown(id)) => {
-                warn!("Unknown heart-rate sensor ID: {=u8:#x}", id);
+                log_warn!("Unknown heart-rate sensor ID: {=u8:#x}", id);
                 HeartRateSensorKind::Unknown(id)
             }
             Err(_) => {
-                warn!("Heart-rate sensor probe failed");
+                log_warn!("Heart-rate sensor probe failed");
                 HeartRateSensorKind::Unavailable
             }
         };
-        UI_EVENTS
+        self.ports
+            .events
             .send(AppEvent::HeartRateSensorDetected(kind))
             .await;
 
@@ -200,8 +211,9 @@ where
         }
         Timer::after(SETTLING_DELAY).await;
         if self.sensor.configure().await.is_err() {
-            warn!("Heart-rate sensor configuration failed");
-            UI_EVENTS
+            log_warn!("Heart-rate sensor configuration failed");
+            self.ports
+                .events
                 .send(AppEvent::HeartRateSensorDetected(
                     HeartRateSensorKind::Unavailable,
                 ))
@@ -217,9 +229,10 @@ where
         continuous: bool,
     ) -> Option<HeartRateCommand> {
         if self.sensor.power_up().await.is_err() {
-            warn!("Heart-rate sensor power-up failed");
+            log_warn!("Heart-rate sensor power-up failed");
             self.power_down().await;
-            UI_EVENTS
+            self.ports
+                .events
                 .send(AppEvent::HeartRateStateUpdated(session.fail()))
                 .await;
             return None;
@@ -232,18 +245,20 @@ where
         let mut sample_ticker = Ticker::every(SAMPLE_INTERVAL);
         let mut ppg = PpgProcessor::new();
         let mut sample_count = 0_u16;
-        UI_EVENTS
+        self.ports
+            .events
             .send(AppEvent::HeartRateStateUpdated(session.collecting()))
             .await;
         loop {
-            match select(HEART_RATE_COMMANDS.receive(), sample_ticker.next()).await {
+            match select(self.ports.commands.receive(), sample_ticker.next()).await {
                 Either::First(command) => return Some(command),
                 Either::Second(()) => {
                     if let Ok(sample) = self.sensor.read_sample().await {
                         sample_count = sample_count.saturating_add(1);
                         let analysis = ppg.push(sample.hrs, sample.als);
                         if !matches!(analysis, PpgAnalysis::Collecting { .. }) {
-                            UI_EVENTS
+                            self.ports
+                                .events
                                 .send(AppEvent::HeartRateStateUpdated(session.apply(analysis)))
                                 .await;
                         }
@@ -260,7 +275,8 @@ where
                             return None;
                         }
                         if !matches!(analysis, PpgAnalysis::Collecting { .. }) {
-                            UI_EVENTS
+                            self.ports
+                                .events
                                 .send(AppEvent::HeartRateAnalysisUpdated(analysis))
                                 .await;
                         }
@@ -270,7 +286,8 @@ where
                         }
                         #[cfg(feature = "diagnostics")]
                         if samples_until_ui_update == 0 {
-                            UI_EVENTS
+                            self.ports
+                                .events
                                 .send(AppEvent::HeartRateRawSampleUpdated(HeartRateRawSample {
                                     hrs: sample.hrs,
                                     als: sample.als,
@@ -279,7 +296,7 @@ where
                             samples_until_ui_update = UI_SAMPLE_DIVISOR;
                         }
                     } else {
-                        warn!("Heart-rate sample failed");
+                        log_warn!("Heart-rate sample failed");
                     }
                 }
             }
@@ -288,7 +305,139 @@ where
 
     async fn power_down(&mut self) {
         if self.sensor.power_down().await.is_err() {
-            warn!("Heart-rate sensor power-down failed");
+            log_warn!("Heart-rate sensor power-down failed");
         }
+    }
+}
+
+/// What the crate boundary bought.
+///
+/// The runner is driven here with no watch, no executor task and no `ipc`
+/// statics: the I²C bus is a table of register answers, the channels belong to
+/// the test, and the future is polled on the thread that built it. None of that
+/// was reachable while this code lived in the firmware binary - `cargo test`
+/// cannot build a `no_main` crate that pulls in `embassy-nrf`, so the lifecycle
+/// below was only ever checked by wearing the result.
+#[cfg(test)]
+mod tests {
+    use embassy_sync::{blocking_mutex::raw::CriticalSectionRawMutex, channel::Channel};
+    use embedded_hal_async::i2c::{ErrorKind, ErrorType, I2c, Operation};
+    use pineforge_state::HeartRateState;
+
+    use super::{HeartRateCommand, HeartRateRunner};
+    use crate::ports::{HeartRatePorts, ReadySignal};
+
+    /// A bus that answers every read with one byte and remembers every write.
+    ///
+    /// Enough for the lifecycle: what the runner does with an identification
+    /// byte is the question, and the registers it writes on the way are the
+    /// driver's business rather than this test's.
+    struct FakeBus {
+        id: u8,
+    }
+
+    #[derive(Debug)]
+    struct FakeError;
+
+    impl embedded_hal_async::i2c::Error for FakeError {
+        fn kind(&self) -> ErrorKind {
+            ErrorKind::Other
+        }
+    }
+
+    impl ErrorType for FakeBus {
+        type Error = FakeError;
+    }
+
+    impl I2c for FakeBus {
+        async fn transaction(
+            &mut self,
+            _address: u8,
+            operations: &mut [Operation<'_>],
+        ) -> Result<(), Self::Error> {
+            for operation in operations {
+                if let Operation::Read(buffer) = operation {
+                    buffer.fill(self.id);
+                }
+            }
+            Ok(())
+        }
+    }
+
+    /// Drives the runner until the collector has seen what it came for.
+    ///
+    /// The runner never returns - it is a firmware task - so it is raced
+    /// against the assertions rather than awaited. `select` drops the losing
+    /// future, which is exactly what the executor does when a task is stopped.
+    fn drive(id: u8, wanted: usize) -> std::vec::Vec<pineforge_state::AppEvent> {
+        static EVENTS: Channel<CriticalSectionRawMutex, pineforge_state::AppEvent, 8> =
+            Channel::new();
+        static COMMANDS: Channel<CriticalSectionRawMutex, HeartRateCommand, 2> = Channel::new();
+        static MOTION_READY: ReadySignal = ReadySignal::new();
+
+        // The bring-up order the PineTime wants, granted immediately: this test
+        // is about what the runner does with the bus, not about who gets it
+        // first.
+        MOTION_READY.signal(());
+
+        let runner = HeartRateRunner::new(
+            FakeBus { id },
+            HeartRatePorts {
+                events: EVENTS.dyn_sender(),
+                commands: COMMANDS.dyn_receiver(),
+                motion_ready: &MOTION_READY,
+            },
+        );
+
+        let collect = async {
+            let mut seen = std::vec::Vec::new();
+            while seen.len() < wanted {
+                seen.push(EVENTS.receive().await);
+            }
+            seen
+        };
+
+        match futures_executor::block_on(embassy_futures::select::select(runner.run(), collect)) {
+            embassy_futures::select::Either::First(()) => {
+                panic!("the runner returned instead of waiting for a command")
+            }
+            embassy_futures::select::Either::Second(seen) => seen,
+        }
+    }
+
+    /// A watch whose sensor answers with the wrong identification byte still
+    /// reaches a defined state, and says so, rather than sitting in whatever
+    /// the session was constructed with.
+    #[test]
+    fn a_sensor_that_is_not_there_is_reported_and_leaves_the_session_stopped() {
+        let seen = drive(0x00, 2);
+
+        assert_eq!(
+            seen[0],
+            pineforge_state::AppEvent::HeartRateSensorDetected(
+                pineforge_state::HeartRateSensorKind::Unknown(0x00)
+            ),
+            "the identification byte the bus gave back is not what was reported"
+        );
+        assert_eq!(
+            seen[1],
+            pineforge_state::AppEvent::HeartRateStateUpdated(HeartRateState::Disabled),
+            "a runner with no sensor still owes the UI a state"
+        );
+    }
+
+    /// The sensor this watch has, recognised. The events either side are the
+    /// same two, which is the point: what changes is the kind, not whether the
+    /// runner reports at all.
+    #[test]
+    fn the_sensor_the_pinetime_carries_is_recognised() {
+        let seen = drive(0x21, 1);
+
+        assert_eq!(
+            seen[0],
+            pineforge_state::AppEvent::HeartRateSensorDetected(
+                pineforge_state::HeartRateSensorKind::Hrs3300
+            )
+        );
     }
 }

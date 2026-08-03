@@ -60,6 +60,21 @@ jobs:
         run: >-
           cargo test --locked --manifest-path crates/pineforge-ui/Cargo.toml
           --target x86_64-unknown-linux-gnu
+      # The runners, driven with a table of register answers for a bus and the
+      # test's own channels for the IPC. This is what the crate split is for:
+      # while these lived in the firmware binary, `cargo test` could not reach
+      # them at all - a `no_main` crate that pulls in `embassy-nrf` does not
+      # build for a host. Without the `defmt` feature, which needs a logger a
+      # test binary has no business linking.
+      - name: Test runners
+        run: >-
+          cargo test --locked --manifest-path crates/pineforge-services/Cargo.toml
+          --target x86_64-unknown-linux-gnu
+      - name: Test runners with diagnostics
+        run: >-
+          cargo test --locked --manifest-path crates/pineforge-services/Cargo.toml
+          --target x86_64-unknown-linux-gnu
+          --features diagnostics
       - name: Check screens build for the watch
         run: >-
           cargo check --locked --manifest-path crates/pineforge-ui/Cargo.toml
@@ -85,25 +100,33 @@ jobs:
             # refused by imgtool at packaging time, so the worst case is a build
             # that does not produce a ZIP. Two thirds of what is used is the BLE
             # stack. TIME, DATE and their power-loss-tolerant clock journal
-            # deliberately raised the previous 420 KiB target, which leaves about
-            # 32 KiB before the physical image ceiling.
+            # raised the 420 KiB target to 432 KiB; extracting the runners into
+            # `pineforge-services` raised it again, by 3,680 bytes of inlining
+            # the crate boundary gives up. That price was known and accepted:
+            # what it buys is a runner `cargo test` can drive, which is the
+            # difference between a sensor's lifecycle being readable and it
+            # being checked.
+            #
+            # 448 KiB leaves 16,352 bytes before the physical image ceiling -
+            # the reserve the diagnostics target used to hold, now held by the
+            # build that ships.
             #
             # How much room is left over the image itself is deliberately not
             # written here: it was, and it was stale within a few releases, which
             # is the opposite of what a budget comment is for. The step below
-            # prints it on every run. Read that number before raising this one -
-            # as of v0.6.2 it was a few hundred bytes, not the headroom the
-            # earlier wording implied.
-            flash: 442368
-            # 48 KiB, reserving 16 KiB of the 65,528-byte RAM region for stack
+            # prints it on every run, and that is the number to read before
+            # raising this one.
+            flash: 458752
+            # 49 KiB, reserving 15 KiB of the 65,528-byte RAM region for stack
             # growth. Enforcing the target and not just the ceiling is what
-            # keeps it from drifting back.
+            # keeps it from drifting back. The runner split cost 136 bytes of
+            # this, which is what pushed it past 48 KiB.
             #
             # The reserve is set against a reading rather than guessed: the
             # diagnostics screen reports the stack's high-water mark - see
             # `src/boot/stack.rs` - and a watch that had booted, navigated and
-            # run a transition showed 10,432 bytes. 16 KiB leaves that mark
-            # 57 % of headroom.
+            # run a transition showed 10,432 bytes. 15 KiB leaves that mark
+            # 47 % of headroom.
             #
             # Two things have been allowed to raise this, and both are named
             # because the number is otherwise just a number that grew. The
@@ -114,11 +137,14 @@ jobs:
             # only the six the watch acts on are declared and the other six of
             # InfiniTime's twelve are not. Anything else asking for space here
             # should expect to be measured the same way.
-            ram: 49152
+            ram: 50176
           - name: diagnostics
             features: diagnostics
-            # Diagnostics may grow closer to the slot, but retains 16 KiB.
-            flash: 458752
+            # Diagnostics may grow closer to the slot than the shipping build,
+            # and retains 8 KiB of it - the same two-tier shape the RAM reserve
+            # below has, and for the same reason: an instrumented image is
+            # flashed over a cable by someone watching it.
+            flash: 466944
             # Diagnostics retains 8 KiB for stack growth.
             ram: 57344
     steps:

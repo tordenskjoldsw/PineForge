@@ -64,7 +64,12 @@ pub enum AccelerationPowerMode {
     /// work is done and correct; what is missing is the decision about whether
     /// a sleeping watch with raise-wrist off should stop the sensor, which is
     /// a power measurement rather than a code change.
-    #[expect(dead_code)]
+    ///
+    /// **This paragraph is now the only record of it.** Dead-code analysis
+    /// stops at the crate boundary, so a public variant of a library crate is
+    /// never reported as unconstructed however few callers there are - the
+    /// split that made this crate testable is also what took the compiler's
+    /// word for it away.
     Off,
 }
 

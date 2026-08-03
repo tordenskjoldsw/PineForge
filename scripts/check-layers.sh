@@ -6,12 +6,17 @@ set -euo pipefail
 # least once before it was checked.
 #
 #   src/ipc.rs      the bus between tasks: declarations only
-#   src/services/   executor-independent runners, generic over embedded-hal
 #   src/tasks/      everything the executor runs; the only layer that may
 #                   name the board
 #
-# The rule runs one way: a service may not reach down into the executor or the
-# chip, but a task with nothing portable to extract needs no service half.
+# The runners this file used to police now live in `crates/pineforge-services`,
+# and their boundary is held by cargo instead: that crate does not depend on
+# `embassy-nrf`, so a runner cannot reach the chip whatever it writes. What was
+# checked here was the spelling `embassy_nrf` in `src/services/`, which a
+# `use crate::drivers::backlight::Backlight` would have walked straight past.
+#
+# The rule still runs one way: a task with nothing portable to extract needs no
+# runner half.
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
@@ -30,17 +35,12 @@ scan() {
   grep -rn "$1" "${@:2}" 2>/dev/null | grep -vE ':[0-9]+:[[:space:]]*(//|\*)' || true
 }
 
-# A service that spawns is a task wearing the wrong name - which is what
-# `services::power` and `services::settings` were.
-if matches="$(scan 'embassy_executor::task' src/services/)" && [[ -n "$matches" ]]; then
-  fail "a service declares an executor task; it belongs in src/tasks/"
-  echo "$matches" >&2
-fi
-
-# The chip belongs to the layer that owns pins, so a runner stays testable
-# against any embedded-hal implementation rather than one nRF52832.
-if matches="$(scan 'embassy_nrf' src/services/)" && [[ -n "$matches" ]]; then
-  fail "a service names embassy_nrf; bind the peripheral in src/tasks/ instead"
+# The runner crate must stay buildable without a chip, which is the whole of
+# why it is a crate. Cargo enforces the dependency; this catches the manifest
+# edit that would hand it back.
+if matches="$(scan 'embassy-nrf|embassy-executor' crates/pineforge-services/Cargo.toml)" \
+  && [[ -n "$matches" ]]; then
+  fail "pineforge-services depends on the chip or the executor; it must build on a host"
   echo "$matches" >&2
 fi
 
@@ -62,7 +62,7 @@ for module in src/tasks/*.rs src/tasks/*/; do
 done
 
 if [[ "$status" -eq 0 ]]; then
-  echo "layers: ipc, services, and tasks are each within their boundary"
+  echo "layers: the bus, the tasks and the runner crate are each within their boundary"
 fi
 
 exit "$status"

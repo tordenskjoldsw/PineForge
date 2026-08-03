@@ -1,24 +1,22 @@
-//! Device-local state machines, each speaking to one chip.
+//! The drivers that stayed with the firmware.
 //!
-//! A driver owns the register sequences and the ordering rules of a single
-//! device, and nothing above it. What it must not own is the cadence a sensor
-//! is read at or what a reading means - those belong to [`crate::services`] and
-//! [`pineforge_state`], which is what keeps a driver from having a policy that
-//! can only be checked by wearing the watch.
+//! Two of them have to be here. [`backlight`] and [`vibration`] are a handful
+//! of GPIO writes with no bus to abstract, so they name `embassy_nrf` directly
+//! and moving them would mean inventing a pin abstraction for the sake of
+//! symmetry.
 //!
-//! Most of them are generic over the `embedded-hal` trait they need, which is
-//! what lets a service stay executor- and chip-independent above them.
-//! [`backlight`] and [`vibration`] are the exceptions: both are a handful of
-//! GPIO writes with no bus to abstract, and both name `embassy_nrf` directly.
+//! [`touch`] and [`xt25f32`] are generic over their bus and could move, but
+//! there is nothing yet to move them for: both are owned by a task with no
+//! runner half - the input task and the storage task - so they would arrive in
+//! [`pineforge_services`] with no caller a host could exercise them through.
+//! They follow if and when their owners grow one.
 //!
-//! That exception is the one thing to know before reaching for a driver from a
-//! service. `scripts/check-layers.sh` greps `src/services/` for `embassy_nrf`,
-//! so importing either of those two from there would carry the chip across the
-//! layer boundary without the check seeing a thing.
+//! What that leaves is the one thing to know before reaching for a driver from
+//! a runner: anything in this module carries the chip with it. The sensor
+//! drivers a runner does use live in [`pineforge_services::drivers`], which is
+//! a crate that cannot name `embassy_nrf` at all.
 
 pub mod backlight;
-pub mod bma42x;
-pub mod hrs3300;
 pub mod touch;
 pub mod vibration;
 pub mod xt25f32;

@@ -13,7 +13,6 @@ mod board;
 mod boot;
 mod drivers;
 mod ipc;
-mod services;
 mod tasks;
 
 use board::peripherals::HeartRateResources;

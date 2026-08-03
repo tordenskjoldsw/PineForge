@@ -1,0 +1,56 @@
+[package]
+name = "pineforge-services"
+# Versioned in lockstep with the firmware, not independently. These crates are
+# not published: they exist because the parts of PineForge that need no watch
+# should be testable without one, and a reader comparing a crate version against
+# the release would otherwise be comparing two unrelated numbers.
+version = "0.6.2"
+edition = "2024"
+# The one toolchain this project is built and tested with, and the same one
+# `rust-toolchain.toml` pins. A lower bound here would be a compatibility claim
+# nothing checks; for firmware, one reproducible toolchain is worth more than an
+# untested range.
+rust-version = "1.97.1"
+license = "MIT OR Apache-2.0"
+description = "PineForge's sensor drivers and the runners that drive them, without a chip"
+publish = false
+
+[features]
+default = []
+diagnostics = ["pineforge-state/diagnostics"]
+# Off for the host tests, on for every firmware build. `defmt`'s macros
+# reference symbols only a global logger provides, so a test binary that linked
+# them would not link at all - see `src/log.rs`.
+defmt = ["dep:defmt", "embassy-time/defmt"]
+
+[dependencies]
+defmt = { version = "1.1.1", optional = true }
+embassy-futures = "0.1.2"
+embassy-sync = "0.8.0"
+embassy-time = "0.5.1"
+embedded-hal-async = "1.0.0"
+pineforge-state = { path = "../pineforge-state" }
+
+[dev-dependencies]
+# What it takes to link a runner without a watch under it.
+#
+# `mock-driver` supplies the clock `Timer` and `Ticker` ask for, and
+# `generic-queue-8` supplies the timer queue behind it - without that second one
+# the queue is the executor's, and the host test would need the Embassy executor
+# it exists to do without. `critical-section/std` answers the lock every
+# `CriticalSectionRawMutex` channel takes; on the watch that is the Cortex-M
+# implementation the firmware links.
+embassy-time = { version = "0.5.1", features = ["mock-driver", "generic-queue-8"] }
+critical-section = { version = "1.2", features = ["std"] }
+futures-executor = "0.3"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+module_name_repetitions = "allow"
+
+[lints.rust]
+unsafe_code = "warn"

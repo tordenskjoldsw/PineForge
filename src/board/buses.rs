@@ -19,10 +19,9 @@ use embedded_hal::i2c::{ErrorType, I2c, Operation};
 use nrf_pac::twim::vals::Enable;
 use static_cell::StaticCell;
 
-use crate::{
-    board::peripherals::{DisplayFlashBusResources, Irqs, SensorBusResources},
-    services::motion::BusRecovery,
-};
+use pineforge_services::runners::motion::BusRecovery;
+
+use crate::board::peripherals::{DisplayFlashBusResources, Irqs, SensorBusResources};
 
 pub struct SensorBus {
     inner: Mutex<NoopRawMutex, RefCell<Twim<'static>>>,

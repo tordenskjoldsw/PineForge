@@ -12,13 +12,13 @@ description = "PineForge: a modern, modular Rust firmware for the PINE64 PineTim
 publish = false
 
 [workspace]
-members = ["crates/pineforge-state", "crates/pineforge-ui"]
+members = ["crates/pineforge-services", "crates/pineforge-state", "crates/pineforge-ui"]
 resolver = "3"
 
 [features]
 default = ["ble", "ui-animations"]
 ble = ["dep:bt-hci", "dep:nrf-mpsl", "dep:nrf-sdc", "dep:trouble-host", "dep:postcard", "dep:serde"]
-diagnostics = ["pineforge-state/diagnostics", "pineforge-ui/diagnostics"]
+diagnostics = ["pineforge-services/diagnostics", "pineforge-state/diagnostics", "pineforge-ui/diagnostics"]
 # Kept as a feature so memory experiments can disable the 5.6 KiB transition
 # scratch, but normal production firmware includes the intended animations.
 ui-animations = ["pineforge-ui/ui-animations"]
@@ -60,6 +60,7 @@ trouble-host = { version = "0.7.0", default-features = false, features = ["perip
 postcard = { version = "1.1", default-features = false, optional = true }
 serde = { version = "1", default-features = false, optional = true }
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
+pineforge-services = { path = "crates/pineforge-services", features = ["defmt"] }
 pineforge-state = { path = "crates/pineforge-state" }
 pineforge-ui = { path = "crates/pineforge-ui" }
 static_cell = "2.1.1"

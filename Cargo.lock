@@ -607,6 +607,7 @@ dependencies = [
  "defmt 1.1.1",
  "document-features",
  "embassy-time-driver",
+ "embassy-time-queue-utils",
  "embedded-hal 0.2.7",
  "embedded-hal 1.0.0",
  "embedded-hal-async",
@@ -826,6 +827,17 @@ name = "futures-core"
 version = "0.3.33"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2cd50c473c80f6d7c3670a752354b8e569b1a7cbfdc0419ec88e5edad85e0dc7"
+
+[[package]]
+name = "futures-executor"
+version = "0.3.33"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6754879cc9f2c66f88c6e5c35344bb0bdb0708b0352b1201815667c7eabc7458"
+dependencies = [
+ "futures-core",
+ "futures-task",
+ "futures-util",
+]
 
 [[package]]
 name = "futures-intrusive"
@@ -1323,12 +1335,27 @@ dependencies = [
  "nrf-pac",
  "nrf-sdc",
  "panic-probe",
+ "pineforge-services",
  "pineforge-state",
  "pineforge-ui",
  "postcard",
  "serde",
  "static_cell",
  "trouble-host",
+]
+
+[[package]]
+name = "pineforge-services"
+version = "0.6.2"
+dependencies = [
+ "critical-section",
+ "defmt 1.1.1",
+ "embassy-futures",
+ "embassy-sync",
+ "embassy-time",
+ "embedded-hal-async",
+ "futures-executor",
+ "pineforge-state",
 ]
 
 [[package]]

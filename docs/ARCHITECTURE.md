@@ -2,7 +2,7 @@
 
 ## Crates
 
-Three, and the split is what decides what can be tested without a watch.
+Four, and the split is what decides what can be tested without a watch.
 
 - `pineforge-state`: product state and protocol logic. No Embassy, no nRF, no
   drawing. Every rule that fails silently - a settings invariant, a paginated
@@ -16,6 +16,12 @@ Three, and the split is what decides what can be tested without a watch.
   answers which one a `ScreenId` names - the display task holds no screen table
   of its own, and the host tests walk `ScreenId::ALL` through the same registry,
   so a screen that exists is a screen they check.
+- `pineforge-services`: the sensor drivers that speak over a bus, and the
+  runners that own their lifecycle and cadence. Generic over the `embedded-hal`
+  traits they need, and given their IPC endpoints rather than reaching for
+  globals, so a host test hands a runner a table of register answers and its own
+  channels. `defmt` is a feature here, off in tests, because its macros need a
+  logger at link time.
 - `pineforge`: the firmware. Peripherals, tasks, and the composition root - the
   part that genuinely cannot run anywhere but the watch.
 
@@ -27,34 +33,46 @@ able to fail a build instead of noticing on the wrist.
 ## Layers within the firmware crate
 
 - `board`: immutable PineTime hardware facts, especially pin assignments.
-- `drivers`: device-local state machines implementing `embedded-hal` boundaries.
+- `drivers`: the devices that cannot leave. The backlight and the motor are
+  GPIO writes with no bus to abstract; touch and the external flash are generic
+  but owned by tasks with no runner half, so they stay with their owners.
 - `ipc`: the bus between tasks - channels, watches, signals, and the reasoning
   for each one's depth. Declarations only.
-- `services`: executor-independent runners. Generic over the `embedded-hal`
-  traits they need; never name `embassy_nrf` and never declare a task.
-- `tasks`: everything the executor runs. Binds board resources to a runner, or
-  does the work itself where there is no portable half.
+- `tasks`: everything the executor runs. Binds board resources and IPC
+  endpoints to a runner, or does the work itself where there is no portable
+  half.
 - `main`: composition root only; owns concrete peripherals and scheduling.
 
-**The rule between `services` and `tasks`, and which way it runs.** A service
-owns a subsystem's lifecycle and cadence and exposes `run()`; the task is the
-few lines that hand it a concrete bus and spawn it. `AccelerometerRunner` and
-`HeartRateRunner` are the shape - both are generic over `I2c`, so what a sensor
-does over time is readable without a watch attached.
+**The rule between a runner and its task, and which way it runs.** A runner in
+`pineforge-services` owns a subsystem's lifecycle and cadence and exposes
+`run()`; the task is the few lines that hand it a concrete bus, its endpoints,
+and a spawn. `AccelerometerRunner` and `HeartRateRunner` are the shape - both
+generic over `I2c`, both taking a `MotionPorts` or `HeartRatePorts` rather than
+naming a static.
 
-The rule is one-directional: a service may not reach down into the executor or
-the chip, but **a task needs no service half.** Where there is nothing portable
-to extract - a motor that pulses, a watchdog that is petted, deadline
-arithmetic that only `embassy-time` can do - the task is the whole subsystem
-and no wrapper is invented for symmetry.
+The rule is one-directional: **a task needs no runner half.** Where there is
+nothing portable to extract - a motor that pulses, a watchdog that is petted,
+deadline arithmetic that only `embassy-time` can do - the task is the whole
+subsystem and no wrapper is invented for symmetry.
 
-`scripts/check-layers.sh` holds this in CI, because it is otherwise a
-convention that erodes one convenient import at a time - which is exactly how
-it eroded before: `services::power` and `services::settings` were both tasks,
-the second owning the external flash, and `services::events` was a message bus
-filed under product behavior. The script also fails a task module that
-`main.rs` never spawns, so the layer's contents and the composition root cannot
-drift apart.
+**Why this is a crate and not a directory.** It was a directory, `src/services/`,
+and the boundary was held by `scripts/check-layers.sh` grepping it for the
+string `embassy_nrf`. That is a spelling rule: a runner reaching the chip
+through `crate::drivers::backlight` would have passed it untouched. It also
+never delivered the testability it was justified by - the firmware crate is
+`no_main` and depends on `embassy-nrf`, so `cargo test` could not build it at
+all, and `src/` had no test in it. Cargo checks the boundary now, and the
+runners have host tests.
+
+The ports are the other half of that change. A runner used to reach directly
+for the `ipc` statics, which is what tied it to the binary; each now takes its
+endpoints capacity-erased, so the firmware hands it the real bus and a test
+hands it one of its own.
+
+`scripts/check-layers.sh` still holds what cargo cannot see: that `ipc` declares
+no task, that the runner crate's manifest has not quietly grown a chip
+dependency, and that every task module is spawned from `main.rs`, so the layer's
+contents and the composition root cannot drift apart.
 
 ## RAM
 
@@ -89,7 +107,8 @@ owner task. The production firmware has:
 
 - input task: owns the touch controller and publishes `UiEvent` values
 - accelerometer runner: exclusively owns the BMA42x and its interrupt; the
-  concrete Embassy task only binds PineTime peripherals and starts the runner
+  concrete Embassy task only binds PineTime peripherals and its ports and
+  starts the runner
 - heart-rate runner: exclusively owns the HRS3300, its 100 ms
   acquisition cadence, and its power transitions
 - power task: owns the inactivity deadlines and publishes the system power state
@@ -109,9 +128,10 @@ fixed capacity of eight events. Never share the display or SPI peripheral
 behind a global mutex merely for convenience; prefer single-owner tasks and
 message passing.
 
-Long-running services follow Embassy's runner pattern: executor-independent
-runner objects own their state and expose `run()`, while small concrete task
-functions bind board peripherals and spawn them. PineTime-specific register
+Long-running subsystems follow Embassy's runner pattern: executor-independent
+runner objects in `pineforge-services` own their state and expose `run()`, while
+small concrete task functions bind board peripherals and IPC endpoints and spawn
+them. PineTime-specific register
 sequences are cross-checked against InfiniTime and Bosch's Sensor API; their
 central FreeRTOS `SystemTask` architecture is not copied into the async design.
 

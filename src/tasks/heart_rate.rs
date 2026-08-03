@@ -1,15 +1,21 @@
 use embassy_nrf::gpio::{Input, Pull};
+use pineforge_services::{ports::HeartRatePorts, runners::heart_rate::HeartRateRunner};
 
 use crate::{
     board::{buses::HeartRateI2c, peripherals::HeartRateResources},
-    services::heart_rate::HeartRateRunner,
+    ipc::{HEART_RATE_COMMANDS, MOTION_READY, UI_EVENTS},
 };
 
-/// Binds the `PineTime` resources to the executor-independent heart-rate runner.
-/// The interrupt stays owned as an input until interrupt-driven acquisition is
-/// implemented.
+/// Binds the `PineTime` resources and this firmware's bus to the
+/// executor-independent heart-rate runner. The interrupt stays owned as an
+/// input until interrupt-driven acquisition is implemented.
 #[embassy_executor::task]
 pub async fn run(resources: HeartRateResources, i2c: HeartRateI2c) {
     let _interrupt = Input::new(resources.interrupt, Pull::None);
-    HeartRateRunner::new(i2c).run().await;
+    let ports = HeartRatePorts {
+        events: UI_EVENTS.dyn_sender(),
+        commands: HEART_RATE_COMMANDS.dyn_receiver(),
+        motion_ready: &MOTION_READY,
+    };
+    HeartRateRunner::new(i2c, ports).run().await;
 }
