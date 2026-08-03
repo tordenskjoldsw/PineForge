@@ -16,8 +16,27 @@ use crate::{
 };
 
 const ACTIVE_UPDATE_INTERVAL: Duration = Duration::from_millis(100);
-const ACTIVE_STEP_DIVISOR: u8 = 10;
+const ACTIVE_STEP_DIVISOR: u16 = 10;
 const IDLE_UPDATE_INTERVAL: Duration = Duration::from_secs(1);
+
+/// How often the step counter is read while the panel is dark.
+///
+/// It has to be read at all, which is the part this firmware got wrong. Walking
+/// is exactly when the watch is asleep - it sleeps twenty seconds after the last
+/// touch - so a runner that only read the counter on waking left a companion
+/// with nothing for the whole time there was something to report.
+///
+/// `InfiniTime` reads it every 100 ms whatever the watch is doing, under a
+/// comment saying why: "reading steps/motion characteristics must return up to
+/// date information even when not subscribed to notifications". Ten reads a
+/// second is more than a number moving at walking pace needs, so this samples
+/// far slower - but it samples, which is the difference that matters.
+const SLEEPING_STEP_INTERVAL: Duration = Duration::from_secs(30);
+
+/// The same interval expressed in tilt-detection ticks, for the sleeping watch
+/// that is also watching for a raised wrist and therefore already awake every
+/// 100 ms.
+const SLEEPING_STEP_DIVISOR: u16 = 300;
 
 /// Recovers the board-owned shared bus after the `BMA4xx` soft reset.
 pub trait BusRecovery {
@@ -102,7 +121,7 @@ where
     async fn step(
         &mut self,
         power: &mut SystemPowerState,
-        ticks_until_step_update: &mut u8,
+        ticks_until_step_update: &mut u16,
         raise_to_wake: &mut RaiseToWakeDetector,
     ) {
         match *power {
@@ -168,28 +187,38 @@ where
                 }
             }
             SystemPowerState::Sleeping => {
-                let wake_gestures = self
+                let raise = self
                     .ports
                     .settings
                     .try_get()
                     .unwrap_or(DisplaySettings::DEFAULT)
-                    .wake_gestures();
-                if wake_gestures.contains(WakeGesture::RaiseWrist) {
-                    match select(
-                        self.ports.power.changed(),
-                        Timer::after(ACTIVE_UPDATE_INTERVAL),
-                    )
-                    .await
-                    {
-                        Either::First(next) => *power = next,
-                        Either::Second(()) => {
-                            self.update_raise_to_wake(raise_to_wake, true).await;
-                            return;
-                        }
-                    }
+                    .wake_gestures()
+                    .contains(WakeGesture::RaiseWrist);
+                // Tilt detection sets the pace where it is enabled, because it
+                // needs every 100 ms to see a wrist come up. Where it is not,
+                // the step counter is the only reason to wake at all, and it is
+                // happy an order of magnitude slower.
+                let interval = if raise {
+                    ACTIVE_UPDATE_INTERVAL
                 } else {
-                    raise_to_wake.reset();
-                    *power = self.ports.power.changed().await;
+                    SLEEPING_STEP_INTERVAL
+                };
+                match select(self.ports.power.changed(), Timer::after(interval)).await {
+                    Either::First(next) => *power = next,
+                    Either::Second(()) => {
+                        if raise {
+                            self.update_raise_to_wake(raise_to_wake, true).await;
+                            *ticks_until_step_update = ticks_until_step_update.saturating_sub(1);
+                            if *ticks_until_step_update == 0 {
+                                self.publish_step_count().await;
+                                *ticks_until_step_update = SLEEPING_STEP_DIVISOR;
+                            }
+                        } else {
+                            raise_to_wake.reset();
+                            self.publish_step_count().await;
+                        }
+                        return;
+                    }
                 }
                 let _ = self.apply_power_mode(*power).await;
                 *ticks_until_step_update = 1;
