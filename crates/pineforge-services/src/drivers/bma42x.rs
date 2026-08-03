@@ -60,16 +60,37 @@ pub enum AccelerationPowerMode {
     /// That was invisible until this enum stopped being compared against
     /// `Off` to pick a branch: the comparison constructed the variant, which
     /// was enough to keep dead-code analysis quiet about a state the firmware
-    /// cannot reach. Kept rather than deleted because the driver's half of the
-    /// work is done and correct; what is missing is the decision about whether
-    /// a sleeping watch with raise-wrist off should stop the sensor, which is
-    /// a power measurement rather than a code change.
+    /// cannot reach.
     ///
-    /// **This paragraph is now the only record of it.** Dead-code analysis
-    /// stops at the crate boundary, so a public variant of a library crate is
-    /// never reported as unconstructed however few callers there are - the
-    /// split that made this crate testable is also what took the compiler's
-    /// word for it away.
+    /// **Leave it that way.** The question this was left open for - should a
+    /// sleeping watch with raise-wrist off stop the sensor - has an answer, and
+    /// it is not a power measurement. Clearing the enable bit stops the
+    /// feature engine with the conversion path it feeds from, so the step
+    /// counter stops with it, and a watch that sleeps twenty seconds after
+    /// every touch would be asleep for most of the day it is meant to be
+    /// counting. That is a trade against the sensor's own supply current, and
+    /// the counter is worth more.
+    ///
+    /// `InfiniTime` never powers it down either, and cannot: its `Bma421` has
+    /// no power-mode API at all. `bma4_set_accel_enable(1, ...)` is called once
+    /// in `Init` and never cleared, the 100 Hz configuration is written beside
+    /// it and never changed, and `SystemTask::UpdateMotion` samples every
+    /// 100 ms whatever the watch is doing - "unconditionally update motion", as
+    /// its own comment puts it, so steps and motion characteristics stay
+    /// current for a phone that reads them. Only what the *result* is used for
+    /// is gated on the wake settings.
+    ///
+    /// This firmware already goes further than that: idle without raise-wrist
+    /// drops to a one-second read, and sleeping without it stops reading
+    /// altogether until the power state moves. The counter keeps running in the
+    /// sensor while nothing reads it, which is exactly what powering down would
+    /// give up.
+    ///
+    /// Kept rather than deleted because the driver's half is done and correct,
+    /// and a future reason to stop the sensor - a storage mode, a flat battery -
+    /// would want it. **This paragraph is now the only record.** Dead-code
+    /// analysis stops at the crate boundary, so a public variant of a library
+    /// crate is never reported as unconstructed however few callers it has.
     Off,
 }
 
