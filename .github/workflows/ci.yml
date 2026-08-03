@@ -117,10 +117,25 @@ jobs:
             # prints it on every run, and that is the number to read before
             # raising this one.
             flash: 458752
-            # 49 KiB, reserving 15 KiB of the 65,528-byte RAM region for stack
-            # growth. Enforcing the target and not just the ceiling is what
-            # keeps it from drifting back. The runner split cost 136 bytes of
-            # this, which is what pushed it past 48 KiB.
+            # This number is no longer a design target. It is a hardware-verified
+            # bound, and raising it means re-testing pairing on a watch.
+            #
+            # `flip-link` puts the stack below the statics, so every byte here
+            # is a byte the stack does not have. Pairing's elliptic-curve
+            # arithmetic is the deepest path the firmware has, and it is not in
+            # the 10,432-byte high-water mark quoted below - that reading came
+            # from a watch that had booted, navigated and run a transition, and
+            # never paired.
+            #
+            # Measured on hardware: statics of 48,796 leave 16,732 bytes of
+            # stack and pair reliably. 49,516 leave 16,012 and reboot on every
+            # attempt - a watchdog reset after the overflow faults. So the
+            # pairing peak sits between those two, and the previous budget of
+            # 50,176 permitted statics that were already 672 bytes past the
+            # known-bad point. It passed CI the whole way down.
+            #
+            # 48,704 holds the current 48,612 with a little slack and keeps the
+            # stack above the level that was verified to work.
             #
             # The reserve is set against a reading rather than guessed: the
             # diagnostics screen reports the stack's high-water mark - see
@@ -137,7 +152,7 @@ jobs:
             # only the six the watch acts on are declared and the other six of
             # InfiniTime's twelve are not. Anything else asking for space here
             # should expect to be measured the same way.
-            ram: 50176
+            ram: 48704
           - name: diagnostics
             features: diagnostics
             # Diagnostics may grow closer to the slot than the shipping build,
@@ -145,8 +160,12 @@ jobs:
             # below has, and for the same reason: an instrumented image is
             # flashed over a cable by someone watching it.
             flash: 466944
-            # Diagnostics retains 8 KiB for stack growth.
-            ram: 57344
+            # Diagnostics is held to the same stack constraint as production,
+            # not to a looser one: it pairs over the same radio with the same
+            # elliptic curve underneath, and an instrumented image that cannot
+            # pair cannot be used to diagnose pairing. It currently sits at
+            # 48,796 - the very figure measured as working.
+            ram: 48896
     steps:
       - uses: actions/checkout@v6
       - name: Install Rust toolchain

@@ -183,11 +183,16 @@ pub fn battery_status_receiver() -> BatteryStatusReceiver {
 /// Separate from [`UI_EVENTS`], which the display task alone consumes. The BLE
 /// task needs the same number to answer a phone reading `InfiniTime`'s motion
 /// service, and a channel with one receiver cannot serve two.
-pub static STEP_COUNT: Watch<CriticalSectionRawMutex, u32, 2> = Watch::new();
+pub static STEP_COUNT: Watch<CriticalSectionRawMutex, u32, 1> = Watch::new();
 
-pub type StepCountReceiver = Receiver<'static, CriticalSectionRawMutex, u32, 2>;
+pub type StepCountReceiver = Receiver<'static, CriticalSectionRawMutex, u32, 1>;
 
-/// Reserves one of the fixed BLE and future consumer subscriptions.
+/// Reserves the one subscription: the BLE task.
+///
+/// Sized to what is actually taken rather than left with a spare, unlike its
+/// neighbours here. Every byte of static RAM comes out of the stack under
+/// `flip-link`, and this bus was added in the change that took the stack below
+/// what pairing needs.
 pub fn step_count_receiver() -> StepCountReceiver {
     STEP_COUNT
         .receiver()

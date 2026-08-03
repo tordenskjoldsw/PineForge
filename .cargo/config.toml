@@ -17,6 +17,20 @@ rustflags = [
 
 [env]
 DEFMT_LOG = "info"
+# The RTT ring, which defaults to 1 KiB of static RAM.
+#
+# That KiB buys nothing on the watch this firmware is built for. A sealed
+# PineTime has no exposed SWD pads, so nothing can ever attach to read the
+# channel - and every byte of static RAM comes out of the stack, because
+# `flip-link` puts the stack underneath. It came out of exactly the wrong
+# place: pairing's elliptic-curve arithmetic is the deepest path the firmware
+# has, and 704 bytes of static growth was enough to push it off the end and
+# turn every pairing attempt into a watchdog reset.
+#
+# 128 bytes still carries a defmt frame for anyone working on an opened watch
+# with a debugger attached, which is the only situation the buffer is readable
+# in at all.
+DEFMT_RTT_BUFFER_SIZE = "128"
 # BLE DFU throughput. During a firmware transfer the phone streams a window of
 # write-without-response packets (bounded by the Nordic DFU packet-receipt
 # interval) while the GATT task is briefly busy staging a page to external
