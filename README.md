@@ -1,25 +1,30 @@
-> [!CAUTION]
-> **Flashing PineForge may leave a sealed PineTime unusable or require
-> recovery.** A sealed watch has no exposed SWD pads, so an image that neither
-> boots nor reaches the bootloader's recovery path can only be waited out until
-> the battery runs flat. Keep an official InfiniTime DFU package available, read
-> [`GETTING-STARTED.md`](GETTING-STARTED.md), and use released binaries at your
-> own risk.
-
 # PineForge - Rust Firmware for PineTime
 
-PineForge is a Rust/Embassy firmware platform for the PineTime, running on a
-**sealed** watch through the existing InfiniTime MCUBoot bootloader.
+PineForge is an independent firmware implementation for PineTime, written in
+Rust using Embassy. It is not a fork or port of InfiniTime. The project
+nevertheless depends heavily on the hardware research, protocol documentation,
+tooling, and practical experience produced by the PineTime, InfiniTime,
+Gadgetbridge, Embassy, and wider embedded open-source communities.
 
-It has been the firmware on my own watch since late July 2026: it keeps time,
-takes notifications, updates over the air and is worn daily. What it is not is
-broadly validated - the evidence behind that sentence is one watch, one
-bootloader version and one phone, which is why the warning above stands
-unchanged.
+PineForge intentionally implements compatible hardware interfaces, MCUBoot
+update flows, and selected Gadgetbridge-facing protocols. Compatibility does not
+imply shared source code.
 
-PineForge is an independent ground-up reimplementation informed by earlier
-PineTime Rust projects. It is an independent community project, not affiliated
-with, supported by, or maintained by PINE64.
+In parallel, I am working on a dedicated PineForge bootloader based on
+`embassy-boot`, with the long-term goal of providing a fully Rust-based and
+independently maintained firmware update chain.
+
+It is an independent community project, not affiliated with, supported by, or
+maintained by PINE64.
+
+It runs on a **sealed** watch through the existing InfiniTime MCUBoot
+bootloader, and has been the firmware on my own watch since late July 2026: it
+keeps time, takes notifications, updates over the air and is worn daily. What it
+is not is broadly validated - the evidence behind that sentence is one watch,
+one bootloader version and one phone. What that does and does not establish is
+under **Safety and recovery model** below, in
+[`GETTING-STARTED.md`](GETTING-STARTED.md), and in
+[`docs/TESTED-CONFIGURATIONS.md`](docs/TESTED-CONFIGURATIONS.md).
 
 ## Project status
 
@@ -62,9 +67,26 @@ phone and restore CRC-checked checkpoints from external flash after a reboot;
 a later valid Gadgetbridge time remains authoritative. All four applications
 use cell-level partial rendering and have run on the known watch - see
 [`docs/releases/v0.6.0.md`](docs/releases/v0.6.0.md).
-Development toward `v0.6.1` adds a dedicated Bluetooth application: the radio
-can be disabled and enabled on the watch, the choice survives a reboot, and an
-actually disabled radio leaves no Bluetooth rune in the status corner.
+`v0.6.1` adds a dedicated Bluetooth application: the radio can be disabled and
+enabled on the watch, the choice survives a reboot, and an actually disabled
+radio leaves no Bluetooth rune in the status corner.
+
+`v1.0.0` is the release where the watch reports back. Steps and heart rate reach
+a companion over the services InfiniTime defines, notifications arrive with the
+name of whoever sent them, and weather arrives from the phone as conditions and
+a five-day forecast drawn in nine symbols. Behind it the firmware split into
+four crates with the boundaries checked in CI, and the RAM budget became a
+hardware-measured bound rather than a design target, after twice putting the
+stack under what pairing needs - see
+[`docs/releases/v1.0.0.md`](docs/releases/v1.0.0.md).
+
+The number reported over Bluetooth is not this one. Gadgetbridge reads the
+firmware revision as a capability statement and gates features on it, so the
+Device Information Service carries `1.14.0` - the protocol generation this
+firmware answers for - while the watch's own About screen shows the PineForge
+release. `COMPANION_PROTOCOL_VERSION` in `build.rs` holds the first, and a guard
+beside it refuses a number whose behaviour this firmware cannot meet.
+
 [`docs/ROADMAP.md`](docs/ROADMAP.md) records what is done and what is not.
 
 Wearing it myself every day is one watch's worth of evidence, and it does

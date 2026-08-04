@@ -339,31 +339,38 @@ outside the effect dispatch: the first draw at boot, the redraw on wake, the
 screen coming back from behind a modal. That is the one place naming
 `Canvas::new(&mut display)` and the watchdog closure.
 
-## The version number is a protocol field
+## The version reported over BLE is a protocol field, not a label
 
-The firmware revision this watch reports over BLE is read by Gadgetbridge as a
-statement of what it can handle, and what it sends back changes accordingly.
-Below `0.15` a notification arrives as the message body alone, with the sender
-discarded on the phone before it is ever transmitted; from `0.15` it arrives as
+The firmware revision this watch reports is read by Gadgetbridge as a statement
+of what it can handle, and what it sends back changes accordingly. Below `0.15`
+a notification arrives as the message body alone, with the sender discarded on
+the phone before it is ever transmitted; from `0.15` it arrives as
 `title NUL body`, which is the shape the notification parser has always split
-on. So the sender's name reaching the watch at all is a consequence of the
-number in `Cargo.toml`, not of anything in the parser.
+on. So the sender's name reaching the watch at all is a consequence of that
+number, not of anything in the parser. Weather is the second gate: nothing below
+`1.8`, CBOR-framed through `1.13`, and the simple binary form this firmware
+reads from `1.14`.
 
-That is why the release skipped from `0.6.2` to `0.15.0`, and then to `1.14.0`
-once weather could be read: 0.15 buys the sender, and 1.14 is the first number at
-which Gadgetbridge sends weather in the simple form this firmware understands.
+That number was the release number for a while, which is why the release skipped
+from `0.6.2` to `0.15.0` and then to `1.14.0`. It is a separate constant now -
+`COMPANION_PROTOCOL_VERSION` in `build.rs` - because a project cannot both
+choose its own version and let a companion's feature gates choose it. The two
+say different things: one names a protocol generation this firmware answers for,
+the other names this project's work. A watch running PineForge `1.0.0` reports
+`1.14.0`, and shows `1.0.0` beside its commit on the About screen.
 
-The number is therefore no longer free. `build.rs` refuses a release outside the
-windows this firmware can serve: below `0.15`, because notifications would
-silently lose their sender again, and anywhere in `1.8` to `1.13`, because
-Gadgetbridge frames weather as CBOR there and only the simple form from `1.14`
-is implemented. A release landing in that gap would have a phone sending packets
-the watch cannot decode and saying nothing about it, so it fails the build
-instead of the wrist.
+The constant is not free. The guard beside it refuses a value below `0.15`,
+because notifications would silently lose their sender again, and anywhere in
+`1.8` to `1.13`, because Gadgetbridge frames weather as CBOR there and only the
+simple form is implemented. A value landing in that gap would have a phone
+sending packets the watch cannot decode and saying nothing about it, so it fails
+the build instead of the wrist. Raising it means checking what a companion does
+differently above the new number first.
 
-Only the release triple goes into the Device Information Service; build metadata
-stays out of it, because the parser on the other end calls `Integer.parseInt` on
-each component with nothing around it.
+It is written as a bare triple with no build metadata, because the parser on the
+other end calls `Integer.parseInt` on each component with nothing around it -
+the `0.6.2+8` that used to go out there threw on `2+8`, and the device was never
+registered at all.
 
 ## The one bus that runs outwards
 

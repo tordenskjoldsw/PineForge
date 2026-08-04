@@ -139,7 +139,6 @@ fn publish_build_identity() {
         "version {version:?} is too long to show on the watch"
     );
     println!("cargo:rustc-env=PINEFORGE_VERSION={version}");
-    publish_release_triple(&version);
 
     let commit = env::var("PINEFORGE_COMMIT")
         .ok()
@@ -170,45 +169,53 @@ fn publish_build_identity() {
     println!("cargo:rustc-env=PINEFORGE_DATE={date}");
 }
 
-/// Publishes the release as exactly `major.minor.patch`, for the one consumer
-/// that cannot read anything else.
+/// The version this firmware reports to a companion, which is not its own.
 ///
-/// The Device Information Service reports a firmware revision, and a companion
-/// parses it. Gadgetbridge's does it by splitting on `.`, and if it gets three
-/// parts it calls `Integer.parseInt` on each - with no try around it. So the
-/// `0.2.1+7` form that distinguishes two packages of one release becomes
+/// Gadgetbridge reads the Device Information Service's firmware revision as a
+/// capability statement rather than as a label: the number decides what the
+/// phone sends, and the features below are switched on by it. So this string
+/// names a protocol generation this firmware can answer for, and `PineForge`'s
+/// own release number - the one the About screen shows and the one that names a
+/// package - names this project's work. Tying the two together meant the project
+/// could not choose its own version, which is how it came to call itself
+/// `1.14.0` before it had earned a `1`.
+///
+/// Raise this only after checking what a companion does differently above the
+/// new number, and only after this firmware can answer for it.
+const COMPANION_PROTOCOL_VERSION: &str = "1.14.0";
+
+/// Publishes the companion-facing version as exactly `major.minor.patch`, for
+/// the one consumer that cannot read anything else.
+///
+/// Gadgetbridge parses this by splitting on `.`, and if it gets three parts it
+/// calls `Integer.parseInt` on each - with no try around it. So the `0.2.1+7`
+/// form that distinguishes two packages of one release becomes
 /// `["0", "2", "1+7"]`, the third parse throws, and the version event that
 /// registers the watch in its database is never handled. What that looks like
 /// from the outside is a device whose `deviceId` comes back null, and every
 /// activity sample failing to save.
 ///
-/// So the build metadata stays out of this one string. It is still what the
-/// About screen shows and what names the package, because there it identifies
-/// the build; here it only has to parse.
-fn publish_release_triple(version: &str) {
-    let release = version.split('+').next().unwrap_or_default();
-    let mut parts: Vec<&str> = release.split('.').collect();
-    // A release given as `0.6` is still a release; the missing component is
-    // zero, which is what a parser expecting three of them needs to see.
-    while parts.len() < 3 {
-        parts.push("0");
-    }
-    let triple = parts[..3].join(".");
+/// Nothing derives this from the package version any more, so that shape is now
+/// fixed by the constant above rather than by whatever the release happens to
+/// be. The assertion stays because the constant is still hand-written.
+fn publish_companion_version() {
+    let triple = COMPANION_PROTOCOL_VERSION;
     assert!(
-        triple
-            .split('.')
-            .all(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit())),
-        "firmware revision {triple:?} is not major.minor.patch; a companion will fail to parse it"
+        triple.split('.').count() == 3
+            && triple
+                .split('.')
+                .all(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit())),
+        "companion version {triple:?} is not major.minor.patch; a companion will fail to parse it"
     );
-    guard_companion_feature_gates(&triple);
-    println!("cargo:rustc-env=PINEFORGE_RELEASE={triple}");
+    guard_companion_feature_gates(triple);
+    println!("cargo:rustc-env=PINEFORGE_COMPANION_VERSION={triple}");
 }
 
-/// Refuses a release number that would switch on companion behaviour this
+/// Refuses a companion-facing version that would switch on behaviour this
 /// firmware cannot answer.
 ///
-/// The version reported over BLE is not only a label. Gadgetbridge reads it as
-/// a capability statement and changes what it sends:
+/// Gadgetbridge reads that version as a capability statement and changes what
+/// it sends:
 ///
 /// - below `0.15` a notification arrives as the body alone, with the sender
 ///   discarded before it leaves the phone
@@ -230,13 +237,13 @@ fn guard_companion_feature_gates(triple: &str) {
 
     assert!(
         major > 0 || minor >= 15,
-        "release {triple} is below 0.15, where a companion still sends notifications \
-         without their sender - see guard_companion_feature_gates"
+        "companion version {triple} is below 0.15, where a companion still sends \
+         notifications without their sender - see guard_companion_feature_gates"
     );
     assert!(
         (major, minor) < (1, 8) || (major, minor) >= (1, 14),
-        "release {triple} is in the 1.8 to 1.13 window, where Gadgetbridge frames weather \
-         as CBOR and this firmware reads only the simple form - see \
+        "companion version {triple} is in the 1.8 to 1.13 window, where Gadgetbridge frames \
+         weather as CBOR and this firmware reads only the simple form - see \
          guard_companion_feature_gates"
     );
 }
@@ -265,6 +272,7 @@ fn main() {
     publish_flash_map(&out);
     publish_bond_schema();
     publish_build_identity();
+    publish_companion_version();
     println!("cargo:rustc-link-search={}", out.display());
     println!("cargo:rerun-if-changed=memory.x");
     println!("cargo:rerun-if-changed=build.rs");

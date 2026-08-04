@@ -1313,7 +1313,7 @@ checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 
 [[package]]
 name = "pineforge"
-version = "1.14.0"
+version = "1.0.0"
 dependencies = [
  "bt-hci",
  "cortex-m",
@@ -1346,7 +1346,7 @@ dependencies = [
 
 [[package]]
 name = "pineforge-services"
-version = "1.14.0"
+version = "1.0.0"
 dependencies = [
  "critical-section",
  "defmt 1.1.1",
@@ -1360,7 +1360,7 @@ dependencies = [
 
 [[package]]
 name = "pineforge-state"
-version = "1.14.0"
+version = "1.0.0"
 dependencies = [
  "heapless 0.9.3",
  "microfft",
@@ -1368,7 +1368,7 @@ dependencies = [
 
 [[package]]
 name = "pineforge-ui"
-version = "1.14.0"
+version = "1.0.0"
 dependencies = [
  "embassy-time",
  "embedded-graphics",

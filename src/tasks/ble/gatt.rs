@@ -136,11 +136,12 @@ pub struct DeviceInformationService {
     #[characteristic(
         uuid = characteristic::FIRMWARE_REVISION_STRING,
         read,
-        // The release alone, without the build metadata the package name
-        // carries. A companion parses this as three integers and Gadgetbridge's
-        // parser has no try around it - see `publish_release_triple` in
-        // build.rs for what the `+8` form did to it.
-        value = heapless::String::try_from(env!("PINEFORGE_RELEASE")).unwrap()
+        // The protocol generation this firmware answers for, which is not
+        // PineForge's own version: a companion reads this to decide what to
+        // send, not to label anything. `COMPANION_PROTOCOL_VERSION` in build.rs
+        // holds it, and the guard beside it refuses a number whose behaviour
+        // this firmware cannot meet.
+        value = heapless::String::try_from(env!("PINEFORGE_COMPANION_VERSION")).unwrap()
     )]
     firmware_revision: heapless::String<16>,
     #[characteristic(
