@@ -42,26 +42,23 @@ struct Tile {
     target: ScreenId,
 }
 
+/// Every application, in the order the pages show them.
+///
+/// Ordered by how often a wrist reaches for a thing, because the list is paged
+/// four at a time and the first page is the one that costs no swipe. What used
+/// to lead it was SETTINGS, FIRMWARE and ABOUT - the three things you touch once
+/// a month - while steps and music sat two pages back.
+///
+/// So: the daily four first, then the ones wanted regularly but not constantly,
+/// and the configuration behind them. FIRMWARE is deliberately last and alone on
+/// its page: it is the rarest and the only one that changes what the watch will
+/// boot.
 const TILES: &[Tile] = &[
+    // Page 1: the daily four.
     Tile {
-        icon: &icons::GEAR,
-        label: "SETTINGS",
-        target: ScreenId::DisplaySettings,
-    },
-    Tile {
-        icon: &icons::CHIP,
-        label: "FIRMWARE",
-        target: ScreenId::Firmware,
-    },
-    Tile {
-        icon: &icons::INFO,
-        label: "ABOUT",
-        target: ScreenId::About,
-    },
-    Tile {
-        icon: &icons::TORCH,
-        label: "LIGHT",
-        target: ScreenId::Flashlight,
+        icon: &icons::FOOT,
+        label: "STEPS",
+        target: ScreenId::Steps,
     },
     Tile {
         icon: &icons::HEART,
@@ -69,14 +66,20 @@ const TILES: &[Tile] = &[
         target: ScreenId::Pulse,
     },
     Tile {
-        icon: &icons::FOOT,
-        label: "STEPS",
-        target: ScreenId::Steps,
-    },
-    Tile {
         icon: &icons::NOTE,
         label: "MUSIC",
         target: ScreenId::Music,
+    },
+    Tile {
+        icon: &icons::TORCH,
+        label: "LIGHT",
+        target: ScreenId::Flashlight,
+    },
+    // Page 2: wanted regularly, reached for deliberately.
+    Tile {
+        icon: &icons::TIMER,
+        label: "TIMER",
+        target: ScreenId::Timer,
     },
     Tile {
         icon: &icons::STOPWATCH,
@@ -84,9 +87,21 @@ const TILES: &[Tile] = &[
         target: ScreenId::Stopwatch,
     },
     Tile {
-        icon: &icons::TIMER,
-        label: "TIMER",
-        target: ScreenId::Timer,
+        icon: &icons::BATTERY,
+        label: "BATTERY",
+        target: ScreenId::Battery,
+    },
+    Tile {
+        icon: &icons::BLUETOOTH,
+        label: "BLUETOOTH",
+        target: ScreenId::Bluetooth,
+    },
+    // Page 3: configuration, and the clock editors that a synchronised
+    // watch never needs.
+    Tile {
+        icon: &icons::GEAR,
+        label: "SETTINGS",
+        target: ScreenId::DisplaySettings,
     },
     Tile {
         icon: &icons::CLOCK,
@@ -99,14 +114,15 @@ const TILES: &[Tile] = &[
         target: ScreenId::Date,
     },
     Tile {
-        icon: &icons::BLUETOOTH,
-        label: "BLUETOOTH",
-        target: ScreenId::Bluetooth,
+        icon: &icons::INFO,
+        label: "ABOUT",
+        target: ScreenId::About,
     },
+    // Page 4.
     Tile {
-        icon: &icons::BATTERY,
-        label: "BATTERY",
-        target: ScreenId::Battery,
+        icon: &icons::CHIP,
+        label: "FIRMWARE",
+        target: ScreenId::Firmware,
     },
     #[cfg(feature = "diagnostics")]
     Tile {
