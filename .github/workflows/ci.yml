@@ -117,42 +117,34 @@ jobs:
             # prints it on every run, and that is the number to read before
             # raising this one.
             flash: 458752
-            # This number is no longer a design target. It is a hardware-verified
-            # bound, and raising it means re-testing pairing on a watch.
+            # A stack reserve, expressed as the statics that fit around it, and
+            # measured on hardware rather than reasoned about.
             #
-            # `flip-link` puts the stack below the statics, so every byte here
-            # is a byte the stack does not have. Pairing's elliptic-curve
-            # arithmetic is the deepest path the firmware has, and it is not in
-            # the 10,432-byte high-water mark quoted below - that reading came
-            # from a watch that had booted, navigated and run a transition, and
-            # never paired.
+            # `flip-link` puts the stack below the statics, so the 65,528-byte
+            # RAM region is shared and every byte here is a byte the stack does
+            # not get. Pairing's elliptic-curve arithmetic is the deepest path
+            # the firmware has, and it used to be absent from the only reading
+            # anyone had: the 10,432-byte mark quoted below came from a watch
+            # that had booted, navigated and run a transition, and never paired.
             #
-            # Measured on hardware: statics of 48,796 leave 16,732 bytes of
-            # stack and pair reliably. 49,516 leave 16,012 and reboot on every
-            # attempt - a watchdog reset after the overflow faults. So the
-            # pairing peak sits between those two, and the previous budget of
-            # 50,176 permitted statics that were already 672 bytes past the
-            # known-bad point. It passed CI the whole way down.
+            # It has now been paired with. A diagnostics build reporting its own
+            # high-water mark, after a pairing and ordinary use, showed **13,000
+            # bytes**. So the reserve is 15.5 KiB, leaving 2,872 bytes over that
+            # mark - 22 %. The statics ceiling is what is left of the region.
             #
-            # 48,704 holds the current 48,612 with a little slack and keeps the
-            # stack above the level that was verified to work.
+            # Two failures are behind this number and both are worth keeping in
+            # view. Statics of 49,516 leave 16,012 bytes of stack and reboot on
+            # every pairing attempt, which is a watchdog reset after the overflow
+            # faults. And the budget that permitted it was 50,176, some 672 bytes
+            # past that known-bad point - so CI watched the regression happen and
+            # said nothing.
             #
-            # The reserve is set against a reading rather than guessed: the
-            # diagnostics screen reports the stack's high-water mark - see
-            # `src/boot/stack.rs` - and a watch that had booted, navigated and
-            # run a transition showed 10,432 bytes. 15 KiB leaves that mark
-            # 47 % of headroom.
-            #
-            # Two things have been allowed to raise this, and both are named
-            # because the number is otherwise just a number that grew. The
-            # first was the display interface buffer, which cut the SPI write
-            # calls a frame takes from 225 to 57. The second is the music
-            # service: a GATT characteristic costs about 123 bytes of
-            # attribute table whether or not anything reads it, which is why
-            # only the six the watch acts on are declared and the other six of
-            # InfiniTime's twelve are not. Anything else asking for space here
-            # should expect to be measured the same way.
-            ram: 48704
+            # What the 13,000 does not include is DFU: a transfer streaming into
+            # flash is the other deep path and it has not been measured, because
+            # the mark is cleared by the reboot a completed update performs.
+            # Aborting a transfer part-way and reading the mark would settle it.
+            # Until then the 22 % is partly held for that.
+            ram: 49656
           - name: diagnostics
             features: diagnostics
             # Diagnostics may grow closer to the slot than the shipping build,
@@ -160,12 +152,13 @@ jobs:
             # below has, and for the same reason: an instrumented image is
             # flashed over a cable by someone watching it.
             flash: 466944
-            # Diagnostics is held to the same stack constraint as production,
-            # not to a looser one: it pairs over the same radio with the same
-            # elliptic curve underneath, and an instrumented image that cannot
-            # pair cannot be used to diagnose pairing. It currently sits at
-            # 48,796 - the very figure measured as working.
-            ram: 48896
+            # The same ceiling as production, not a looser one: diagnostics
+            # pairs over the same radio with the same elliptic curve underneath,
+            # and an instrumented image that cannot pair cannot be used to
+            # diagnose pairing. It is also the build the 13,000-byte reading came
+            # from, so holding it to the same reserve keeps the measurement and
+            # the thing measured in step.
+            ram: 49656
     steps:
       - uses: actions/checkout@v6
       - name: Install Rust toolchain

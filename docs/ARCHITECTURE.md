@@ -90,15 +90,26 @@ Two decisions follow, and they are separate:
   of overflow. Rearrangement only; no runtime cost.
 - **The firmware measures its own high-water mark.** `src/boot/stack.rs` paints
   the region before `main` and the watchdog task reports the deepest point
-  whenever it grows. Async is why the reserve can be modest at all: a task's
+  whenever it grows. A diagnostics build shows it on screen, and that is where
+  the budget comes from: after a pairing and ordinary use the mark read **13,000
+  bytes**, so the reserve is 15.5 KiB and the statics ceiling is what is left.
+  The earlier 10,432-byte figure was taken from a watch that had never paired,
+  which is why it was 2.5 KiB optimistic about the deepest path there is. Async is why the reserve can be modest at all: a task's
   state across its await points lives in a static the compiler sized exactly -
   `ble::run::POOL` is 12 KiB of it - so the stack only has to cover the deepest
   synchronous chain plus interrupts, not a worst case per task the way
   per-task stacks would.
 
-The RAM budget in CI is a target, not the hardware ceiling. It exists to stop
-the statics drifting into the space the stack needs; the size of that space is
-what the measurement is for.
+The RAM budget in CI is not a design target. It is the hardware ceiling minus a
+measured reserve, and raising it means re-measuring rather than re-deciding.
+That distinction was learned the expensive way: a budget set as a target once
+permitted statics 672 bytes past the point that already made every pairing
+attempt reboot the watch, and every gate stayed green while it happened.
+
+What the reading does not cover is DFU. A transfer streaming into external flash
+is the other deep path, and the mark cannot survive a completed update because
+the reboot clears it - aborting a transfer part-way and reading the mark would
+settle it. Part of the 22 % margin is held for that.
 
 ## Concurrency model
 
