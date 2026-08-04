@@ -8,16 +8,16 @@ use defmt::{info, warn};
 use embassy_futures::select::select5;
 use embassy_time::{Duration, Instant, with_deadline};
 use pineforge_state::{
-    AppEvent, BOND_PAYLOAD_MAX, BleState, CurrentWeather, DfuEngine, DfuFailReason, MUSIC_TEXT_MAX,
-    MusicState, Notification, VibrationPattern, WeatherUpdate, parse_cts, parse_new_alert,
-    parse_simple_weather,
+    AppEvent, BOND_PAYLOAD_MAX, BleState, CurrentWeather, DfuEngine, DfuFailReason, Forecast,
+    MUSIC_TEXT_MAX, MusicState, Notification, VibrationPattern, WeatherUpdate, parse_cts,
+    parse_new_alert, parse_simple_weather,
 };
 use trouble_host::prelude::*;
 
 use crate::{
     ipc::{
-        BOND_STORE, BatteryStatusReceiver, HeartRateBpmReceiver, NOTIFICATIONS, StepCountReceiver,
-        StoredBond, UI_EVENTS, VIBRATION_COMMANDS, WALL_CLOCK, WEATHER,
+        BOND_STORE, BatteryStatusReceiver, FORECAST, HeartRateBpmReceiver, NOTIFICATIONS,
+        StepCountReceiver, StoredBond, UI_EVENTS, VIBRATION_COMMANDS, WALL_CLOCK, WEATHER,
     },
     tasks::ble::{dfu, music},
 };
@@ -441,6 +441,7 @@ async fn gatt_events(server: &Server<'_>, connection: &GattConnection<'_, '_, De
                 // Whether a music write moved anything the watch shows.
                 let mut music_moved = false;
                 let mut weather: Option<CurrentWeather> = None;
+                let mut forecast: Option<Forecast> = None;
                 if let GattEvent::Write(write) = &event {
                     let handle = write.handle();
                     if handle == cts_handle {
@@ -473,13 +474,13 @@ async fn gatt_events(server: &Server<'_>, connection: &GattConnection<'_, '_, De
                     } else if handle == new_alert_handle {
                         alert = write.with_data(|_, data| parse_new_alert(data));
                     } else if handle == weather_handle {
-                        // Two packets share this characteristic and only the
-                        // current conditions have anywhere to go; the parser
-                        // reads the forecast too and nothing shows one yet.
-                        weather = write.with_data(|_, data| match parse_simple_weather(data) {
-                            Some(WeatherUpdate::Current(current)) => Some(current),
-                            Some(WeatherUpdate::Forecast(_)) | None => None,
-                        });
+                        // Two packets share this characteristic, told apart by
+                        // their first byte, and each goes to its own bus.
+                        match write.with_data(|_, data| parse_simple_weather(data)) {
+                            Some(WeatherUpdate::Current(current)) => weather = Some(current),
+                            Some(WeatherUpdate::Forecast(days)) => forecast = Some(days),
+                            None => {}
+                        }
                     } else {
                         music_moved = write.with_data(|_, data| {
                             music::take_write(&music_handles, &mut music_state, handle, data)
@@ -515,6 +516,10 @@ async fn gatt_events(server: &Server<'_>, connection: &GattConnection<'_, '_, De
                 if let Some(current) = weather {
                     info!("Weather: {} hundredths C", current.temperature.hundredths());
                     WEATHER.sender().send(current);
+                }
+                if let Some(days) = forecast {
+                    info!("Forecast: {} days", days.days.len());
+                    FORECAST.sender().send(days);
                 }
                 if let Some(notification) = alert {
                     info!(

@@ -1143,6 +1143,9 @@ pub enum AppEvent {
     /// in a fixed-capacity channel. The record goes straight into the screen
     /// that shows it and this says only that it moved.
     WeatherUpdated,
+    /// The five-day forecast changed. Carries nothing, for the reason the
+    /// current conditions carry nothing.
+    ForecastUpdated,
     /// A high-resolution monotonic observation addressed to the stopwatch.
     StopwatchTick(u64),
     /// A monotonic observation addressed to the countdown screen.
@@ -1196,6 +1199,7 @@ impl AppEvent {
             | Self::HeartRateAnalysisUpdated(_)
             | Self::MusicUpdated
             | Self::WeatherUpdated
+            | Self::ForecastUpdated
             | Self::AccelerometerDetected(_)
             | Self::TouchControllerUpdated(_)
             | Self::FlashUpdated(_)

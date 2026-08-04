@@ -27,9 +27,9 @@ use embassy_sync::{
 };
 
 use pineforge_state::{
-    AppEvent, BatteryStatus, CurrentWeather, DfuFailReason, DisplaySettings, HeartRateCommand,
-    MusicControl, MusicState, Notification, PowerCommand, SystemPowerState, VibrationPattern,
-    WallClockReference,
+    AppEvent, BatteryStatus, CurrentWeather, DfuFailReason, DisplaySettings, Forecast,
+    HeartRateCommand, MusicControl, MusicState, Notification, PowerCommand, SystemPowerState,
+    VibrationPattern, WallClockReference,
 };
 
 pub static UI_EVENTS: Channel<CriticalSectionRawMutex, AppEvent, 8> = Channel::new();
@@ -284,6 +284,23 @@ pub fn weather_receiver() -> WeatherReceiver {
     WEATHER
         .receiver()
         .expect("weather receiver capacity is fixed by architecture")
+}
+
+/// The five-day forecast, as the phone last sent it.
+///
+/// Its own `Watch` rather than a field beside the current conditions: they
+/// arrive as two separate writes and either can turn up without the other, so a
+/// single record would have to carry "not yet" for whichever is missing and
+/// every reader would have to handle it.
+pub static FORECAST: Watch<CriticalSectionRawMutex, Forecast, 1> = Watch::new();
+
+pub type ForecastReceiver = Receiver<'static, CriticalSectionRawMutex, Forecast, 1>;
+
+/// Reserves the one subscription: the display.
+pub fn forecast_receiver() -> ForecastReceiver {
+    FORECAST
+        .receiver()
+        .expect("forecast receiver capacity is fixed by architecture")
 }
 
 /// Latest wall-clock anchor, written by BLE, manual editors, or restoration.

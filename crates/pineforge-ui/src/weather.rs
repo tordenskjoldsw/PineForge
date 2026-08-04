@@ -1,20 +1,27 @@
 //! What the phone last said the weather is.
 //!
 //! The same rhythm the pulse and steps applications have - a label, one number
-//! set large, and two lines under it - because the number is what you opened the
-//! screen for and everything else is context for it.
+//! set large, and context under it - because the number is what you opened the
+//! screen for and everything else is there to place it.
 //!
 //! Nothing here fetches anything. The BLE task receives the companion's writes,
 //! `pineforge_state::parse_simple_weather` decides what they mean, and this
 //! screen keeps the last record it was handed whether or not it is showing.
 //!
-//! # No icons yet
+//! # Two records, one screen
 //!
-//! `InfiniTime` draws nine weather symbols. This screen names the condition
-//! instead, in the instrument face the other applications use for their status
-//! line. Nine new glyphs are a drawing decision and a flash cost of their own,
-//! and a word is not a placeholder: on a 240-pixel panel `THUNDERSTORM` is
-//! unambiguous where a small symbol is a guess.
+//! Conditions and the five-day forecast are separate writes on the same
+//! characteristic, and a phone may send either without the other. So they are
+//! held as two `Option`s and drawn independently: a screen that waited for both
+//! would show nothing at all in the common case where only one arrived.
+//!
+//! # Symbols rather than words
+//!
+//! The condition is one of nine 24x24 icons, matching the set `InfiniTime`
+//! draws and the set the wire format enumerates. A word would be less ambiguous
+//! read one at a time - `THUNDERSTORM` is never a guess - but the forecast puts
+//! five conditions in a row 48 pixels wide apiece, and there is no face on this
+//! watch that fits a condition into 48 pixels legibly.
 //!
 //! # Degrees, not hundredths
 //!
@@ -28,13 +35,16 @@ use core::fmt::Write;
 use embedded_graphics::{
     prelude::*,
     primitives::{PrimitiveStyle, Rectangle},
+    text::{Alignment, Text},
 };
 use heapless::String;
-use pineforge_state::{AppEvent, CurrentWeather, ScreenAction, WeatherIcon};
+use pineforge_state::{AppEvent, CurrentWeather, Forecast, ScreenAction, WeatherIcon};
 
 use crate::{
     canvas::{Canvas, CanvasError},
-    render::{PANEL, draw_centred, draw_instrument_centred, draw_visible},
+    font::body_text,
+    icons::{self, ICON_SIZE, Icon, draw_icon},
+    render::{PANEL, draw_centred, draw_centred_at, draw_visible},
     screen::{Paint, Screen},
     segment::{Cell, SegmentSize, draw_cell, signed_aligned},
     theme,
@@ -46,7 +56,25 @@ use crate::{
 const BODY: Rectangle = Rectangle::new(Point::zero(), PANEL.size);
 
 /// Baseline of the location over the reading, level with the other apps'.
+///
+/// Set in the reading face and not the instrument one, unlike every other
+/// application's label. Those are constants this firmware writes - `PULSE`,
+/// `STEPS` - and the FORGE face carries `U+0041..=U+005A` and nothing else,
+/// which is enough for a word chosen here. A place name is not: it arrives from
+/// the phone in whatever case its weather service uses, and drawn in that face
+/// `Bad Oldesloe` comes out as `B    O`.
 const LABEL_BASELINE_Y: i32 = 44;
+
+/// Places the label has room for before it is cut.
+const LABEL_COLUMNS: usize =
+    (PANEL.size.width / crate::font::LIBERATION_MONO_8X18.cell.width) as usize - 2;
+
+/// The condition, as a symbol, in the corner the status rune does not use.
+///
+/// Beside the location rather than under the number: the three numerals span
+/// almost the whole panel, so there is no room next to them, and the row below
+/// belongs to the forecast.
+const CONDITION_ICON: Point = Point::new(8, 26);
 
 /// Three places: a sign and two digits, which covers every temperature this
 /// watch will be worn in. The size is the pulse application's, because a
@@ -62,39 +90,65 @@ const DIGITS_WIDTH: i32 = PLACES * DIGIT.width + (PLACES - 1) * DIGIT_GAP;
 const DIGITS_X: i32 = (PANEL.size.width.cast_signed() - DIGITS_WIDTH) / 2;
 const DIGITS_Y: i32 = 62;
 
-const CONDITION_BASELINE: i32 = 176;
-const RANGE_BASELINE: i32 = 202;
-const FOOTER_BASELINE: i32 = 224;
+/// Today's low and high, under the reading they bracket.
+const RANGE_BASELINE: i32 = 166;
+
+/// The forecast: five columns across the panel, an icon over a temperature.
+const FORECAST_COLUMNS: i32 = 5;
+const FORECAST_COLUMN: i32 = PANEL.size.width.cast_signed() / FORECAST_COLUMNS;
+const FORECAST_ICON_Y: i32 = 180;
+const FORECAST_BASELINE: i32 = 226;
 
 const _: () = assert!(
     DIGITS_X >= 0,
     "three of these numerals do not fit across the panel"
 );
 const _: () = assert!(
-    DIGITS_Y + DIGIT.height < CONDITION_BASELINE,
-    "the reading runs into the condition"
+    DIGITS_Y + DIGIT.height < RANGE_BASELINE - 14,
+    "the reading runs into the range under it"
+);
+const _: () = assert!(
+    FORECAST_ICON_Y + ICON_SIZE < FORECAST_BASELINE - 14,
+    "the forecast icons run into the temperatures under them"
+);
+const _: () = assert!(
+    FORECAST_COLUMN >= ICON_SIZE,
+    "five forecast columns are narrower than the icon in one"
 );
 
-/// The condition, as a word.
-const fn condition(icon: WeatherIcon) -> &'static str {
+/// The condition, as one of the nine symbols.
+///
+/// `Unknown` has none of its own and takes the cloud, which is the least wrong
+/// thing to draw for a condition the phone could not map: a watch showing a sun
+/// for weather nobody identified would be making a claim.
+const fn symbol(icon: WeatherIcon) -> &'static Icon {
     match icon {
-        WeatherIcon::Sun => "CLEAR",
-        WeatherIcon::CloudsSun => "FAIR",
-        WeatherIcon::Clouds => "CLOUDY",
-        WeatherIcon::BrokenClouds => "OVERCAST",
-        WeatherIcon::CloudShowerHeavy => "SHOWERS",
-        WeatherIcon::CloudSunRain => "RAIN",
-        WeatherIcon::Thunderstorm => "STORM",
-        WeatherIcon::Snow => "SNOW",
-        WeatherIcon::Smog => "MIST",
-        WeatherIcon::Unknown => "-",
+        WeatherIcon::Sun => &icons::WEATHER_SUN,
+        WeatherIcon::CloudsSun => &icons::WEATHER_CLOUDS_SUN,
+        WeatherIcon::Clouds | WeatherIcon::Unknown => &icons::WEATHER_CLOUDS,
+        WeatherIcon::BrokenClouds => &icons::WEATHER_BROKEN_CLOUDS,
+        WeatherIcon::CloudShowerHeavy => &icons::WEATHER_SHOWER,
+        WeatherIcon::CloudSunRain => &icons::WEATHER_RAIN,
+        WeatherIcon::Thunderstorm => &icons::WEATHER_THUNDERSTORM,
+        WeatherIcon::Snow => &icons::WEATHER_SNOW,
+        WeatherIcon::Smog => &icons::WEATHER_MIST,
     }
+}
+
+/// One whole degree, as text.
+fn degrees(value: i16) -> String<8> {
+    let mut text = String::new();
+    let _ = write!(text, "{value}");
+    text
 }
 
 /// The last record the phone sent, or nothing yet.
 #[derive(Default)]
 pub struct WeatherScreen {
     current: Option<CurrentWeather>,
+    /// The five days, kept apart from the conditions because they arrive as
+    /// two separate writes and either can turn up without the other.
+    forecast: Option<Forecast>,
     dirty: bool,
 }
 
@@ -120,6 +174,16 @@ impl WeatherScreen {
         true
     }
 
+    /// Takes a forecast, and reports whether it moved.
+    pub fn apply_forecast(&mut self, forecast: &Forecast) -> bool {
+        if self.forecast.as_ref() == Some(forecast) {
+            return false;
+        }
+        self.forecast = Some(forecast.clone());
+        self.dirty = true;
+        true
+    }
+
     /// The location, or what to say instead before a phone has sent one.
     ///
     /// A blank line would read as a screen that failed to draw. Saying the
@@ -129,6 +193,21 @@ impl WeatherScreen {
             Some(current) if !current.location.is_empty() => current.location.as_str(),
             Some(_) => "WEATHER",
             None => "NO DATA",
+        }
+    }
+
+    /// The label, cut to the columns the panel has for it.
+    ///
+    /// Cut by characters and not by bytes. The name arrives from the phone as
+    /// UTF-8 and nothing upstream of here reduces it to ASCII, so `Munchen`
+    /// spelled the way its inhabitants spell it is eight bytes and seven
+    /// columns. Slicing that by a byte index can land inside a character, which
+    /// is a panic, and would cut a long name early besides.
+    fn short_label(&self) -> &str {
+        let label = self.label();
+        match label.char_indices().nth(LABEL_COLUMNS) {
+            Some((end, _)) => &label[..end],
+            None => label,
         }
     }
 
@@ -153,6 +232,41 @@ impl WeatherScreen {
         for (place, cell) in self.cells().into_iter().enumerate() {
             let x = DIGITS_X + i32::try_from(place).unwrap_or(0) * (DIGIT.width + DIGIT_GAP);
             draw_cell(canvas, DIGIT, x, DIGITS_Y, cell, theme::ACCENT)?;
+            keep_alive();
+        }
+        Ok(())
+    }
+
+    /// The forecast row: an icon over a whole-degree maximum, five across.
+    ///
+    /// The maximum alone, not the pair. Two numbers in a 48-pixel column are
+    /// unreadable at this face, and the high is what somebody deciding on a
+    /// coat is after - today's low is on the line above, where it belongs to the
+    /// reading it brackets.
+    fn draw_forecast(
+        &self,
+        canvas: &mut Canvas<'_>,
+        keep_alive: &mut dyn FnMut(),
+    ) -> Result<(), CanvasError> {
+        let Some(forecast) = &self.forecast else {
+            return Ok(());
+        };
+        for (index, day) in forecast.days.iter().enumerate() {
+            let column = i32::try_from(index).unwrap_or(0) * FORECAST_COLUMN;
+            let centre = column + FORECAST_COLUMN / 2;
+            draw_icon(
+                symbol(day.icon),
+                Point::new(centre - ICON_SIZE / 2, FORECAST_ICON_Y),
+                theme::TEXT,
+                canvas,
+            )?;
+            draw_centred_at(
+                degrees(day.maximum.celsius()).as_str(),
+                centre,
+                FORECAST_BASELINE,
+                theme::TEXT,
+                canvas,
+            )?;
             keep_alive();
         }
         Ok(())
@@ -186,16 +300,23 @@ impl WeatherScreen {
         )?;
         keep_alive();
 
-        draw_instrument_centred(self.label(), LABEL_BASELINE_Y, theme::ACCENT, canvas)?;
+        draw_visible(
+            &Text::with_alignment(
+                self.short_label(),
+                Point::new(PANEL.size.width.cast_signed() / 2, LABEL_BASELINE_Y),
+                body_text(theme::ACCENT, theme::BACKGROUND),
+                Alignment::Center,
+            ),
+            canvas,
+        )?;
+        if let Some(current) = &self.current {
+            draw_icon(symbol(current.icon), CONDITION_ICON, theme::ACCENT, canvas)?;
+        }
         self.draw_value(canvas, keep_alive)?;
+        keep_alive();
 
-        let condition = self
-            .current
-            .as_ref()
-            .map_or("WAITING FOR A PHONE", |current| condition(current.icon));
-        draw_instrument_centred(condition, CONDITION_BASELINE, theme::ACCENT, canvas)?;
         draw_centred(self.range().as_str(), RANGE_BASELINE, theme::TEXT, canvas)?;
-        draw_centred("DEGREES CELSIUS", FOOTER_BASELINE, theme::TEXT, canvas)
+        self.draw_forecast(canvas, keep_alive)
     }
 }
 
@@ -234,7 +355,23 @@ impl Screen for WeatherScreen {
 mod tests {
     use super::*;
     use crate::probe::Probe;
-    use pineforge_state::Temperature;
+    use heapless::Vec;
+    use pineforge_state::{ForecastDay, Temperature};
+
+    fn forecast(days: &[(i16, i16, WeatherIcon)]) -> Forecast {
+        let mut list: Vec<ForecastDay, 5> = Vec::new();
+        for (minimum, maximum, icon) in days {
+            let _ = list.push(ForecastDay {
+                minimum: Temperature::from_hundredths(*minimum),
+                maximum: Temperature::from_hundredths(*maximum),
+                icon: *icon,
+            });
+        }
+        Forecast {
+            timestamp: 1_700_000_000,
+            days: list,
+        }
+    }
 
     fn record(temperature: i16, minimum: i16, maximum: i16, place: &str) -> CurrentWeather {
         CurrentWeather {
@@ -303,6 +440,68 @@ mod tests {
     #[test]
     fn no_record_shows_blank_places_rather_than_zero() {
         assert_eq!(WeatherScreen::default().cells(), [Cell::Blank; PLACE_COUNT]);
+    }
+
+    /// A place name too long for the panel is cut on a character boundary.
+    ///
+    /// The cut is by characters, so the one here lands after the umlaut rather
+    /// than inside it. Cutting by bytes at the same limit splits that character
+    /// and panics, which is why the name is built with one straddling the
+    /// column the label runs out at.
+    #[test]
+    fn a_long_place_name_with_an_umlaut_is_cut_between_characters() {
+        let mut place: heapless::String<32> = heapless::String::new();
+        for _ in 0..LABEL_COLUMNS - 1 {
+            place.push('a').unwrap();
+        }
+        place.push('\u{fc}').unwrap();
+        place.push_str("bc").unwrap();
+        assert!(
+            place.chars().count() > LABEL_COLUMNS,
+            "the name has to be long enough to cut"
+        );
+
+        let mut screen = WeatherScreen::default();
+        let _ = screen.apply(&record(1_000, 0, 2_000, place.as_str()));
+        assert_eq!(screen.short_label().chars().count(), LABEL_COLUMNS);
+        assert!(screen.short_label().ends_with('\u{fc}'));
+        assert_eq!(repaint(&screen).unpainted(), 0);
+    }
+
+    /// A forecast alone, with no conditions behind it, still has to cover the
+    /// panel: the two arrive as separate writes and either can turn up first.
+    #[test]
+    fn a_forecast_without_conditions_still_covers_the_panel() {
+        let mut screen = WeatherScreen::default();
+        assert!(screen.apply_forecast(&forecast(&[
+            (-500, 300, WeatherIcon::Snow),
+            (100, 900, WeatherIcon::CloudsSun),
+        ])));
+        assert_eq!(repaint(&screen).unpainted(), 0);
+    }
+
+    #[test]
+    fn a_full_five_day_forecast_covers_the_panel() {
+        let mut screen = WeatherScreen::default();
+        let _ = screen.apply(&record(1_200, -450, 1_800, "Kiel"));
+        assert!(screen.apply_forecast(&forecast(&[
+            (0, 1_800, WeatherIcon::Sun),
+            (-200, 900, WeatherIcon::Clouds),
+            (-1_250, 100, WeatherIcon::Snow),
+            (500, 2_100, WeatherIcon::Thunderstorm),
+            (300, 1_600, WeatherIcon::CloudShowerHeavy),
+        ])));
+        assert_eq!(repaint(&screen).unpainted(), 0);
+    }
+
+    #[test]
+    fn the_same_forecast_does_not_ask_for_a_repaint() {
+        let mut screen = WeatherScreen::default();
+        let days = forecast(&[(0, 100, WeatherIcon::Sun)]);
+        assert!(screen.apply_forecast(&days));
+        screen.mark_painted();
+        assert!(!screen.apply_forecast(&days));
+        assert!(!screen.moved());
     }
 
     #[test]

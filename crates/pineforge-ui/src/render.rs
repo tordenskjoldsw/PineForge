@@ -58,6 +58,26 @@ pub fn draw_centred(
     )
 }
 
+/// One line of the hint face, centred on a column rather than on the panel.
+///
+/// What `draw_centred` does for the whole width, for the case where the panel
+/// is divided into columns and each wants its own centre - a forecast row, say.
+pub fn draw_centred_at(
+    text: &str,
+    centre: i32,
+    baseline: i32,
+    ink: Rgb565,
+    canvas: &mut Canvas<'_>,
+) -> Result<(), CanvasError> {
+    let width = i32::try_from(text.len()).unwrap_or(0) * HINT_WIDTH;
+    draw_mono_text_visible(
+        text,
+        Point::new(centre - width / 2, baseline),
+        hint_text(ink, theme::BACKGROUND),
+        canvas,
+    )
+}
+
 /// One line of the bold FORGE instrument face, centred across the panel.
 pub fn draw_instrument_centred(
     text: &str,
