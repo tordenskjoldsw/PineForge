@@ -27,14 +27,22 @@ use embedded_graphics::{
 /// Rows a transition composes at a time.
 ///
 /// Pure trade: `STRIPE_THICKNESS * 240 * 2` bytes of scratch against how many
-/// stripes a slide takes, and nothing else. The picture is identical either way.
+/// stripes a slide takes. The picture is identical either way; only the number
+/// of SPI rounds changes, 40 stripes here against the 20 that twelve would take.
 ///
-/// It went from 12 to 10 to buy back 960 bytes of static RAM after the heart
-/// rate service pushed the stack under what pairing needs. Every byte of static
-/// RAM is a byte the stack does not get - `flip-link` puts the stack below the
-/// statics - and pairing's elliptic-curve arithmetic is the deepest path the
-/// firmware has.
-pub const STRIPE_THICKNESS: u32 = 10;
+/// It came down from 12 because the other side of that trade turned out to be
+/// pairing. Every byte of static RAM is a byte the stack does not get -
+/// `flip-link` puts the stack below the statics - and the deepest path this
+/// firmware has is the elliptic-curve arithmetic of a key exchange, which the
+/// controller runs in a high-priority interrupt nested on top of whatever was
+/// drawing. Measured on hardware, that peak is 16,900 bytes.
+///
+/// At 12 the stack was 16,460 and every pairing attempt rebooted the watch. At
+/// 10 it was 17,420, which worked with 3 % to spare. At 6 it is 19,336, which
+/// leaves 14 %, and that margin is the point: 16,900 is one reading, and DFU, a
+/// notification arriving mid-pairing and the alarm path are all outside it.
+///
+pub const STRIPE_THICKNESS: u32 = 6;
 const MAX_SCREEN_EDGE: usize = 240;
 const SCRATCH_PIXELS: usize = STRIPE_THICKNESS as usize * MAX_SCREEN_EDGE;
 

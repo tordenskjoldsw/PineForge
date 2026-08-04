@@ -104,11 +104,11 @@ Two decisions follow, and they are separate:
 The RAM budget in CI is not a design target. It is the hardware ceiling minus a
 stack reserve, and raising it means measuring rather than deciding.
 
-The reserve is currently set from brackets rather than a measurement, because the
-one attempt to measure it read a reconnection instead of a pairing: stack sizes
-of 16,912 and 16,732 bytes pair, while 16,456 and 16,012 reboot on every attempt.
-So the requirement sits in (16,456, 16,732], and the reserve is 420 bytes above
-the top of that.
+The peak is measured: **16,900 bytes**, read from a diagnostics build after the
+phone was made to forget the device. The reserve is 18 KiB, so even a build that
+uses the whole budget keeps 9 % over that, and the shipping image keeps 14 %. The
+margin is not decoration - that figure is one reading, and DFU, a notification
+arriving mid-pairing and the alarm path are all outside it.
 That distinction was learned the expensive way: a budget set as a target once
 permitted statics 672 bytes past the point that already made every pairing
 attempt reboot the watch, and every gate stayed green while it happened.
