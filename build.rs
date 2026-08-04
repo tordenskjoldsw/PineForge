@@ -200,7 +200,46 @@ fn publish_release_triple(version: &str) {
             .all(|part| !part.is_empty() && part.bytes().all(|byte| byte.is_ascii_digit())),
         "firmware revision {triple:?} is not major.minor.patch; a companion will fail to parse it"
     );
+    guard_companion_feature_gates(&triple);
     println!("cargo:rustc-env=PINEFORGE_RELEASE={triple}");
+}
+
+/// Refuses a release number that would switch on companion behaviour this
+/// firmware cannot answer.
+///
+/// The version reported over BLE is not only a label. Gadgetbridge reads it as
+/// a capability statement and changes what it sends:
+///
+/// - below `0.15` a notification arrives as the body alone, with the sender
+///   discarded before it leaves the phone
+/// - from `0.15` it arrives as `title NUL body`, which is the shape this
+///   firmware's parser has always split on, and the reason the version is where
+///   it is
+/// - from `1.8` weather packets begin, CBOR-framed up to `1.13` and a simple
+///   binary form from `1.14`
+///
+/// `PineForge` implements neither weather form. Crossing `1.8` would therefore
+/// have a phone sending packets to a characteristic that does not exist, which
+/// is the kind of thing that is discovered on a wrist rather than in CI. So it
+/// is discovered here instead, and the way past it is to implement weather and
+/// then relax this - deliberately, not by releasing 1.8 one day.
+fn guard_companion_feature_gates(triple: &str) {
+    let mut parts = triple
+        .split('.')
+        .map(|part| part.parse::<u32>().unwrap_or(0));
+    let major = parts.next().unwrap_or(0);
+    let minor = parts.next().unwrap_or(0);
+
+    assert!(
+        major > 0 || minor >= 15,
+        "release {triple} is below 0.15, where a companion still sends notifications \
+         without their sender - see guard_companion_feature_gates"
+    );
+    assert!(
+        (major, minor) < (1, 8),
+        "release {triple} is at or past 1.8, where Gadgetbridge starts sending weather \
+         this firmware does not implement - see guard_companion_feature_gates"
+    );
 }
 
 /// Runs git and returns its trimmed output, or `None` if it did not work.

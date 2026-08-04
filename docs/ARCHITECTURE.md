@@ -316,6 +316,31 @@ outside the effect dispatch: the first draw at boot, the redraw on wake, the
 screen coming back from behind a modal. That is the one place naming
 `Canvas::new(&mut display)` and the watchdog closure.
 
+## The version number is a protocol field
+
+The firmware revision this watch reports over BLE is read by Gadgetbridge as a
+statement of what it can handle, and what it sends back changes accordingly.
+Below `0.15` a notification arrives as the message body alone, with the sender
+discarded on the phone before it is ever transmitted; from `0.15` it arrives as
+`title NUL body`, which is the shape the notification parser has always split
+on. So the sender's name reaching the watch at all is a consequence of the
+number in `Cargo.toml`, not of anything in the parser.
+
+That is why the release skipped from `0.6.2` to `0.15.0`. It buys the sender,
+it costs nothing to receive, and it is the smallest number that does so.
+
+The number is therefore no longer free. `build.rs` refuses a release outside the
+window this firmware can actually serve: below `0.15` because notifications
+would silently lose their sender again, and at or past `1.8` because that is
+where Gadgetbridge begins sending weather - CBOR-framed to `1.13`, a simple
+binary form from `1.14` - and neither is implemented here. Reaching `1.8` is a
+decision to implement weather, and until then it fails the build rather than the
+wrist.
+
+Only the release triple goes into the Device Information Service; build metadata
+stays out of it, because the parser on the other end calls `Integer.parseInt` on
+each component with nothing around it.
+
 ## The one bus that runs outwards
 
 Every channel in `ipc` carries a subsystem reporting to the display: a battery
