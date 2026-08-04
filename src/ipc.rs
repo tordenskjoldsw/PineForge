@@ -27,8 +27,9 @@ use embassy_sync::{
 };
 
 use pineforge_state::{
-    AppEvent, BatteryStatus, DfuFailReason, DisplaySettings, HeartRateCommand, MusicControl,
-    MusicState, Notification, PowerCommand, SystemPowerState, VibrationPattern, WallClockReference,
+    AppEvent, BatteryStatus, CurrentWeather, DfuFailReason, DisplaySettings, HeartRateCommand,
+    MusicControl, MusicState, Notification, PowerCommand, SystemPowerState, VibrationPattern,
+    WallClockReference,
 };
 
 pub static UI_EVENTS: Channel<CriticalSectionRawMutex, AppEvent, 8> = Channel::new();
@@ -262,6 +263,27 @@ pub fn music_state_receiver() -> MusicStateReceiver {
     MUSIC_STATE
         .receiver()
         .expect("music state receiver capacity is fixed by architecture")
+}
+
+/// What the phone last said the weather is.
+///
+/// A `Watch` for the reason the music record is one: only the latest matters,
+/// none of it may be lost, and it is far too large to put in [`UI_EVENTS`] -
+/// a `CurrentWeather` carries a 32-byte location beside its numbers, and the
+/// event channel holds eight `Copy` events.
+///
+/// Only the current conditions travel. The parser also reads a five-day
+/// forecast and nothing shows one yet, so the BLE task drops it rather than
+/// paying for a bus with no reader.
+pub static WEATHER: Watch<CriticalSectionRawMutex, CurrentWeather, 1> = Watch::new();
+
+pub type WeatherReceiver = Receiver<'static, CriticalSectionRawMutex, CurrentWeather, 1>;
+
+/// Reserves the one subscription: the display.
+pub fn weather_receiver() -> WeatherReceiver {
+    WEATHER
+        .receiver()
+        .expect("weather receiver capacity is fixed by architecture")
 }
 
 /// Latest wall-clock anchor, written by BLE, manual editors, or restoration.

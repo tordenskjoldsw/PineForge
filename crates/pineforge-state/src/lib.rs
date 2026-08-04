@@ -1136,6 +1136,13 @@ pub enum AppEvent {
     /// straight into the screen that shows it, exactly as an arriving
     /// notification is, and this says only that it moved.
     MusicUpdated,
+    /// What the phone says the weather is changed.
+    ///
+    /// Carries nothing, for the reason the track does: a `CurrentWeather` holds
+    /// a 32-byte location beside its numbers, and `AppEvent` is `Copy` and sits
+    /// in a fixed-capacity channel. The record goes straight into the screen
+    /// that shows it and this says only that it moved.
+    WeatherUpdated,
     /// A high-resolution monotonic observation addressed to the stopwatch.
     StopwatchTick(u64),
     /// A monotonic observation addressed to the countdown screen.
@@ -1188,6 +1195,7 @@ impl AppEvent {
             | Self::HeartRateSensorDetected(_)
             | Self::HeartRateAnalysisUpdated(_)
             | Self::MusicUpdated
+            | Self::WeatherUpdated
             | Self::AccelerometerDetected(_)
             | Self::TouchControllerUpdated(_)
             | Self::FlashUpdated(_)

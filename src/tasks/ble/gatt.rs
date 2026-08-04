@@ -8,15 +8,16 @@ use defmt::{info, warn};
 use embassy_futures::select::select5;
 use embassy_time::{Duration, Instant, with_deadline};
 use pineforge_state::{
-    AppEvent, BOND_PAYLOAD_MAX, BleState, DfuEngine, DfuFailReason, MUSIC_TEXT_MAX, MusicState,
-    Notification, VibrationPattern, parse_cts, parse_new_alert,
+    AppEvent, BOND_PAYLOAD_MAX, BleState, CurrentWeather, DfuEngine, DfuFailReason, MUSIC_TEXT_MAX,
+    MusicState, Notification, VibrationPattern, WeatherUpdate, parse_cts, parse_new_alert,
+    parse_simple_weather,
 };
 use trouble_host::prelude::*;
 
 use crate::{
     ipc::{
         BOND_STORE, BatteryStatusReceiver, HeartRateBpmReceiver, NOTIFICATIONS, StepCountReceiver,
-        StoredBond, UI_EVENTS, VIBRATION_COMMANDS, WALL_CLOCK,
+        StoredBond, UI_EVENTS, VIBRATION_COMMANDS, WALL_CLOCK, WEATHER,
     },
     tasks::ble::{dfu, music},
 };
@@ -41,6 +42,7 @@ pub struct Server {
     pub music: MusicService,
     pub motion: MotionService,
     pub heart_rate: HeartRateService,
+    pub weather: SimpleWeatherService,
 }
 
 /// Largest New Alert write accepted, one ATT payload at the negotiated MTU, so
@@ -231,6 +233,31 @@ pub struct HeartRateService {
     pub measurement: [u8; 2],
 }
 
+/// `InfiniTime`'s Simple Weather service, in the form Gadgetbridge writes from
+/// version 1.14 onwards.
+///
+/// One characteristic taking two different packets, told apart by their first
+/// byte: the current conditions, and a five-day forecast. Both are writes
+/// rather than notifications - the phone pushes when it has something, and the
+/// watch never asks.
+///
+/// Gadgetbridge sends nothing at all below firmware 1.8, and the CBOR-framed
+/// older form between 1.8 and 1.13, so this service is dormant until the
+/// reported release passes 1.14. `build.rs` refuses a release in between rather
+/// than leaving that to memory.
+///
+/// The value is bounded at the 53 bytes the larger of the two packets occupies.
+/// `pineforge_state::parse_simple_weather` decides what any of it means.
+#[gatt_service(uuid = "00050000-78fc-48fe-8e23-433b3a1942d0")]
+pub struct SimpleWeatherService {
+    #[characteristic(uuid = "00050001-78fc-48fe-8e23-433b3a1942d0", write)]
+    pub data: heapless::Vec<u8, WEATHER_PACKET_MAX>,
+}
+
+/// The larger of the two packets: current conditions at version 1, which adds
+/// sunrise and sunset to the version-0 layout.
+const WEATHER_PACKET_MAX: usize = 53;
+
 #[gatt_service(uuid = service::CURRENT_TIME)]
 pub struct CurrentTimeService {
     /// Standard current-time layout: year, month, day, h, m, s, weekday,
@@ -324,6 +351,7 @@ async fn gatt_events(server: &Server<'_>, connection: &GattConnection<'_, '_, De
     let dfu_packet_handle = server.dfu.packet.handle;
     let new_alert_handle = server.alert_notification.new_alert.handle;
     let music_handles = music::Handles::new(&server.music);
+    let weather_handle = server.weather.data.handle;
     // The phone reports one field per characteristic, so the record is
     // assembled here and published whole. It lives for the connection: a
     // reconnect is when the companion re-sends what is playing anyway.
@@ -412,6 +440,7 @@ async fn gatt_events(server: &Server<'_>, connection: &GattConnection<'_, '_, De
                 let mut alert: Option<Notification> = None;
                 // Whether a music write moved anything the watch shows.
                 let mut music_moved = false;
+                let mut weather: Option<CurrentWeather> = None;
                 if let GattEvent::Write(write) = &event {
                     let handle = write.handle();
                     if handle == cts_handle {
@@ -443,6 +472,14 @@ async fn gatt_events(server: &Server<'_>, connection: &GattConnection<'_, '_, De
                         dfu_write = Some((handle == dfu_control_handle, buffer, len));
                     } else if handle == new_alert_handle {
                         alert = write.with_data(|_, data| parse_new_alert(data));
+                    } else if handle == weather_handle {
+                        // Two packets share this characteristic and only the
+                        // current conditions have anywhere to go; the parser
+                        // reads the forecast too and nothing shows one yet.
+                        weather = write.with_data(|_, data| match parse_simple_weather(data) {
+                            Some(WeatherUpdate::Current(current)) => Some(current),
+                            Some(WeatherUpdate::Forecast(_)) | None => None,
+                        });
                     } else {
                         music_moved = write.with_data(|_, data| {
                             music::take_write(&music_handles, &mut music_state, handle, data)
@@ -474,6 +511,10 @@ async fn gatt_events(server: &Server<'_>, connection: &GattConnection<'_, '_, De
                 }
                 if music_moved {
                     music::publish(&music_state);
+                }
+                if let Some(current) = weather {
+                    info!("Weather: {} hundredths C", current.temperature.hundredths());
+                    WEATHER.sender().send(current);
                 }
                 if let Some(notification) = alert {
                     info!(

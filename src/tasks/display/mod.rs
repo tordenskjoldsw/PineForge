@@ -1,5 +1,5 @@
 use defmt::{error, info};
-use embassy_futures::select::{Either3, Either4, select3, select4};
+use embassy_futures::select::{Either4, select4};
 use embassy_nrf::gpio::{Level, Output, OutputDrive};
 use embassy_time::{Delay, Duration, Instant, Timer};
 use mipidsi::interface::SpiInterface;
@@ -15,15 +15,16 @@ use crate::{
         MUSIC_CONTROL, NOTIFICATIONS, POWER_COMMANDS, SETTINGS_COMMANDS, STEP_RESET, UI_EVENTS,
         VIBRATION_ALARM, VIBRATION_COMMANDS, VibrationAlarmSignal, WALL_CLOCK,
         display_settings_receiver, music_state_receiver, system_power_receiver,
-        wall_clock_receiver,
+        wall_clock_receiver, weather_receiver,
     },
 };
 #[cfg(feature = "ui-animations")]
 use pineforge_state::Navigation;
 use pineforge_state::{
-    AppEffect, AppEvent, AppState, ClockSnapshot, DisplaySettings, HeartRateCommand, Modal,
-    ModalOutcome, ModalState, MusicControl, MusicState, Notification, PowerCommand, Repaint,
-    ScreenId, StepDay, SystemPowerState, TimerOutcome, VibrationPattern, panel_backlight,
+    AppEffect, AppEvent, AppState, ClockSnapshot, CurrentWeather, DisplaySettings,
+    HeartRateCommand, Modal, ModalOutcome, ModalState, MusicControl, MusicState, Notification,
+    PowerCommand, Repaint, ScreenId, StepDay, SystemPowerState, TimerOutcome, VibrationPattern,
+    panel_backlight,
 };
 use pineforge_ui::{
     about::BuildInfo,
@@ -154,6 +155,18 @@ fn play(screens: &mut Screens, state: &MusicState, started_at: Instant) -> Displ
     let uptime_seconds = Instant::now().duration_since(started_at).as_secs();
     let _ = screens.music.apply(state, uptime_seconds);
     DisplayEvent::Ui(AppEvent::MusicUpdated)
+}
+
+/// Puts what the phone says the weather is in front of the screen that shows
+/// it, and reports only that it moved.
+///
+/// Filed here for the reason a track is: a `CurrentWeather` carries a 32-byte
+/// location beside its numbers, and putting one in the event enum would add
+/// that to the channel's whole capacity for something that changes a few times
+/// a day.
+fn weather(screens: &mut Screens, current: &CurrentWeather) -> DisplayEvent {
+    let _ = screens.weather.apply(current);
+    DisplayEvent::Ui(AppEvent::WeatherUpdated)
 }
 
 /// The panel, once it is up and pointed the right way round.
@@ -414,6 +427,7 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
     let mut settings_receiver = display_settings_receiver();
     let mut wall_clock = wall_clock_receiver();
     let mut music = music_state_receiver();
+    let mut weather_receiver = weather_receiver();
     let mut wall_clock_reference = None;
     let mut power = power_receiver.get().await;
     let mut ignore_input_until = started_at;
@@ -437,7 +451,7 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
         // inbox by the time the watch is woken, and leaving it queued would
         // block the one behind it.
         let display_event = if power == SystemPowerState::Sleeping {
-            match select3(
+            match select4(
                 select4(
                     UI_EVENTS.receive(),
                     power_receiver.changed(),
@@ -446,27 +460,32 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                 ),
                 music.changed(),
                 Timer::at(timer_deadline(&screens, started_at)),
+                weather_receiver.changed(),
             )
             .await
             {
-                Either3::Second(state) => play(&mut screens, &state, started_at),
-                Either3::Third(()) => {
+                Either4::Second(state) => play(&mut screens, &state, started_at),
+                Either4::Third(()) => {
                     let Some(event) = expire_timer(&mut screens, started_at, Instant::now()) else {
                         continue;
                     };
                     DisplayEvent::Ui(event)
                 }
-                Either3::First(Either4::First(event)) => DisplayEvent::Ui(event),
-                Either3::First(Either4::Second(state)) => DisplayEvent::Power(state),
-                Either3::First(Either4::Third(snapshot)) => DisplayEvent::Settings(snapshot),
-                Either3::First(Either4::Fourth(notification)) => file(&mut screens, notification),
+                // Filed while asleep for the reason a notification is: the
+                // record has to be current by the time the watch is woken, and
+                // a `Watch` keeps only the latest either way.
+                Either4::Fourth(current) => weather(&mut screens, &current),
+                Either4::First(Either4::First(event)) => DisplayEvent::Ui(event),
+                Either4::First(Either4::Second(state)) => DisplayEvent::Power(state),
+                Either4::First(Either4::Third(snapshot)) => DisplayEvent::Settings(snapshot),
+                Either4::First(Either4::Fourth(notification)) => file(&mut screens, notification),
             }
         } else {
-            // Nested because there is no `select6`, and the notification and
-            // the music record are the inputs least entangled with the other
-            // four - both are filed straight into the screen that holds them.
+            // Nested because the arities do not reach seven, and the three
+            // records are the inputs least entangled with the other four: each
+            // is filed straight into the screen that holds it.
             let scheduled = next_tick.min(timer_deadline(&screens, started_at));
-            match select3(
+            match select4(
                 select4(
                     UI_EVENTS.receive(),
                     Timer::at(scheduled),
@@ -475,13 +494,15 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                 ),
                 NOTIFICATIONS.receive(),
                 music.changed(),
+                weather_receiver.changed(),
             )
             .await
             {
-                Either3::Second(notification) => file(&mut screens, notification),
-                Either3::Third(state) => play(&mut screens, &state, started_at),
-                Either3::First(Either4::First(event)) => DisplayEvent::Ui(event),
-                Either3::First(Either4::Second(())) => {
+                Either4::Second(notification) => file(&mut screens, notification),
+                Either4::Third(state) => play(&mut screens, &state, started_at),
+                Either4::Fourth(current) => weather(&mut screens, &current),
+                Either4::First(Either4::First(event)) => DisplayEvent::Ui(event),
+                Either4::First(Either4::Second(())) => {
                     let now = Instant::now();
                     if timer_deadline(&screens, started_at) <= now {
                         let Some(event) = expire_timer(&mut screens, started_at, now) else {
@@ -519,8 +540,8 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
                         }
                     }
                 }
-                Either3::First(Either4::Third(state)) => DisplayEvent::Power(state),
-                Either3::First(Either4::Fourth(snapshot)) => DisplayEvent::Settings(snapshot),
+                Either4::First(Either4::Third(state)) => DisplayEvent::Power(state),
+                Either4::First(Either4::Fourth(snapshot)) => DisplayEvent::Settings(snapshot),
             }
         };
         let now = Instant::now();

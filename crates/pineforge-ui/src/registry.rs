@@ -209,6 +209,14 @@ impl Screens {
     }
 
     /// Whether this screen took its reading from [`Self::absorb`] already.
+    ///
+    /// The weather screen is deliberately absent, though its record arrives the
+    /// same way a track does. What tells the two apart is what the *event* is
+    /// for: a `MusicUpdated` reaches a screen that also reacts to the
+    /// connection state, so it has to be fed here and skipped there;
+    /// `WeatherUpdated` reaches a screen that reacts to nothing, so the
+    /// ordinary dispatch is enough and feeding it twice would be the double
+    /// apply this list exists to prevent.
     #[must_use]
     pub const fn holds_readings(active: ScreenId) -> bool {
         matches!(
