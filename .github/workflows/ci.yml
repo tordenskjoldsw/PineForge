@@ -50,18 +50,27 @@ jobs:
       #
       # `--all-targets` is the point of this step. Without it the two lines
       # above already cover what it would check.
+      #
+      # A literal block and backslashes, where every other step here uses a
+      # folded one. YAML folds a `>` scalar's newlines into spaces only for the
+      # lines sharing the first line's indentation; a line indented further
+      # keeps its newline. Every other step is one command, so its continuations
+      # sit at that indentation and fold. A loop body cannot: it is indented
+      # under `do`, so it arrived at bash as separate lines and the one starting
+      # `--target` was read as a command that does not exist. The step failed
+      # the first time it ran, after the clippy above it had already passed.
       - name: Lint the crates and their tests
-        run: >-
+        run: |
           for crate in pineforge-state pineforge-ui pineforge-services; do
-            cargo clippy --locked --manifest-path "crates/$crate/Cargo.toml"
-            --target x86_64-unknown-linux-gnu --all-targets -- -D warnings || exit 1
+            cargo clippy --locked --manifest-path "crates/$crate/Cargo.toml" \
+              --target x86_64-unknown-linux-gnu --all-targets -- -D warnings || exit 1
           done
       - name: Lint the crates with diagnostics
-        run: >-
+        run: |
           for crate in pineforge-state pineforge-ui pineforge-services; do
-            cargo clippy --locked --manifest-path "crates/$crate/Cargo.toml"
-            --target x86_64-unknown-linux-gnu --all-targets --features diagnostics
-            -- -D warnings || exit 1
+            cargo clippy --locked --manifest-path "crates/$crate/Cargo.toml" \
+              --target x86_64-unknown-linux-gnu --all-targets --features diagnostics \
+              -- -D warnings || exit 1
           done
       - name: Test production state machine
         run: >-
