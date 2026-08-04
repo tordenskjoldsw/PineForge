@@ -86,6 +86,14 @@ enum Pending {
     Nothing,
     /// Only the heart moved, which is one small rectangle rather than a screen.
     Beat,
+    /// Only the number moved: one reading replaced by another.
+    ///
+    /// Everything else this screen draws is the same for any `Result` - the
+    /// status reads BPM, the offer says to measure again, the ink is the resting
+    /// colour and the heart is at rest - so the three digit cells are the whole
+    /// of the change. Each one fills its own background before it draws, so
+    /// repainting them leaves nothing of the old number behind.
+    Value,
     Everything,
 }
 
@@ -247,11 +255,24 @@ impl Screen for PulseScreen {
         // changes what is shown.
         if let AppEvent::HeartRateStateUpdated(state) = event {
             if self.state != state {
+                // One number replacing another changes nothing else on the
+                // screen, and continuous measurement produces exactly that
+                // several times a minute. Repainting the panel for it is what
+                // makes the app flicker - and this screen holds the watch awake,
+                // so it would keep doing it for as long as the app is open.
+                let value_only = matches!(
+                    (self.state, state),
+                    (HeartRateState::Result(_), HeartRateState::Result(_))
+                );
                 self.state = state;
-                // A fresh reading starts the beat from the same frame every
-                // time, so two measurements in a row look alike.
-                self.beat = false;
-                self.pending = Pending::Everything;
+                if value_only {
+                    self.pending = Pending::Value;
+                } else {
+                    // A fresh reading starts the beat from the same frame every
+                    // time, so two measurements in a row look alike.
+                    self.beat = false;
+                    self.pending = Pending::Everything;
+                }
             }
             return ScreenAction::None;
         }
@@ -291,6 +312,7 @@ impl Screen for PulseScreen {
         match self.pending {
             Pending::Nothing => Ok(()),
             Pending::Beat => self.draw_heart(canvas),
+            Pending::Value => self.draw_value(canvas, keep_alive),
             Pending::Everything => self.paint(canvas, keep_alive),
         }
     }
@@ -340,6 +362,54 @@ mod tests {
 
         let _ = screen.handle_event(AppEvent::HeartRateStateUpdated(HeartRateState::Result(72)));
         assert_eq!(tap(&mut screen), ScreenAction::MeasureHeartRate);
+    }
+
+    /// A second reading replacing a first repaints the number and nothing else.
+    ///
+    /// Continuous measurement produces one of these every few seconds, and the
+    /// screen holds the watch awake, so a full repaint here is a panel redrawn
+    /// over and over for a two-digit change - which is what it looked like.
+    #[test]
+    fn a_new_reading_repaints_the_number_and_not_the_panel() {
+        let mut screen = PulseScreen::default();
+        let _ = screen.handle_event(AppEvent::HeartRateStateUpdated(HeartRateState::Result(72)));
+        let _ = repaint(&screen);
+
+        let _ = screen.handle_event(AppEvent::HeartRateStateUpdated(HeartRateState::Result(73)));
+        let probe = repaint(&screen);
+        let painted = 240 * 240 - probe.unpainted();
+        let digits = (DIGITS_WIDTH * DIGIT.height) as usize;
+        assert!(painted > 0, "the new reading drew nothing");
+        assert!(
+            painted <= digits,
+            "a new reading painted {painted} pixels, more than the {digits} the digits occupy"
+        );
+        // The lines under the number say the same thing for any result, so a
+        // value change must not have touched them.
+        assert!(
+            !probe.painted_within(Rectangle::new(
+                Point::new(0, STATUS_BASELINE - 16),
+                Size::new(240, 40),
+            )),
+            "a value change repainted the status and offer lines"
+        );
+    }
+
+    /// Anything that is not one result following another still repaints the
+    /// screen, because the status, the offer, the ink and the heart all move
+    /// with it.
+    #[test]
+    fn arriving_at_a_result_repaints_the_screen() {
+        let mut screen = PulseScreen::default();
+        let _ = screen.handle_event(AppEvent::HeartRateStateUpdated(HeartRateState::Measuring));
+        let _ = repaint(&screen);
+
+        let _ = screen.handle_event(AppEvent::HeartRateStateUpdated(HeartRateState::Result(72)));
+        assert_eq!(
+            repaint(&screen).unpainted(),
+            0,
+            "the first result left part of the screen showing the measuring state"
+        );
     }
 
     /// The beat is what makes the screen look busy, and it must cost one small
