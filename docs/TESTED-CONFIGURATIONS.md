@@ -46,6 +46,8 @@ unknown rather than as working.
 | Pairing after the device is forgotten | `0.15.0+8`, the shipping build, after removing the watch from Android entirely: a full key exchange completes. This is the path that a stack shortfall breaks, and it broke twice in development before the reserve was measured. |
 | Stack high-water mark under pairing | Measured at 16,900 bytes on a `0.15.0+4` diagnostics build, with the phone made to forget the device first so the connection was a genuine pairing rather than a resumed bond. The RAM budget is derived from this. |
 | Pulse partial redraw | `0.15.0+8` on the known sealed PineTime: a new reading repaints the number rather than the panel. |
+| Weather over BLE | `1.14.0` on the known sealed PineTime, against the known Gadgetbridge with a weather service configured: the simple weather service is discovered, a record arrives, and the screen shows the location, the temperature, the condition and the day's range. Only the current conditions - the forecast packet has never been sent to it. |
+| Stack high-water mark, second reading | 17,292 bytes on a `0.15.0+9` diagnostics build, taken the same way as the first and after the heart-rate and weather services were added. The 392-byte rise over the earlier 16,900 is what a BLE service costs the stack, beside what it costs the statics. |
 | Daily wear | Since late July 2026, on my own watch - waking, timekeeping, notifications, settings and charging in ordinary use. Days, not months. |
 
 ## Not established
@@ -60,6 +62,8 @@ unknown rather than as working.
 | Interrupted or corrupt OTA transfers | Recovery behaviour has not been deliberately provoked. |
 | Step-count accuracy | Steps are counted and shown, but never checked against a counted walk or another tracker. The figure is indicative; tuning is expected. |
 | Heart-rate accuracy | Readings are produced on demand and on an interval, and now also reach a companion, but have never been compared against a reference monitor. Neither the accuracy nor the effect of the sampling interval on battery life is known. |
+| Weather below zero, and a long location | The screen draws a minus from the segment strokes and the location field is 32 bytes, but neither has been seen with real data - every reading so far has been positive and every place name short. |
+| The weather forecast | The five-day packet is parsed and host-tested and then dropped, because nothing shows one. It has never been received from a phone. |
 | The step counter crossing midnight | The reset is implemented and the day boundary is host-tested, but no watch has been observed through an actual midnight, and Gadgetbridge's daily accounting depends on receiving the zero. |
 | DFU stack depth | The pairing peak is measured; a firmware transfer streaming into external flash is the other deep path and is not, because the reboot a completed update performs clears the mark. Part of the reserve is held for it. |
 | Music robustness | Core display and control paths work against the known Gadgetbridge setup. Progress after display sleep, Bluetooth disconnection and reconnection, and switching media applications mid-track have not yet been exercised. |

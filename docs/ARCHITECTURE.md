@@ -349,16 +349,17 @@ discarded on the phone before it is ever transmitted; from `0.15` it arrives as
 on. So the sender's name reaching the watch at all is a consequence of the
 number in `Cargo.toml`, not of anything in the parser.
 
-That is why the release skipped from `0.6.2` to `0.15.0`. It buys the sender,
-it costs nothing to receive, and it is the smallest number that does so.
+That is why the release skipped from `0.6.2` to `0.15.0`, and then to `1.14.0`
+once weather could be read: 0.15 buys the sender, and 1.14 is the first number at
+which Gadgetbridge sends weather in the simple form this firmware understands.
 
 The number is therefore no longer free. `build.rs` refuses a release outside the
-window this firmware can actually serve: below `0.15` because notifications
-would silently lose their sender again, and at or past `1.8` because that is
-where Gadgetbridge begins sending weather - CBOR-framed to `1.13`, a simple
-binary form from `1.14` - and neither is implemented here. Reaching `1.8` is a
-decision to implement weather, and until then it fails the build rather than the
-wrist.
+windows this firmware can serve: below `0.15`, because notifications would
+silently lose their sender again, and anywhere in `1.8` to `1.13`, because
+Gadgetbridge frames weather as CBOR there and only the simple form from `1.14`
+is implemented. A release landing in that gap would have a phone sending packets
+the watch cannot decode and saying nothing about it, so it fails the build
+instead of the wrist.
 
 Only the release triple goes into the Device Information Service; build metadata
 stays out of it, because the parser on the other end calls `Integer.parseInt` on
