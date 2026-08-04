@@ -13,6 +13,17 @@
 //!
 //! It is a measurement, not a guard. `flip-link` is the guard - see
 //! `.cargo/config.toml` for why the stack sits below the statics.
+//!
+//! # Reading it for the pairing peak
+//!
+//! The deepest path this firmware has is pairing, and it is easy to measure
+//! everything except that. The bond lives in external flash and survives a DFU,
+//! so flashing a diagnostics build and reconnecting runs no key exchange at
+//! all. The mark that comes back is an ordinary connection's, several kilobytes
+//! short, and trusting one such reading broke pairing on a shipped image.
+//!
+//! So: make the phone forget the device first. Only a connection with no bond to
+//! resume performs the elliptic-curve arithmetic this number exists to bound.
 
 use core::ptr;
 

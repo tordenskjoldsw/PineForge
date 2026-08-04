@@ -90,18 +90,25 @@ Two decisions follow, and they are separate:
   of overflow. Rearrangement only; no runtime cost.
 - **The firmware measures its own high-water mark.** `src/boot/stack.rs` paints
   the region before `main` and the watchdog task reports the deepest point
-  whenever it grows. A diagnostics build shows it on screen, and that is where
-  the budget comes from: after a pairing and ordinary use the mark read **13,000
-  bytes**, so the reserve is 15.5 KiB and the statics ceiling is what is left.
-  The earlier 10,432-byte figure was taken from a watch that had never paired,
-  which is why it was 2.5 KiB optimistic about the deepest path there is. Async is why the reserve can be modest at all: a task's
+  whenever it grows, and a diagnostics build shows it on screen. Reading it for
+  the *pairing* peak takes one precaution that is easy to miss: the bond lives in
+  external flash and survives a DFU, so flashing a build and reconnecting runs no
+  key exchange at all. The phone has to forget the device first, or the mark that
+  comes back is an ordinary connection's - which is exactly how a 13,000-byte
+  reading once set this budget 456 bytes too loose and broke pairing. Async is why the reserve can be modest at all: a task's
   state across its await points lives in a static the compiler sized exactly -
   `ble::run::POOL` is 12 KiB of it - so the stack only has to cover the deepest
   synchronous chain plus interrupts, not a worst case per task the way
   per-task stacks would.
 
 The RAM budget in CI is not a design target. It is the hardware ceiling minus a
-measured reserve, and raising it means re-measuring rather than re-deciding.
+stack reserve, and raising it means measuring rather than deciding.
+
+The reserve is currently set from brackets rather than a measurement, because the
+one attempt to measure it read a reconnection instead of a pairing: stack sizes
+of 16,912 and 16,732 bytes pair, while 16,456 and 16,012 reboot on every attempt.
+So the requirement sits in (16,456, 16,732], and the reserve is 420 bytes above
+the top of that.
 That distinction was learned the expensive way: a budget set as a target once
 permitted statics 672 bytes past the point that already made every pairing
 attempt reboot the watch, and every gate stayed green while it happened.

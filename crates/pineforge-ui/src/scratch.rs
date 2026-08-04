@@ -24,7 +24,17 @@ use embedded_graphics::{
 /// stripes and leaves the static RAM budget with headroom for the screens still
 /// to come; 8 remains available if a later feature needs the space more than the
 /// animation needs the speed.
-pub const STRIPE_THICKNESS: u32 = 12;
+/// Rows a transition composes at a time.
+///
+/// Pure trade: `STRIPE_THICKNESS * 240 * 2` bytes of scratch against how many
+/// stripes a slide takes, and nothing else. The picture is identical either way.
+///
+/// It went from 12 to 10 to buy back 960 bytes of static RAM after the heart
+/// rate service pushed the stack under what pairing needs. Every byte of static
+/// RAM is a byte the stack does not get - `flip-link` puts the stack below the
+/// statics - and pairing's elliptic-curve arithmetic is the deepest path the
+/// firmware has.
+pub const STRIPE_THICKNESS: u32 = 10;
 const MAX_SCREEN_EDGE: usize = 240;
 const SCRATCH_PIXELS: usize = STRIPE_THICKNESS as usize * MAX_SCREEN_EDGE;
 

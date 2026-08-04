@@ -117,34 +117,37 @@ jobs:
             # prints it on every run, and that is the number to read before
             # raising this one.
             flash: 458752
-            # A stack reserve, expressed as the statics that fit around it, and
-            # measured on hardware rather than reasoned about.
+            # A stack reserve, expressed as the statics that fit around it.
             #
             # `flip-link` puts the stack below the statics, so the 65,528-byte
             # RAM region is shared and every byte here is a byte the stack does
             # not get. Pairing's elliptic-curve arithmetic is the deepest path
-            # the firmware has, and it used to be absent from the only reading
-            # anyone had: the 10,432-byte mark quoted below came from a watch
-            # that had booted, navigated and run a transition, and never paired.
+            # the firmware has, and it is the one that decides this number.
             #
-            # It has now been paired with. A diagnostics build reporting its own
-            # high-water mark, after a pairing and ordinary use, showed **13,000
-            # bytes**. So the reserve is 15.5 KiB, leaving 2,872 bytes over that
-            # mark - 22 %. The statics ceiling is what is left of the region.
+            # **The peak has still not been measured, and one attempt to measure
+            # it was wrong in a way worth recording.** A diagnostics build
+            # reported 13,000 bytes after what looked like a pairing - but the
+            # bond lives in external flash and survives a DFU, so flashing that
+            # build and reconnecting never re-ran the key exchange. The reading
+            # was of an ordinary connection. Trusting it set this budget 456
+            # bytes too loose and broke pairing a second time.
             #
-            # Two failures are behind this number and both are worth keeping in
-            # view. Statics of 49,516 leave 16,012 bytes of stack and reboot on
-            # every pairing attempt, which is a watchdog reset after the overflow
-            # faults. And the budget that permitted it was 50,176, some 672 bytes
-            # past that known-bad point - so CI watched the regression happen and
-            # said nothing.
+            # Measuring it properly means making the phone forget the device
+            # first, so the next connection is a real pairing, and only then
+            # reading the mark.
             #
-            # What the 13,000 does not include is DFU: a transfer streaming into
-            # flash is the other deep path and it has not been measured, because
-            # the mark is cleared by the reboot a completed update performs.
-            # Aborting a transfer part-way and reading the mark would settle it.
-            # Until then the 22 % is partly held for that.
-            ram: 49656
+            # Until that exists the number comes from brackets observed on
+            # hardware, which are narrow:
+            #
+            #   stack 16,912  pairs
+            #   stack 16,732  pairs
+            #   stack 16,456  reboots on every attempt
+            #   stack 16,012  reboots on every attempt
+            #
+            # So the requirement sits in (16,456, 16,732]. The reserve is 17,152
+            # - 420 bytes above the top of that bracket - and the statics ceiling
+            # is what is left of the region. Raising it means measuring first.
+            ram: 48376
           - name: diagnostics
             features: diagnostics
             # Diagnostics may grow closer to the slot than the shipping build,
@@ -158,7 +161,7 @@ jobs:
             # diagnose pairing. It is also the build the 13,000-byte reading came
             # from, so holding it to the same reserve keeps the measurement and
             # the thing measured in step.
-            ram: 49656
+            ram: 48376
     steps:
       - uses: actions/checkout@v6
       - name: Install Rust toolchain
