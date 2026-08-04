@@ -213,16 +213,14 @@ fn publish_release_triple(version: &str) {
 /// - below `0.15` a notification arrives as the body alone, with the sender
 ///   discarded before it leaves the phone
 /// - from `0.15` it arrives as `title NUL body`, which is the shape this
-///   firmware's parser has always split on, and the reason the version is where
-///   it is
-/// - from `1.8` weather packets begin, CBOR-framed up to `1.13` and a simple
-///   binary form from `1.14`
+///   firmware's parser splits on
+/// - from `1.8` weather begins, CBOR-framed up to `1.13`
+/// - from `1.14` weather is the simple binary form instead
 ///
-/// `PineForge` implements neither weather form. Crossing `1.8` would therefore
-/// have a phone sending packets to a characteristic that does not exist, which
-/// is the kind of thing that is discovered on a wrist rather than in CI. So it
-/// is discovered here instead, and the way past it is to implement weather and
-/// then relax this - deliberately, not by releasing 1.8 one day.
+/// `PineForge` implements the simple form and not the CBOR one, so there is a
+/// window in the middle it must not sit in: a release between `1.8` and `1.13`
+/// would have a phone framing weather a way this firmware cannot read, and
+/// silently. The window is refused here rather than discovered on a wrist.
 fn guard_companion_feature_gates(triple: &str) {
     let mut parts = triple
         .split('.')
@@ -236,9 +234,10 @@ fn guard_companion_feature_gates(triple: &str) {
          without their sender - see guard_companion_feature_gates"
     );
     assert!(
-        (major, minor) < (1, 8),
-        "release {triple} is at or past 1.8, where Gadgetbridge starts sending weather \
-         this firmware does not implement - see guard_companion_feature_gates"
+        (major, minor) < (1, 8) || (major, minor) >= (1, 14),
+        "release {triple} is in the 1.8 to 1.13 window, where Gadgetbridge frames weather \
+         as CBOR and this firmware reads only the simple form - see \
+         guard_companion_feature_gates"
     );
 }
 

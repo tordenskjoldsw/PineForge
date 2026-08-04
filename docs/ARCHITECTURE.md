@@ -104,11 +104,16 @@ Two decisions follow, and they are separate:
 The RAM budget in CI is not a design target. It is the hardware ceiling minus a
 stack reserve, and raising it means measuring rather than deciding.
 
-The peak is measured: **16,900 bytes**, read from a diagnostics build after the
-phone was made to forget the device. The reserve is 18 KiB, so even a build that
-uses the whole budget keeps 9 % over that, and the shipping image keeps 14 %. The
-margin is not decoration - that figure is one reading, and DFU, a notification
-arriving mid-pairing and the alarm path are all outside it.
+The peak is measured, and it moves: **16,900 bytes** before the heart-rate and
+weather services existed, **17,292** with both. Roughly 200 bytes a service,
+which is the half of a service's cost that is easy to miss - the other is the
+attribute table it takes out of the statics. Adding a BLE service therefore
+means re-measuring, not just checking the budget.
+
+The reserve is 18 KiB, so a build spending the whole ceiling keeps 6.6 % over
+the peak and the shipping image keeps 9.1 %. The margin is not decoration: that
+figure is one reading, and DFU, a notification arriving mid-pairing and the
+alarm path are all outside it.
 That distinction was learned the expensive way: a budget set as a target once
 permitted statics 672 bytes past the point that already made every pairing
 attempt reboot the watch, and every gate stayed green while it happened.

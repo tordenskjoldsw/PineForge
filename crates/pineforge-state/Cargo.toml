@@ -4,7 +4,7 @@ name = "pineforge-state"
 # not published: they exist because the parts of PineForge that need no watch
 # should be testable without one, and a reader comparing a crate version against
 # the release would otherwise be comparing two unrelated numbers.
-version = "0.15.0"
+version = "1.14.0"
 edition = "2024"
 # The one toolchain this project is built and tested with, and the same one
 # `rust-toolchain.toml` pins. A lower bound here would be a compatibility claim

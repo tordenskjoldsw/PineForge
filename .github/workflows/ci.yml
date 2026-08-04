@@ -137,7 +137,7 @@ jobs:
             # is the opposite of what a budget comment is for. The step below
             # prints it on every run, and that is the number to read before
             # raising this one.
-            flash: 458752
+            flash: 466944
             # A stack reserve, expressed as the statics that fit around it.
             #
             # `flip-link` puts the stack below the statics, so the 65,528-byte
@@ -147,19 +147,24 @@ jobs:
             # high-priority interrupt, nested on top of whatever the thread was
             # doing.
             #
-            # Measured on hardware, that peak is **16,900 bytes** - taken from a
-            # diagnostics build after the phone was made to forget the device,
-            # which is the part that makes it a pairing rather than a
-            # reconnection. The bond lives in external flash and survives a DFU,
-            # so a build that is merely flashed and reconnected to never runs the
-            # exchange, and an earlier reading of 13,000 taken that way set this
-            # budget 456 bytes too loose and broke pairing.
+            # Measured on hardware, and re-measured whenever a BLE service is
+            # added, because the peak moves with them: **16,900 bytes** before
+            # the heart-rate and weather services existed, **17,292** with both.
+            # Some 200 bytes per service, which is the second half of what a
+            # service costs - the first is the attribute table it takes out of
+            # the statics below.
             #
-            # The reserve is 18 KiB, so even at the ceiling below there are 1,532
-            # bytes over that peak - 9 %. The shipping image sits further back
-            # again, at 19,336 bytes of stack. The margin is not decoration:
-            # 16,900 is one reading, and DFU, a notification arriving mid-pairing
-            # and the alarm path are all outside it.
+            # Taking that reading needs the phone made to forget the device
+            # first. The bond lives in external flash and survives a DFU, so a
+            # build that is merely flashed and reconnected to never runs the key
+            # exchange at all; an earlier reading of 13,000 taken that way set
+            # this budget 456 bytes too loose and broke pairing.
+            #
+            # The reserve is 18 KiB, so a build spending the whole ceiling keeps
+            # 1,140 bytes over the peak - 6.6 %. The shipping image sits further
+            # back, at 18,868 bytes of stack and 9.1 %. The margin is not
+            # decoration: 17,292 is one reading, and DFU, a notification
+            # arriving mid-pairing and the alarm path are all outside it.
             #
             # Two regressions reached hardware through this number before it was
             # derived rather than chosen, and both looked like a watch that
@@ -169,10 +174,10 @@ jobs:
           - name: diagnostics
             features: diagnostics
             # Diagnostics may grow closer to the slot than the shipping build,
-            # and retains 8 KiB of it - the same two-tier shape the RAM reserve
+            # and retains 4 KiB of it - the same two-tier shape the RAM reserve
             # below has, and for the same reason: an instrumented image is
-            # flashed over a cable by someone watching it.
-            flash: 466944
+            # flashed by someone watching it, where a shipping one is not.
+            flash: 471040
             # The same ceiling as production, not a looser one: diagnostics
             # pairs over the same radio with the same elliptic curve underneath,
             # and an instrumented image that cannot pair cannot be used to
