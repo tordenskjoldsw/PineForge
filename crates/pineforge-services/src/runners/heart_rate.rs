@@ -378,32 +378,39 @@ mod tests {
     /// against the assertions rather than awaited. `select` drops the losing
     /// future, which is exactly what the executor does when a task is stopped.
     fn drive(id: u8, wanted: usize) -> std::vec::Vec<pineforge_state::AppEvent> {
-        static EVENTS: Channel<CriticalSectionRawMutex, pineforge_state::AppEvent, 8> =
-            Channel::new();
-        static COMMANDS: Channel<CriticalSectionRawMutex, HeartRateCommand, 2> = Channel::new();
-        static MOTION_READY: ReadySignal = ReadySignal::new();
-        static BPM: embassy_sync::watch::Watch<CriticalSectionRawMutex, u8, 1> =
+        // Locals, not statics, and that is the whole of what makes this safe to
+        // run beside itself. `cargo test` runs these in parallel threads; with
+        // one shared channel both invocations pushed into it and each collected
+        // whatever arrived first, so the two tests swapped results - which is
+        // exactly how it failed, each asserting the other's sensor.
+        //
+        // Nothing here needs `'static`. `HeartRatePorts` borrows for as long as
+        // the runner lives, and the runner does not outlive this call.
+        let events: Channel<CriticalSectionRawMutex, pineforge_state::AppEvent, 8> = Channel::new();
+        let commands: Channel<CriticalSectionRawMutex, HeartRateCommand, 2> = Channel::new();
+        let motion_ready = ReadySignal::new();
+        let bpm: embassy_sync::watch::Watch<CriticalSectionRawMutex, u8, 1> =
             embassy_sync::watch::Watch::new();
 
         // The bring-up order the PineTime wants, granted immediately: this test
         // is about what the runner does with the bus, not about who gets it
         // first.
-        MOTION_READY.signal(());
+        motion_ready.signal(());
 
         let runner = HeartRateRunner::new(
             FakeBus { id },
             HeartRatePorts {
-                events: EVENTS.dyn_sender(),
-                commands: COMMANDS.dyn_receiver(),
-                bpm: BPM.dyn_sender(),
-                motion_ready: &MOTION_READY,
+                events: events.dyn_sender(),
+                commands: commands.dyn_receiver(),
+                bpm: bpm.dyn_sender(),
+                motion_ready: &motion_ready,
             },
         );
 
         let collect = async {
             let mut seen = std::vec::Vec::new();
             while seen.len() < wanted {
-                seen.push(EVENTS.receive().await);
+                seen.push(events.receive().await);
             }
             seen
         };
