@@ -5,7 +5,7 @@
 //! right after connecting.
 
 use defmt::{info, warn};
-use embassy_futures::select::select4;
+use embassy_futures::select::select5;
 use embassy_time::{Duration, Instant, with_deadline};
 use pineforge_state::{
     AppEvent, BOND_PAYLOAD_MAX, BleState, DfuEngine, DfuFailReason, MUSIC_TEXT_MAX, MusicState,
@@ -15,8 +15,8 @@ use trouble_host::prelude::*;
 
 use crate::{
     ipc::{
-        BOND_STORE, BatteryStatusReceiver, NOTIFICATIONS, StepCountReceiver, StoredBond, UI_EVENTS,
-        VIBRATION_COMMANDS, WALL_CLOCK,
+        BOND_STORE, BatteryStatusReceiver, HeartRateBpmReceiver, NOTIFICATIONS, StepCountReceiver,
+        StoredBond, UI_EVENTS, VIBRATION_COMMANDS, WALL_CLOCK,
     },
     tasks::ble::{dfu, music},
 };
@@ -40,6 +40,7 @@ pub struct Server {
     pub alert_notification: AlertNotificationService,
     pub music: MusicService,
     pub motion: MotionService,
+    pub heart_rate: HeartRateService,
 }
 
 /// Largest New Alert write accepted, one ATT payload at the negotiated MTU, so
@@ -203,6 +204,33 @@ pub struct MotionService {
     pub step_count: u32,
 }
 
+/// The standard Heart Rate service, in the one form a companion reads.
+///
+/// Gadgetbridge subscribes to this on connect under no version gate at all -
+/// unlike the motion service, which it only reaches for when it has recognised
+/// the device as a PineTime, and unlike weather, which it withholds below 1.8.
+/// So this is the cheapest reading the watch can offer a phone: the measurement
+/// already existed, it simply had no way out.
+///
+/// Two bytes, as `InfiniTime` sends them and as the specification defines them
+/// with the flags clear: byte 0 is the flags, byte 1 is the rate. Gadgetbridge
+/// decodes it as `Byte.toUnsignedInt(value[1])`, so a rate above 255 could not
+/// be expressed here even if the sensor could produce one - the PPG processor
+/// validates to 40..230.
+///
+/// No Body Sensor Location and no Control Point. Both are optional, neither is
+/// read by the companion this watch is built against, and each would cost about
+/// 123 bytes of attribute table.
+#[gatt_service(uuid = service::HEART_RATE)]
+pub struct HeartRateService {
+    #[characteristic(
+        uuid = characteristic::HEART_RATE_MEASUREMENT,
+        notify,
+        value = [0; 2]
+    )]
+    pub measurement: [u8; 2],
+}
+
 #[gatt_service(uuid = service::CURRENT_TIME)]
 pub struct CurrentTimeService {
     /// Standard current-time layout: year, month, day, h, m, s, weekday,
@@ -222,14 +250,42 @@ pub async fn serve(
     connection: &GattConnection<'_, '_, DefaultPacketPool>,
     battery: &mut BatteryStatusReceiver,
     steps: &mut StepCountReceiver,
+    bpm: &mut HeartRateBpmReceiver,
 ) {
-    select4(
+    select5(
         gatt_events(server, connection),
         notify_battery(server, connection, battery),
         music::notify_events(server, connection),
         notify_steps(server, connection, steps),
+        notify_heart_rate(server, connection, bpm),
     )
     .await;
+}
+
+/// Pushes each validated heart rate to a subscribed companion.
+///
+/// Only changes, and only validated ones: the runner publishes nothing while a
+/// session is starting, collecting or failing, because the characteristic has no
+/// way to express those and a phone charting them would be charting noise.
+///
+/// Nothing is pushed on connect either. A rate is a moment rather than a
+/// standing value - the sensor is off between sessions, and the last reading may
+/// be hours old - so a phone gets one when one is taken.
+async fn notify_heart_rate(
+    server: &Server<'_>,
+    connection: &GattConnection<'_, '_, DefaultPacketPool>,
+    bpm: &mut HeartRateBpmReceiver,
+) {
+    loop {
+        let rate = bpm.changed().await;
+        // Byte 0 is the flags, and clear means the rate is the single byte
+        // after it. `InfiniTime` writes the same two.
+        let _ = server
+            .heart_rate
+            .measurement
+            .notify(connection, &[0, rate], true)
+            .await;
+    }
 }
 
 /// Pushes the step count to a subscribed companion.

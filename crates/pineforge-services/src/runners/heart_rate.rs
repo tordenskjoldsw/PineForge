@@ -256,6 +256,14 @@ where
                     if let Ok(sample) = self.sensor.read_sample().await {
                         sample_count = sample_count.saturating_add(1);
                         let analysis = ppg.push(sample.hrs, sample.als);
+                        // A rate that survived validation is the only thing a
+                        // phone is told. Ambient light, no signal and the
+                        // collecting window are states to draw on the watch, not
+                        // measurements to report - and the standard
+                        // characteristic has no way to say "I am still looking".
+                        if let PpgAnalysis::HeartRate { bpm } = analysis {
+                            self.ports.bpm.send(u8::try_from(bpm).unwrap_or(u8::MAX));
+                        }
                         if !matches!(analysis, PpgAnalysis::Collecting { .. }) {
                             self.ports
                                 .events
@@ -374,6 +382,8 @@ mod tests {
             Channel::new();
         static COMMANDS: Channel<CriticalSectionRawMutex, HeartRateCommand, 2> = Channel::new();
         static MOTION_READY: ReadySignal = ReadySignal::new();
+        static BPM: embassy_sync::watch::Watch<CriticalSectionRawMutex, u8, 1> =
+            embassy_sync::watch::Watch::new();
 
         // The bring-up order the PineTime wants, granted immediately: this test
         // is about what the runner does with the bus, not about who gets it
@@ -385,6 +395,7 @@ mod tests {
             HeartRatePorts {
                 events: EVENTS.dyn_sender(),
                 commands: COMMANDS.dyn_receiver(),
+                bpm: BPM.dyn_sender(),
                 motion_ready: &MOTION_READY,
             },
         );

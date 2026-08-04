@@ -21,9 +21,9 @@ use trouble_host::prelude::*;
 use crate::{
     board::peripherals::BleResources,
     ipc::{
-        BOND_LOADED, BatteryStatusReceiver, DisplaySettingsReceiver, StepCountReceiver, UI_EVENTS,
-        VIBRATION_COMMANDS, battery_status_receiver, display_settings_receiver,
-        step_count_receiver,
+        BOND_LOADED, BatteryStatusReceiver, DisplaySettingsReceiver, HeartRateBpmReceiver,
+        StepCountReceiver, UI_EVENTS, VIBRATION_COMMANDS, battery_status_receiver,
+        display_settings_receiver, heart_rate_bpm_receiver, step_count_receiver,
     },
 };
 
@@ -180,6 +180,7 @@ pub async fn run(resources: BleResources, spawner: Spawner) {
     let _dis = &server.device_information;
     let mut battery = battery_status_receiver();
     let mut steps = step_count_receiver();
+    let mut bpm = heart_rate_bpm_receiver();
     let mut settings = display_settings_receiver();
 
     embassy_futures::join::join(
@@ -189,6 +190,7 @@ pub async fn run(resources: BleResources, spawner: Spawner) {
             &server,
             &mut battery,
             &mut steps,
+            &mut bpm,
             &mut settings,
         ),
     )
@@ -205,6 +207,7 @@ async fn manage_radio<C: Controller>(
     server: &Server<'_>,
     battery: &mut BatteryStatusReceiver,
     steps: &mut StepCountReceiver,
+    bpm: &mut HeartRateBpmReceiver,
     settings: &mut DisplaySettingsReceiver,
 ) {
     let mut enabled = settings.get().await.ble_enabled();
@@ -220,7 +223,7 @@ async fn manage_radio<C: Controller>(
         }
 
         match select(
-            advertise_and_serve(peripheral, server, battery, steps),
+            advertise_and_serve(peripheral, server, battery, steps, bpm),
             wait_until_disabled(settings),
         )
         .await
@@ -293,6 +296,7 @@ async fn advertise_and_serve<C: Controller>(
     server: &Server<'_>,
     battery: &mut BatteryStatusReceiver,
     steps: &mut StepCountReceiver,
+    bpm: &mut HeartRateBpmReceiver,
 ) -> Result<(), BleHostError<C::Error>> {
     let mut advertiser_data = [0; 31];
     let len = AdStructure::encode_slice(
@@ -333,6 +337,6 @@ async fn advertise_and_serve<C: Controller>(
         .await;
     let _ = VIBRATION_COMMANDS.try_send(VibrationPattern::Tap);
 
-    gatt::serve(server, &connection, battery, steps).await;
+    gatt::serve(server, &connection, battery, steps, bpm).await;
     Ok(())
 }

@@ -51,6 +51,14 @@ pub struct HeartRatePorts<'a> {
     pub events: DynamicSender<'a, AppEvent>,
     /// Requests to measure now, to stop, and the persisted background policy.
     pub commands: DynamicReceiver<'a, HeartRateCommand>,
+    /// The last validated rate, for anything that wants the number without
+    /// being the screen showing it - a phone reading the standard Heart Rate
+    /// Measurement characteristic.
+    ///
+    /// Only validated results reach this. What the session is doing on the way
+    /// there - starting, collecting, giving up - is a thing to draw, not a
+    /// measurement to report.
+    pub bpm: DynSender<'a, u8>,
     /// Third in the bring-up order, so it waits on the runner before it.
     pub motion_ready: &'a ReadySignal,
 }

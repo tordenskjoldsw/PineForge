@@ -199,6 +199,27 @@ pub fn step_count_receiver() -> StepCountReceiver {
         .expect("step count receiver capacity is fixed by architecture")
 }
 
+/// The last validated heart rate, as beats per minute.
+///
+/// A `Watch` for the reason the step count is one: only the latest matters, the
+/// BLE task is a second consumer beside the display, and a channel with one
+/// receiver cannot serve two.
+///
+/// A `u8` because that is the width it goes out in. The standard Heart Rate
+/// Measurement characteristic carries a flags byte and then the rate, and with
+/// the flags clear the rate is one byte - which is also all the PPG processor
+/// can produce, its validated range being 40 to 230.
+pub static HEART_RATE_BPM: Watch<CriticalSectionRawMutex, u8, 1> = Watch::new();
+
+pub type HeartRateBpmReceiver = Receiver<'static, CriticalSectionRawMutex, u8, 1>;
+
+/// Reserves the one subscription: the BLE task.
+pub fn heart_rate_bpm_receiver() -> HeartRateBpmReceiver {
+    HEART_RATE_BPM
+        .receiver()
+        .expect("heart rate receiver capacity is fixed by architecture")
+}
+
 /// Asks the motion runner to put the step counter back to zero.
 ///
 /// A `Signal` rather than a channel: two midnights cannot be owed at once, and
