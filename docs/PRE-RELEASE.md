@@ -46,6 +46,7 @@ derived from that number.
 
 ### The services a companion uses
 
+- [ ] The firmware version the companion shows is `COMPANION_PROTOCOL_VERSION`, **not** the PineForge release
 - [ ] A notification arrives, **with the sender's name on it**
 - [ ] The time syncs from the phone
 - [ ] Music shows the current track and the transport controls work
@@ -55,6 +56,14 @@ derived from that number.
 The step and heart-rate lines are new and both were broken in ways that looked
 like the other end's fault. Neither is proven by the watch's own screen showing a
 number.
+
+The version line has to be read off the phone, and there is no shortcut through
+the binary. Searching an image for the version string used to work only because
+the two numbers shared a prefix; now that they differ, the compiler folds the
+short one into instruction immediates and no byte search will find it. What a
+wrong number here costs was established once already: reporting `0.6.2+8` threw
+inside Gadgetbridge's parser and the watch was never registered at all, which
+showed up as every activity sample failing to save.
 
 ### The screens themselves
 
