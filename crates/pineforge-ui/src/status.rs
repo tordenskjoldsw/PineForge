@@ -259,6 +259,20 @@ impl Paint for WithStatus<'_> {
     }
 }
 
+/// Whether this screen carries the corner. A watchface does not: it owns its
+/// whole surface and shows what its own design calls for.
+#[must_use]
+pub const fn wears_status(screen: pineforge_state::ScreenId) -> bool {
+    !matches!(
+        screen,
+        pineforge_state::ScreenId::Watchface
+            // The lamp wears nothing: the corner would be a dark blob in the
+            // middle of the light, and every pixel it covers is light the watch
+            // is not giving.
+            | pineforge_state::ScreenId::Flashlight
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -284,18 +298,4 @@ mod tests {
         assert!(!draw(BleState::Off).painted_other_than(RUNE_AREA, theme::BACKGROUND));
         assert!(draw(BleState::Connected).painted_other_than(RUNE_AREA, theme::BACKGROUND));
     }
-}
-
-/// Whether this screen carries the corner. A watchface does not: it owns its
-/// whole surface and shows what its own design calls for.
-#[must_use]
-pub const fn wears_status(screen: pineforge_state::ScreenId) -> bool {
-    !matches!(
-        screen,
-        pineforge_state::ScreenId::Watchface
-            // The lamp wears nothing: the corner would be a dark blob in the
-            // middle of the light, and every pixel it covers is light the watch
-            // is not giving.
-            | pineforge_state::ScreenId::Flashlight
-    )
 }

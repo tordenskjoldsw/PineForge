@@ -1,4 +1,29 @@
 #![no_std]
+// Layout invariants written as assertions between constants.
+//
+// Where every part of one is const-evaluable it has been moved to a
+// `const _: () = assert!(...)`, which holds for the firmware build as well and
+// fails at the line that moved. The ones left here sit beside assertions that
+// are not - a rectangle intersection, a slot built at runtime - and splitting
+// an invariant across two places to satisfy a lint would cost more than it
+// buys.
+#![cfg_attr(test, allow(clippy::assertions_on_constants))]
+// Lints the host test build raises and the firmware never can.
+//
+// `usize` is 32 bits on `thumbv7em-none-eabihf`, so a cast from it to `u32` in a
+// test fixture cannot truncate anything on the target this code ships to - the
+// warning exists only because tests are cross-compiled to a 64-bit host, and
+// the values are literals a few bytes long either way. Denying them would mean
+// writing `try_from` around test data to satisfy a machine the firmware never
+// runs on.
+#![cfg_attr(
+    test,
+    allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_possible_wrap
+    )
+)]
 
 //! Pure application state transitions for `PineForge`.
 //!

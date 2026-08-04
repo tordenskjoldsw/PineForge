@@ -99,6 +99,33 @@ const RAIL_CENTER: Point = Point::new(230, CARD_TOP.midpoint(CARD_BOTTOM));
 /// Baseline of the hint, where every other screen puts it.
 const HINT_BASELINE_Y: i32 = 232;
 
+// The card's geometry, checked where it is written rather than when tests run.
+//
+// All of it is arithmetic between constants, so it can be settled at compile
+// time - and then it holds for the firmware build too, failing at the line that
+// moved rather than in a test somebody has to remember to run.
+const _: () = assert!(CARD_TOP >= STATUS_HEIGHT, "the card runs under the corner");
+const _: () = assert!(
+    CARD_BOTTOM < HINT_BASELINE_Y - LIBERATION_MONO_10X22.baseline.cast_signed(),
+    "the card runs into the hint"
+);
+const _: () = assert!(
+    CARD_X + CARD_WIDTH <= PANEL.size.width.cast_signed(),
+    "the card runs off the panel"
+);
+
+// The rail lives in the margin beside the card, not over it: inside, it would
+// take its width from every line of text for a mark that is absent whenever
+// there is only one message.
+const _: () = assert!(
+    RAIL_CENTER.x > CARD_X + CARD_WIDTH,
+    "the rail overlaps the card"
+);
+const _: () = assert!(
+    RAIL_CENTER.x < PANEL.size.width.cast_signed(),
+    "the rail is off the panel"
+);
+
 /// Characters that fit across the card's content in each face.
 ///
 /// Every face is monospace, so this is the content width over the cell width
@@ -448,36 +475,6 @@ fn truncate(text: &str, columns: usize) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// The card is the whole reason the layout changed, so its geometry has to
-    /// stay inside the panel and clear of both the status corner and the hint.
-    #[test]
-    fn the_card_clears_the_corner_above_it_and_the_hint_below() {
-        assert!(CARD_TOP >= STATUS_HEIGHT, "the card runs under the corner");
-        assert!(
-            CARD_BOTTOM < HINT_BASELINE_Y - LIBERATION_MONO_10X22.baseline.cast_signed(),
-            "the card runs into the hint"
-        );
-        assert!(
-            CARD_X + CARD_WIDTH <= PANEL.size.width.cast_signed(),
-            "the card runs off the panel"
-        );
-    }
-
-    /// The rail lives in the margin beside the card, not over it: inside, it
-    /// would take its width from every line of text for a mark that is absent
-    /// whenever there is only one message.
-    #[test]
-    fn the_page_rail_sits_beside_the_card() {
-        assert!(
-            RAIL_CENTER.x > CARD_X + CARD_WIDTH,
-            "the rail overlaps the card"
-        );
-        assert!(
-            RAIL_CENTER.x < PANEL.size.width.cast_signed(),
-            "the rail is off the panel"
-        );
-    }
 
     /// Every body line has to fit between the rule and the foot of the card.
     ///

@@ -42,6 +42,27 @@ jobs:
         run: cargo clippy --release -- -D warnings
       - name: Lint diagnostics firmware
         run: cargo clippy --release --features diagnostics -- -D warnings
+      # The three library crates, tests included, which nothing linted before.
+      # Linting the firmware compiles their library halves and no more, so every
+      # test module in the workspace went unchecked - 43 findings deep by the
+      # time anyone looked, and among them a handful of layout invariants that
+      # wanted to be compile-time assertions rather than tests.
+      #
+      # `--all-targets` is the point of this step. Without it the two lines
+      # above already cover what it would check.
+      - name: Lint the crates and their tests
+        run: >-
+          for crate in pineforge-state pineforge-ui pineforge-services; do
+            cargo clippy --locked --manifest-path "crates/$crate/Cargo.toml"
+            --target x86_64-unknown-linux-gnu --all-targets -- -D warnings || exit 1
+          done
+      - name: Lint the crates with diagnostics
+        run: >-
+          for crate in pineforge-state pineforge-ui pineforge-services; do
+            cargo clippy --locked --manifest-path "crates/$crate/Cargo.toml"
+            --target x86_64-unknown-linux-gnu --all-targets --features diagnostics
+            -- -D warnings || exit 1
+          done
       - name: Test production state machine
         run: >-
           cargo test --locked --manifest-path crates/pineforge-state/Cargo.toml

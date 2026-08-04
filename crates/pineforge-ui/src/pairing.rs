@@ -70,6 +70,24 @@ const fn place_x(place: usize) -> i32 {
     CODE_X + index * (DIGIT.width + GAP) + group
 }
 
+// Six numerals across 240 pixels is the tight fit this layout is, and the
+// arithmetic below is what keeps it from running off an edge. It is all
+// constants and a `const fn`, so it is settled at compile time and holds for
+// every build rather than only when tests run.
+const _: () = assert!(CODE_X >= 8, "the code crowds the left edge");
+const _: () = assert!(
+    CODE_X == PANEL.size.width.cast_signed() - (place_x(PLACES - 1) + DIGIT.width),
+    "the code is not centred"
+);
+const _: () = assert!(
+    place_x(3) - (place_x(2) + DIGIT.width) == GAP + GROUP_EXTRA,
+    "the threes are not held apart"
+);
+const _: () = assert!(
+    place_x(1) - (place_x(0) + DIGIT.width) == GAP,
+    "the places within a three are not evenly spaced"
+);
+
 /// Draws the pairing passkey the user confirms on the phone.
 ///
 /// Zero-padded, and every place lit. This is the one number on the watch that
@@ -141,29 +159,5 @@ mod tests {
     #[test]
     fn the_prompt_covers_the_panel() {
         assert_eq!(painted(123_456).unpainted(), 0);
-    }
-
-    /// The code stays inside the panel with a margin on both sides, and the two
-    /// threes stay apart. Six numerals across 240 pixels is the tight fit this
-    /// layout is, and the arithmetic is what keeps it from running off an edge.
-    #[test]
-    fn the_six_places_sit_inside_the_panel_in_two_threes() {
-        assert!(CODE_X >= 8, "the code crowds the left edge");
-        let right = place_x(PLACES - 1) + DIGIT.width;
-        assert_eq!(
-            CODE_X,
-            PANEL.size.width.cast_signed() - right,
-            "the code is not centred"
-        );
-        assert_eq!(
-            place_x(3) - (place_x(2) + DIGIT.width),
-            GAP + GROUP_EXTRA,
-            "the threes are not held apart"
-        );
-        assert_eq!(
-            place_x(1) - (place_x(0) + DIGIT.width),
-            GAP,
-            "the places within a three are not evenly spaced"
-        );
     }
 }

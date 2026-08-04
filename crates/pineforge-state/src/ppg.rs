@@ -266,8 +266,7 @@ mod tests {
         let mut processor = PpgProcessor::new();
         let mut result = PpgAnalysis::NoSignal;
         for index in 0..WINDOW_LENGTH + 2 * OVERLAP_LENGTH {
-            let mixed = i32::from(sixty[index % sixty.len()])
-                + i32::from(one_twenty[index % one_twenty.len()]);
+            let mixed = sixty[index % sixty.len()] + one_twenty[index % one_twenty.len()];
             result = processor.push(u16::try_from(10_000 + mixed).unwrap(), 100);
         }
         assert_eq!(result, PpgAnalysis::NoSignal);

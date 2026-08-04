@@ -72,8 +72,7 @@ impl Probe {
     /// Whether anything at all was painted inside `area`.
     #[must_use]
     pub fn painted_within(&self, area: Rectangle) -> bool {
-        self.rows(area)
-            .any(|(x, y)| self.covered[index(x, y)].is_some())
+        Self::rows(area).any(|(x, y)| self.covered[index(x, y)].is_some())
     }
 
     /// Whether anything inside `area` was left in a colour other than `color`.
@@ -84,7 +83,7 @@ impl Probe {
     /// *not* background is what tells you something was drawn there.
     #[must_use]
     pub fn painted_other_than(&self, area: Rectangle, color: Rgb565) -> bool {
-        self.rows(area)
+        Self::rows(area)
             .any(|(x, y)| self.covered[index(x, y)].is_some_and(|painted| painted != color))
     }
 
@@ -95,12 +94,16 @@ impl Probe {
     /// both painted. Asking for the colour distinguishes the two.
     #[must_use]
     pub fn painted_in(&self, area: Rectangle, color: Rgb565) -> bool {
-        self.rows(area)
-            .any(|(x, y)| self.covered[index(x, y)] == Some(color))
+        Self::rows(area).any(|(x, y)| self.covered[index(x, y)] == Some(color))
     }
 
     /// Every panel pixel of `area`, clamped to the panel.
-    fn rows(&self, area: Rectangle) -> impl Iterator<Item = (i32, i32)> + '_ {
+    ///
+    /// Takes no `self`, and that is what lets the callers below iterate it
+    /// while writing into `covered`: borrowing the probe to ask which pixels an
+    /// area covers would conflict with marking them, and the collect into a
+    /// temporary vector that used to resolve that is then unnecessary.
+    fn rows(area: Rectangle) -> impl Iterator<Item = (i32, i32)> {
         let panel = Rectangle::new(Point::zero(), PANEL);
         let clipped = area.intersection(&panel);
         let left = clipped.top_left.x;
@@ -112,7 +115,7 @@ impl Probe {
 
     fn mark(&mut self, area: &Rectangle, color: Rgb565) {
         self.areas.push(*area);
-        for (x, y) in self.rows(*area).collect::<std::vec::Vec<_>>() {
+        for (x, y) in Self::rows(*area) {
             self.covered[index(x, y)] = Some(color);
         }
     }
@@ -143,8 +146,7 @@ impl Surface for Probe {
         // pixel resolves to is exactly what makes it distinguishable from the
         // background it sits on.
         self.areas.push(*area);
-        let points = self.rows(*area).collect::<std::vec::Vec<_>>();
-        let mut points = points.into_iter();
+        let mut points = Self::rows(*area);
         for color in colors {
             let Some((x, y)) = points.next() else {
                 break;

@@ -683,8 +683,8 @@ mod tests {
     fn an_unsupported_image_type_is_refused_rather_than_ignored() {
         // Softdevice and bootloader images have nowhere to go here. Silence
         // would leave the host waiting out its own timeout.
-        let mut engine = DfuEngine::new();
         const IMAGE_SOFTDEVICE: u8 = 0x01;
+        let mut engine = DfuEngine::new();
         assert_eq!(
             engine.control_write(&[START_DFU, IMAGE_SOFTDEVICE], true)[0],
             notify(&[RESPONSE, START_DFU, STATUS_NOT_SUPPORTED])
