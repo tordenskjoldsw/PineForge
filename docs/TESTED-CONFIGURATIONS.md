@@ -41,6 +41,11 @@ unknown rather than as working.
 | Sliding vertical transitions | `0.6.1+2` was exercised on the known sealed PineTime: the launcher and the notification screen slide in and out through the panel's scroll window, and vertical page turns slide with them. The window arithmetic, the wrap at the end of frame memory and the translation of later partial redraws all hold in ordinary use. Tearing at the band boundary and the smoothness of the 12-row step were looked at, not measured. |
 | Vertical launcher paging | `0.6.1+2` on the known sealed PineTime: up pages on, down pages back, and down from the first page returns to the watchface. The rule that a paged screen may claim only the gestures it has a page for additionally passes host tests. |
 | Battery application | `0.6.2+1` was exercised on the known sealed PineTime: the charge, the direction and the cell voltage all display and follow the charger. The three charger states, the voltage formatting and the partial redraw additionally pass host tests. The percentage itself is the capacity estimator's, which has never been compared against a reference discharge. |
+| Step count over BLE | `0.15.0+7` on the known sealed PineTime, against the known Gadgetbridge: the motion service is discovered, the count reads back correctly over a generic BLE client and steps accumulate in the app. The midnight reset that the companion's daily accounting depends on has **not** been observed across an actual midnight. |
+| Heart rate over BLE | `0.15.0+7` on the known sealed PineTime: a validated reading reaches Gadgetbridge. Only the on-demand path has been seen; the background interval has not been watched through a reading. |
+| Pairing after the device is forgotten | `0.15.0+8`, the shipping build, after removing the watch from Android entirely: a full key exchange completes. This is the path that a stack shortfall breaks, and it broke twice in development before the reserve was measured. |
+| Stack high-water mark under pairing | Measured at 16,900 bytes on a `0.15.0+4` diagnostics build, with the phone made to forget the device first so the connection was a genuine pairing rather than a resumed bond. The RAM budget is derived from this. |
+| Pulse partial redraw | `0.15.0+8` on the known sealed PineTime: a new reading repaints the number rather than the panel. |
 | Daily wear | Since late July 2026, on my own watch - waking, timekeeping, notifications, settings and charging in ordinary use. Days, not months. |
 
 ## Not established
@@ -54,7 +59,9 @@ unknown rather than as working.
 | Other phones or Gadgetbridge versions | The DFU path has one known-good combination. |
 | Interrupted or corrupt OTA transfers | Recovery behaviour has not been deliberately provoked. |
 | Step-count accuracy | Steps are counted and shown, but never checked against a counted walk or another tracker. The figure is indicative; tuning is expected. |
-| Heart-rate accuracy | Readings are produced on demand and on an interval, but never compared against a reference monitor. Neither the accuracy nor the effect of the sampling interval on battery life is known. |
+| Heart-rate accuracy | Readings are produced on demand and on an interval, and now also reach a companion, but have never been compared against a reference monitor. Neither the accuracy nor the effect of the sampling interval on battery life is known. |
+| The step counter crossing midnight | The reset is implemented and the day boundary is host-tested, but no watch has been observed through an actual midnight, and Gadgetbridge's daily accounting depends on receiving the zero. |
+| DFU stack depth | The pairing peak is measured; a firmware transfer streaming into external flash is the other deep path and is not, because the reboot a completed update performs clears the mark. Part of the reserve is held for it. |
 | Music robustness | Core display and control paths work against the known Gadgetbridge setup. Progress after display sleep, Bluetooth disconnection and reconnection, and switching media applications mid-track have not yet been exercised. |
 | Stopwatch long-run behaviour | Core controls, navigation and display sleep work on hardware, but an extended run has not been compared against a reference clock. |
 
