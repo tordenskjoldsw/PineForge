@@ -61,6 +61,12 @@ pub use watch::{WatchField, WatchFields, WatchState};
 mod watchface;
 pub use watchface::{WATCHFACES, WatchfaceDescriptor, WatchfaceId};
 
+mod weather;
+pub use weather::{
+    CurrentWeather, FORECAST_DAYS_MAX, Forecast, ForecastDay, Temperature, WEATHER_LOCATION_MAX,
+    WeatherIcon, WeatherUpdate, parse_simple_weather,
+};
+
 mod touch;
 pub use touch::{SwipeRecognizer, TouchEvents, TouchReport, TouchRouter};
 
