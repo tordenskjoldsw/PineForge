@@ -42,6 +42,7 @@ use crate::{
     stopwatch::StopwatchScreen,
     timer::TimerScreen,
     watchface::WatchfaceScreen,
+    weather::WeatherScreen,
 };
 
 /// Every screen instance, dispatching to whichever one the navigation state
@@ -81,6 +82,10 @@ pub struct Screens {
     pub date: DateScreen,
     pub bluetooth: BluetoothScreen,
     pub battery: BatteryScreen,
+    /// What the phone last said the weather is, filed straight in by the
+    /// display task the way a track is - the record is far too large to carry
+    /// through the event channel.
+    pub weather: WeatherScreen,
     #[cfg(feature = "diagnostics")]
     pub touch_test: TestScreen,
 }
@@ -116,6 +121,7 @@ impl Screens {
             ScreenId::Date => &self.date,
             ScreenId::Bluetooth => &self.bluetooth,
             ScreenId::Battery => &self.battery,
+            ScreenId::Weather => &self.weather,
             // Every leaf is the same screen; `enter` has pointed it at the one
             // this id names before it can be drawn or touched.
             ScreenId::Brightness
@@ -147,6 +153,7 @@ impl Screens {
             ScreenId::Date => &mut self.date,
             ScreenId::Bluetooth => &mut self.bluetooth,
             ScreenId::Battery => &mut self.battery,
+            ScreenId::Weather => &mut self.weather,
             // Every leaf is the same screen; `enter` has pointed it at the one
             // this id names before it can be drawn or touched.
             ScreenId::Brightness
@@ -326,6 +333,7 @@ impl Screens {
         self.date.mark_painted();
         self.bluetooth.mark_painted();
         self.battery.mark_painted();
+        self.weather.mark_painted();
         self.about.mark_painted();
     }
 

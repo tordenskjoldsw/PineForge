@@ -98,6 +98,9 @@ impl SegmentSize {
 /// other one: top, upper right, lower right, bottom, lower left, upper left,
 /// middle. Bit 0 is the top stroke, and the digit grouping is only the usual
 /// four-from-the-right - it does not line up with the strokes.
+/// The middle stroke, which is the seventh and last in `strokes`.
+const MIDDLE_STROKE: u8 = 0b100_0000;
+
 const LIT: [u8; 10] = [
     0b011_1111, // 0
     0b000_0110, // 1
@@ -120,6 +123,12 @@ const LIT: [u8; 10] = [
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Cell {
     Digit(u8),
+    /// The middle stroke alone.
+    ///
+    /// A minus drawn from the same seven segments the digits are, rather than
+    /// as text beside them: a temperature below zero is still a reading, and it
+    /// should be built the way every other number on this watch is.
+    Minus,
     Blank,
 }
 
@@ -146,6 +155,7 @@ pub fn draw_cell(
     fill(canvas, size.cell(x, y), theme::BACKGROUND)?;
     let lit = match cell {
         Cell::Digit(value) => LIT[usize::from(value.min(9))],
+        Cell::Minus => MIDDLE_STROKE,
         Cell::Blank => 0,
     };
     for (index, stroke) in size.strokes(x, y).into_iter().enumerate() {
@@ -157,6 +167,35 @@ pub fn draw_cell(
         fill(canvas, stroke, color)?;
     }
     Ok(())
+}
+
+/// A signed number as `N` cells, right-aligned, with a minus in the place ahead
+/// of it.
+///
+/// The sign takes a place of its own rather than being drawn beside the number,
+/// so a reading does not shift sideways as it crosses zero - the same reason the
+/// pulse screen pads with blanks rather than zeroes.
+///
+/// A magnitude too large for the places left after the sign saturates, exactly
+/// as the unsigned form does.
+#[must_use]
+pub fn signed_aligned<const N: usize>(value: i32) -> [Cell; N] {
+    let negative = value.is_negative();
+    let magnitude = value.unsigned_abs();
+    let mut cells: [Cell; N] = right_aligned(magnitude);
+    if !negative {
+        return cells;
+    }
+    // The place ahead of the leading digit, or the leftmost one if the number
+    // already fills the field - a minus that had nowhere to go would otherwise
+    // be dropped silently, and an unsigned reading of a freezing morning is
+    // worse than a saturated one.
+    let leading = cells
+        .iter()
+        .position(|cell| !matches!(cell, Cell::Blank))
+        .unwrap_or(N);
+    cells[leading.saturating_sub(1)] = Cell::Minus;
+    cells
 }
 
 /// A number as `N` cells, right-aligned, with unused places left blank.
@@ -186,6 +225,45 @@ pub fn right_aligned<const N: usize>(value: u32) -> [Cell; N] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_positive_number_is_unchanged_by_the_signed_form() {
+        assert_eq!(
+            signed_aligned::<3>(21),
+            [Cell::Blank, Cell::Digit(2), Cell::Digit(1)]
+        );
+    }
+
+    #[test]
+    fn the_sign_takes_the_place_ahead_of_the_number() {
+        assert_eq!(
+            signed_aligned::<3>(-4),
+            [Cell::Blank, Cell::Minus, Cell::Digit(4)]
+        );
+        assert_eq!(
+            signed_aligned::<3>(-21),
+            [Cell::Minus, Cell::Digit(2), Cell::Digit(1)]
+        );
+    }
+
+    /// Zero is not negative, and a minus in front of it would read as a fault
+    /// rather than as a temperature.
+    #[test]
+    fn zero_carries_no_sign() {
+        assert_eq!(
+            signed_aligned::<3>(0),
+            [Cell::Blank, Cell::Blank, Cell::Digit(0)]
+        );
+    }
+
+    /// A magnitude that fills the field leaves nowhere for the sign, and
+    /// dropping it silently would show a freezing morning as a warm one. The
+    /// leading place carries it instead, which is wrong by a knowable amount
+    /// rather than in the wrong direction.
+    #[test]
+    fn a_sign_with_nowhere_to_go_takes_the_leading_place() {
+        assert_eq!(signed_aligned::<2>(-21), [Cell::Minus, Cell::Digit(1)]);
+    }
 
     /// A blank is a place, not an absence: the number stays where it is as it
     /// gains and loses digits.

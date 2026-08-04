@@ -77,6 +77,11 @@ const TILES: &[Tile] = &[
     },
     // Page 2: wanted regularly, reached for deliberately.
     Tile {
+        icon: &icons::CALENDAR,
+        label: "WEATHER",
+        target: ScreenId::Weather,
+    },
+    Tile {
         icon: &icons::TIMER,
         label: "TIMER",
         target: ScreenId::Timer,

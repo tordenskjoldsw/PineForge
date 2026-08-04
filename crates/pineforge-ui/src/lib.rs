@@ -90,6 +90,7 @@ pub mod timer;
 #[cfg(feature = "ui-animations")]
 pub mod transition;
 pub mod watchface;
+pub mod weather;
 
 #[cfg(test)]
 mod tests {
