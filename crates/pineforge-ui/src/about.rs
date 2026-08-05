@@ -34,6 +34,18 @@ pub struct BuildInfo {
     pub commit: &'static str,
     pub date: &'static str,
     pub bootloader: &'static str,
+    /// The version reported over Bluetooth, which is not [`Self::version`].
+    ///
+    /// A companion reads the firmware revision as a capability statement and
+    /// gates features on it, so it names a protocol generation rather than this
+    /// project's release. The two therefore disagree on purpose - a watch
+    /// running `1.0.0` reports `1.14.0` - and a phone showing the other number
+    /// looks exactly like a bug until someone reads the release notes.
+    ///
+    /// This row is what makes the watch able to answer that on its own, which
+    /// is the whole job of this screen: the facts needed to diagnose a sealed
+    /// watch, on the watch.
+    pub companion: &'static str,
 }
 
 impl BuildInfo {
@@ -42,6 +54,7 @@ impl BuildInfo {
         commit: "unknown",
         date: "unknown",
         bootloader: "unknown",
+        companion: "unknown",
     };
 }
 
@@ -127,6 +140,7 @@ impl AboutScreen {
             ("COMMIT", self.build.commit),
             ("DATE", self.build.date),
             ("BOOT", self.build.bootloader),
+            ("BLE", self.build.companion),
         ]
         .into_iter()
         .enumerate()

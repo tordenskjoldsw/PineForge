@@ -406,6 +406,11 @@ pub async fn run(resources: DisplayResources, spi: DisplaySpi, watchdog: Bootloa
         commit: env!("PINEFORGE_COMMIT"),
         date: env!("PINEFORGE_DATE"),
         bootloader: "MCUBOOT",
+        // The same string the Device Information Service serves, from the same
+        // constant, so the row cannot drift from what the phone is actually
+        // told. `build.rs` publishes it unconditionally, so this compiles with
+        // or without the BLE feature.
+        companion: env!("PINEFORGE_COMPANION_VERSION"),
     };
     screens.about.set_build(build);
     screens.firmware.set_version(build.version);
