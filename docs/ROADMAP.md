@@ -59,6 +59,12 @@ milestone should leave the sealed PineTime in a testable and recoverable state.
   toward it, not releases of their own. It runs on both watches as the
   `1.14.0+1` package, which differs from the tag only in which constant feeds
   the firmware revision - and both produce the same string.
+- `v1.0.1`: released - the About build page names the version reported over
+  Bluetooth beside the one PineForge calls itself, from the same constant the
+  characteristic is built from. `v1.0.0` made the two numbers disagree on
+  purpose and documented why; this is what lets the watch answer for that
+  without the release notes in hand. Eight bytes of static RAM and no
+  behavioural change. Flashed as the `1.0.0+1` package and seen on the watch.
 
 Work that has landed on `main` but not in a tagged release is marked
 *unreleased* below. Everything else in a **Complete** section has shipped.
