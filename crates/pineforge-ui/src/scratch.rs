@@ -15,16 +15,7 @@ use embedded_graphics::{
     primitives::Rectangle,
 };
 
-/// Thickness of a transition stripe, across whichever axis it spans.
-///
-/// This is the whole cost of the slide animation, and it trades RAM against
-/// render time: the screen is composed once per stripe, so halving the
-/// thickness halves the buffer and doubles the number of clipped full draws a
-/// transition performs. 12 pixels divides the 240-pixel span evenly into 20
-/// stripes and leaves the static RAM budget with headroom for the screens still
-/// to come; 8 remains available if a later feature needs the space more than the
-/// animation needs the speed.
-/// Rows a transition composes at a time.
+/// Rows a transition composes at a time, across whichever axis it spans.
 ///
 /// Pure trade: `STRIPE_THICKNESS * 240 * 2` bytes of scratch against how many
 /// stripes a slide takes. The picture is identical either way; only the number
@@ -41,12 +32,11 @@ use embedded_graphics::{
 /// 10 it was 17,420, which worked with 3 % to spare. At 6 it is 19,336, which
 /// leaves 14 %, and that margin is the point: 16,900 is one reading, and DFU, a
 /// notification arriving mid-pairing and the alarm path are all outside it.
-///
 pub const STRIPE_THICKNESS: u32 = 6;
 const MAX_SCREEN_EDGE: usize = 240;
 const SCRATCH_PIXELS: usize = STRIPE_THICKNESS as usize * MAX_SCREEN_EDGE;
 
-/// The display task's reusable 5.6 KiB rendering workspace.
+/// The display task's reusable 2,880-byte rendering workspace.
 ///
 /// It currently acts as a clipped RGB565 target for slide transitions. Keeping
 /// the storage in this operation-neutral type makes its exclusivity explicit:

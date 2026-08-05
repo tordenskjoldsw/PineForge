@@ -16,11 +16,14 @@ PineTime since late July 2026, and the everyday paths hold up - the time, the
 watchface, settings that survive a reboot, notifications, pairing, OTA.
 
 What it is not is broadly proven. Every claim above rests on one watch, one
-bootloader version, one phone. Nobody has run it for a month, measured its
-battery life, or tried it on a second unit. And two features are further along
-in the menu than in the evidence: **step counting and heart-rate measurement
-have never been compared against a reference**, so read both as indications
-rather than as measurements. See
+bootloader version, one phone. A second sealed PineTime runs the same image and
+has been shown to boot, keep time and take a weather record, which rules out a
+firmware that only works on one particular unit and establishes nothing else -
+both are sealed, so neither states its revision. Nobody has run it for a month
+or measured its battery life. And two features are further along in the menu
+than in the evidence: **step counting and heart-rate measurement have never
+been compared against a reference**, so read both as indications rather than as
+measurements. See
 [`docs/TESTED-CONFIGURATIONS.md`](docs/TESTED-CONFIGURATIONS.md) for what the
 evidence actually covers.
 
@@ -61,13 +64,14 @@ The firmware is already wired for a probe: `.cargo/config.toml` sets a
 `probe-rs run --chip nRF52832_xxAA` runner, and `defmt` logs over RTT with
 `DEFMT_LOG=info`. None of it is reachable on a sealed watch.
 
-A second PineTime has been ordered so the first can be opened, giving SWD and
-therefore RTT. No result from that second unit or from an SWD capture is recorded
-yet. Some questions that have been left deliberately open are waiting on exactly
-that - the input task logs every touch report at `info!`, and what the CST816S
-puts in its coordinate registers on the report that ends a touch has never been
-measured. Expect the host-side testing to stay even once a probe is available:
-it is quicker than a hardware capture.
+A second PineTime arrived, and both are still sealed. The plan was to open the
+first once a spare existed; a dev kit was ordered instead and has not been
+delivered, so no SWD capture is recorded and none is possible yet. Some
+questions have been left deliberately open waiting on exactly that - the input
+task logs every touch report at `info!`, and what the CST816S puts in its
+coordinate registers on the report that ends a touch has never been measured.
+Expect the host-side testing to stay even once a probe is available: it is
+quicker than a hardware capture.
 
 ## What CI will check
 

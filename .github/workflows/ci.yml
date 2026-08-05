@@ -119,7 +119,7 @@ jobs:
         include:
           - name: production
             features: ""
-            # 432 KiB, against a 475,104-byte slot. A design target rather than
+            # 456 KiB, against a 475,104-byte slot. A design target rather than
             # the slot limit, so unnoticed growth still fails a build - but the
             # v0.2 target of 360 KiB was leaving 104 KiB of the slot unused and
             # had started shaping features rather than catching bloat.
@@ -137,9 +137,11 @@ jobs:
             # difference between a sensor's lifecycle being readable and it
             # being checked.
             #
-            # 448 KiB leaves 16,352 bytes before the physical image ceiling -
+            # It has moved twice since that sentence was written: to 448 KiB,
+            # and then to 456 KiB with the BLE services the weather release
+            # added. That leaves 8,160 bytes before the physical image ceiling -
             # the reserve the diagnostics target used to hold, now held by the
-            # build that ships.
+            # build that ships, and thinner each time this rises.
             #
             # How much room is left over the image itself is deliberately not
             # written here: it was, and it was stale within a few releases, which

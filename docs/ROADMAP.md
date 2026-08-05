@@ -45,6 +45,20 @@ milestone should leave the sealed PineTime in a testable and recoverable state.
   from. The three charger states, the voltage formatting and the partial
   redraw are host-tested; the screen passed with the `0.6.2+1` image on the
   known watch.
+- `v1.0.0`: released - the direction reverses, and what the watch measures
+  leaves it. Steps and heart rate go out over the services InfiniTime defines,
+  a notification arrives with the name of whoever sent it, and weather comes in
+  from the phone as conditions and a five-day forecast drawn in nine symbols.
+  Behind that, the sensor runners moved into `crates/pineforge-services`, so a
+  layer boundary a grep used to guard is checked by `cargo` instead, and the RAM
+  budget became a bound derived from a hardware measurement rather than an
+  inherited design target - after twice putting the stack under what a pairing
+  needs. The release number and the number reported over Bluetooth are separate
+  constants from here on, which is why the development images between `v0.6.1`
+  and this tag were numbered `0.6.2+n` and then `0.15.0+n`: they are steps
+  toward it, not releases of their own. It runs on both watches as the
+  `1.14.0+1` package, which differs from the tag only in which constant feeds
+  the firmware revision - and both produce the same string.
 
 Work that has landed on `main` but not in a tagged release is marked
 *unreleased* below. Everything else in a **Complete** section has shipped.
@@ -194,7 +208,10 @@ than as a firmware experiment. It is not reached.
 
 ### Remaining
 
-- an explicit self-test before a release build invites confirmation
+- an explicit self-test before a release build invites confirmation. The human
+  half of this exists as [`PRE-RELEASE.md`](PRE-RELEASE.md), written out of
+  three regressions that reached hardware while every automated gate stayed
+  green; what the watch could check about itself, unattended, is still nothing.
 - measured battery life over a normal day
 
 ## Later milestones
@@ -238,6 +255,18 @@ than as a firmware experiment. It is not reached.
   primary labels use a dedicated heavier FORGE cut. Model, modal precedence and
   rendering are host-tested, and the final interaction and alarm path passed on
   hardware.
+- what the watch measures, sent outwards: the step count over InfiniTime's
+  motion service and the heart rate over the standard Heart Rate Measurement
+  characteristic. The count resets at the date change and publishes the zero at
+  once, because a companion reads it as steps *so far today* and its daily
+  accounting turns on receiving that zero. Only validated heart-rate results go
+  out, and only changes - a phone charting a zero would be charting a sensor
+  that was not there.
+- weather from the phone over InfiniTime's Simple Weather service, on a screen
+  of its own: the current conditions as one of nine 24x24 symbols over a
+  temperature in the watchface's numerals, and a five-day forecast under it.
+  Conditions and forecast arrive as separate writes and are held apart, so
+  whichever one a phone sends is drawn without waiting for the other.
 
 ### Open
 
@@ -247,7 +276,16 @@ than as a firmware experiment. It is not reached.
   modal path once the timer has passed hardware validation
 - activity summaries over time; steps are counted and shown for the day, but
   not retained across days
-- weather
+- weather that arrives without being asked for. Gadgetbridge pushes a record
+  only when a broadcast reaches it while its service is running, never on
+  connect, so a record that arrived before the watch did stays where it is.
+  Everything seen on a watch so far was sent from the debug menu.
+- room for the next feature before the next feature. The statics sit close
+  enough to the ceiling that a GATT characteristic or another large buffer has
+  to be paid for rather than added, and the ceiling is a measured stack reserve
+  rather than a number anyone may raise. `./scripts/check-size.sh` prints what
+  is left; [`ARCHITECTURE.md`](ARCHITECTURE.md) explains why it is not a
+  preference.
 - additional watchfaces and applications
 - external resource packages
 - broader companion-app and OTA integration

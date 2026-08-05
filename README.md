@@ -21,8 +21,9 @@ It runs on a **sealed** watch through the existing InfiniTime MCUBoot
 bootloader, and has been the firmware on my own watch since late July 2026: it
 keeps time, takes notifications, updates over the air and is worn daily. What it
 is not is broadly validated - the evidence behind that sentence is one watch,
-one bootloader version and one phone. What that does and does not establish is
-under **Safety and recovery model** below, in
+one bootloader version and one phone. A second sealed unit runs the same image
+and boots, and that is the whole of what it establishes. What all this does and
+does not establish is under **Safety and recovery model** below, in
 [`GETTING-STARTED.md`](GETTING-STARTED.md), and in
 [`docs/TESTED-CONFIGURATIONS.md`](docs/TESTED-CONFIGURATIONS.md).
 
@@ -89,10 +90,11 @@ beside it refuses a number whose behaviour this firmware cannot meet.
 
 [`docs/ROADMAP.md`](docs/ROADMAP.md) records what is done and what is not.
 
-Wearing it myself every day is one watch's worth of evidence, and it does
-**not** establish general safety across PineTime hardware revisions, bootloader
-versions, phones, or future images. Expect bugs, slow OTA transfers, and
-possible recovery work.
+Wearing it myself every day is one watch's worth of evidence, and a second
+sealed watch that boots the same image does not turn it into two: neither unit
+states its revision, so they may well be the same one. None of it establishes
+general safety across PineTime hardware revisions, bootloader versions, phones,
+or future images. Expect bugs, slow OTA transfers, and possible recovery work.
 [`docs/TESTED-CONFIGURATIONS.md`](docs/TESTED-CONFIGURATIONS.md) records exactly
 which setup the evidence comes from and which questions are still open.
 

@@ -508,23 +508,25 @@ Screens implement the `Screen` trait. A screen receives hardware-independent `Ui
 - release builds use LTO and size optimization
 
 CI enforces capacity budgets rather than early-project baseline sizes.
-Production is limited to 432 KiB flash and 48 KiB static RAM, diagnostics to
-448 KiB and 56 KiB. The production RAM target reserves 16 KiB of the
-65,528-byte RAM region for stack growth; diagnostics reserves 8 KiB. Size
-changes remain visible in CI output even when they stay below the limits.
+Production is limited to 456 KiB of flash and diagnostics to 460 KiB, and both
+to 47,096 bytes of static RAM. Size changes remain visible in CI output even
+when they stay below the limits.
 
-Both are design targets rather than hard limits, but they are not held to the
-same margin, because they fail in opposite ways:
+The two are not the same kind of limit, because they fail in opposite ways:
 
-- **RAM** is the tight one. A static that outgrows its budget eats into the
-  stack, and the failure is silent, on hardware, and late. The production
-  reserve is 16 KiB against a measured 10,432-byte peak - that peak is a
-  hardware observation, read off the diagnostics screen, not a build output.
-- **Flash** is the loose one. An image that outgrows the 475,104-byte slot is
-  refused by imgtool at packaging time, so the worst case is a build that
-  produces nothing. The target exists to catch unnoticed growth, not to
-  prevent a failure. The earlier 360 KiB target left 104 KiB of the slot unused
-  and had begun shaping features rather than catching bloat.
+- **RAM** is the tight one, and it is not a target. It is the 65,528-byte
+  region minus an 18 KiB stack reserve, and that reserve stands against a
+  measured 17,292-byte pairing peak - a hardware observation read off the
+  diagnostics screen, not a build output. A static that outgrows what is left
+  eats into the stack, and the failure is silent, on hardware, and late.
+  Diagnostics is held to the same ceiling rather than a looser one: it pairs
+  over the same radio with the same elliptic curve underneath, and an
+  instrumented image that cannot pair is no use for diagnosing pairing.
+- **Flash** is the loose one, and it is a target. An image that outgrows the
+  475,104-byte slot is refused by imgtool at packaging time, so the worst case
+  is a build that produces nothing. The budget exists to catch unnoticed
+  growth, not to prevent a failure. The earlier 360 KiB target left 104 KiB of
+  the slot unused and had begun shaping features rather than catching bloat.
 
 BLE remains the dominant flash contributor: a build without default features is
 roughly a third of a production image.
@@ -537,15 +539,20 @@ re-runs. `scripts/check-size.sh` prints both figures against both budgets on
 every CI run and locally in one command:
 
 ```bash
-./scripts/check-size.sh "" 442368 49152          # production
-./scripts/check-size.sh diagnostics 458752 57344 # diagnostics
+./scripts/check-size.sh "" 466944 47096          # production
+./scripts/check-size.sh diagnostics 471040 47096 # diagnostics
 ```
 
-The display-transition scratch is capped at 8 KiB and currently uses 5.6 KiB;
-it is the one large allocation whose size trades purely against render time,
-because the screen is composed once per stripe. BLE and DFU capacity reductions
-require a complete OTA hardware test because their previous undersizing caused
-an end-of-transfer deadlock.
+Those four numbers are the size job's matrix in `.github/workflows/ci.yml`,
+which is where they are maintained. The pair written here has been stale before,
+through two budget raises, so read them there before trusting them here.
+
+The display-transition scratch holds 2,880 bytes - six 240-pixel rows of
+RGB565. It is the one large allocation whose size trades purely against render
+time, because the screen is composed once per stripe, and it came down from
+twelve rows when the other side of that trade turned out to be pairing. BLE and
+DFU capacity reductions require a complete OTA hardware test because their
+previous undersizing caused an end-of-transfer deadlock.
 
 The four largest static allocations are the BLE task future, the BLE packet
 pool, this scratch, and the Nordic controller memory; together they hold about
