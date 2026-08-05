@@ -19,8 +19,10 @@ resolver = "3"
 default = ["ble", "ui-animations"]
 ble = ["dep:bt-hci", "dep:nrf-mpsl", "dep:nrf-sdc", "dep:trouble-host", "dep:postcard", "dep:serde"]
 diagnostics = ["pineforge-services/diagnostics", "pineforge-state/diagnostics", "pineforge-ui/diagnostics"]
-# Kept as a feature so memory experiments can disable the 5.6 KiB transition
-# scratch, but normal production firmware includes the intended animations.
+# Kept as a feature so memory experiments can disable the 2,880-byte transition
+# scratch, but normal production firmware includes the intended animations. It
+# was 5.6 KiB when this was written, at twelve stripe rows; the reserve that
+# pairing needs brought it down to six.
 ui-animations = ["pineforge-ui/ui-animations"]
 
 [[bin]]
