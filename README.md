@@ -243,11 +243,12 @@ Before flashing, follow
 
 ## References and acknowledgements
 
-PineForge was written as a new codebase. It does not copy either earlier project's architecture wholesale, but their practical PineTime work informed hardware bring-up and the organization of this firmware:
+PineForge was written as a new codebase. It does not copy any of these projects' architecture wholesale, but their practical PineTime work informed hardware bring-up and the organization of this firmware:
 
+- [`InfiniTimeOrg/InfiniTime`](https://github.com/InfiniTimeOrg/InfiniTime) - the largest debt in this list. The Bluetooth services PineForge answers on are InfiniTime's: its music, motion and Simple Weather services, the header its notifications carry, and the Device Information strings a companion recognizes the watch by. Its hardware work settled bring-up details this firmware would otherwise have had to find the hard way, among them the TWIM clock the nRF52832 needs on this board rather than an exact 400 kHz, the bus recovery pulses before touch initialization, and the trailer word that marks an image confirmed. Compatible interfaces, not shared source.
+- [`InfiniTimeOrg/pinetime-mcuboot-bootloader`](https://github.com/InfiniTimeOrg/pinetime-mcuboot-bootloader) - the bootloader memory layout, DFU format, trial boot, and rollback behavior targeted by PineForge.
 - [`dbrgn/pinetime-rtic`](https://github.com/dbrgn/pinetime-rtic) - PineTime pin assignments and proven display initialization details.
 - [`thecodechemist99/pinetime-rust`](https://github.com/thecodechemist99/pinetime-rust) - prior art for modular Rust peripheral drivers and asynchronous task organization.
-- [`InfiniTimeOrg/pinetime-mcuboot-bootloader`](https://github.com/InfiniTimeOrg/pinetime-mcuboot-bootloader) - the bootloader memory layout, DFU format, trial boot, and rollback behavior targeted by PineForge.
 - [`embassy-rs/embassy`](https://github.com/embassy-rs/embassy) - the modern asynchronous embedded Rust runtime used by PineForge.
 
 Thanks to these projects and the wider PineTime community for documenting and testing the hardware.
