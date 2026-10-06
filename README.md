@@ -1,5 +1,7 @@
 # PineForge - Rust Firmware for PineTime
 
+![PineForge: firmware for the PineTime, with its FORGE watch face](docs/images/cover.png)
+
 PineForge is an independent firmware implementation for PineTime, written in
 Rust using Embassy. It is not a fork or port of InfiniTime. The project
 nevertheless depends heavily on the hardware research, protocol documentation,
